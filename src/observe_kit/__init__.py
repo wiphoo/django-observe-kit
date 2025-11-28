@@ -1,0 +1,46 @@
+"""Django Observe Kit
+------------------
+
+A lightweight observability toolkit for Django, DRF, and Wagtail projects. The
+library centralizes request context handling, structured logging, tracing,
+metrics, and audit logging utilities so applications can adopt observability
+best practices with minimal configuration.
+"""
+
+from importlib.metadata import PackageNotFoundError, version
+
+from .context import RequestContext, get_request_context, reset_request_context, set_request_context
+from .context_middleware import RequestContextMiddleware, UserLoggingContextMiddleware
+from .logging import RequestContextFilter, RequestLoggingMiddleware, configure_logging, log_request_complete
+from .metrics import PrometheusRequestMiddleware, metrics_view
+from .pii_rules import PiiLevel, sanitize_headers, sanitize_query_params
+from .sentry import SentryContextMiddleware, init_sentry
+from .tenant import resolve_tenant_id
+from .otel.config import init_tracing
+
+__all__ = [
+    "RequestContext",
+    "RequestContextFilter",
+    "RequestContextMiddleware",
+    "RequestLoggingMiddleware",
+    "PiiLevel",
+    "PrometheusRequestMiddleware",
+    "SentryContextMiddleware",
+    "UserLoggingContextMiddleware",
+    "configure_logging",
+    "get_request_context",
+    "init_sentry",
+    "init_tracing",
+    "log_request_complete",
+    "metrics_view",
+    "reset_request_context",
+    "resolve_tenant_id",
+    "sanitize_headers",
+    "sanitize_query_params",
+    "set_request_context",
+]
+
+try:
+    __version__ = version("observe_kit")
+except PackageNotFoundError:  # pragma: no cover - fallback when metadata missing
+    __version__ = "0.0.0"
