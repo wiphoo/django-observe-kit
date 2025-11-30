@@ -130,7 +130,7 @@ def wait_for_prometheus() -> Generator[None, None, None]:
 
     Start services with: make integration-up
     """
-    port = os.getenv("PROMETHEUS_PORT", "9090")
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090")
     if not _check_service("prometheus", port):
         raise RuntimeError(
             f"Required Docker service Prometheus is not available on port {port}. "
@@ -154,7 +154,9 @@ def wait_for_otel_collector() -> Generator[None, None, None]:
     Start services with: make integration-up
     """
     # Check the OTLP HTTP receiver port to verify collector is running
-    http_port = os.getenv("OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
+    http_port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
+    )
     if not _check_service("otel_collector", http_port):
         raise RuntimeError(
             f"Required Docker service OTEL Collector is not available on HTTP port {http_port}. "
@@ -172,7 +174,7 @@ def wait_for_hyperdx() -> Generator[None, None, None]:
 
     Start services with: make integration-up
     """
-    port = os.getenv("HYPERDX_PORT", "8080")
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080")
     if not _check_service("hyperdx", port):
         raise RuntimeError(
             f"Required Docker service HyperDX is not available on port {port}. "
@@ -196,9 +198,15 @@ def wait_for_services() -> Generator[None, None, None]:
     Start services with: make integration-up
     """
     services = {
-        "otel_collector": os.getenv("OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"),
-        "prometheus": os.getenv("PROMETHEUS_PORT", "9090"),
-        "hyperdx": os.getenv("HYPERDX_PORT", "8080"),
+        "otel_collector": os.getenv(
+            "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
+        ),
+        "prometheus": os.getenv(
+            "OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"
+        ),
+        "hyperdx": os.getenv(
+            "OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080"
+        ),
     }
 
     unavailable_services = []
@@ -329,7 +337,10 @@ def otel_endpoint() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running collector, also use wait_for_otel_collector.
     """
-    return os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT", "4317"
+    )
+    return f"http://localhost:{port}"
 
 
 @pytest.fixture
@@ -339,7 +350,9 @@ def otel_http_endpoint() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running collector, also use wait_for_otel_collector.
     """
-    port = os.getenv("OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
+    )
     return f"http://localhost:{port}"
 
 
@@ -350,7 +363,9 @@ def prometheus_url() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running Prometheus, also use wait_for_prometheus.
     """
-    port = os.getenv("PROMETHEUS_PORT", "9090")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"
+    )
     return f"http://localhost:{port}"
 
 
@@ -361,5 +376,7 @@ def hyperdx_url() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running HyperDX, also use wait_for_hyperdx.
     """
-    port = os.getenv("HYPERDX_PORT", "8080")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080"
+    )
     return f"http://localhost:{port}"

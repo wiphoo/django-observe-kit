@@ -15,9 +15,17 @@ processors:
     check_interval: 1s
 
 exporters:
-  # Export to Prometheus for metrics
+  # Export to Prometheus for metrics (backup/alternative)
   prometheus:
     endpoint: "0.0.0.0:8889"
+  # Export to HyperDX for unified observability (logs, traces, metrics)
+  otlphttp:
+    endpoint: ${HYPERDX_OTLP_ENDPOINT:-http://hyperdx:4318}
+    headers:
+      authorization: ${HYPERDX_API_KEY:-test-key}
+    compression: gzip
+    tls:
+      insecure: true  # Set to false and configure certs for production
   # Debug exporter for debugging (replaces deprecated logging exporter)
   # This allows the collector to run and accept traces without external dependencies
   debug:
@@ -38,13 +46,15 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      # Export to debug for testing (traces will be logged)
-      exporters: [debug]
+      # Export to HyperDX for trace visualization and debugging
+      exporters: [otlphttp, debug]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [prometheus, debug]
+      # Export to both HyperDX and Prometheus for metrics
+      exporters: [otlphttp, prometheus, debug]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      # Export to HyperDX for log visualization and debugging
+      exporters: [otlphttp, debug]

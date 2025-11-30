@@ -27,7 +27,9 @@ from observe_kit.metrics.prometheus import observe_request  # noqa: E402
 @pytest.fixture(scope="function")
 def prometheus_url() -> str:
     """Prometheus query URL."""
-    port = os.getenv("PROMETHEUS_PORT", "9090")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"
+    )
     return f"http://localhost:{port}"
 
 

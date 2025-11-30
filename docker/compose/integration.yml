@@ -1,0 +1,122 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: observe_kit-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT:-4318}:4318"  # OTLP HTTP receiver
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT:-4317}:4317"  # OTLP gRPC receiver
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT:-8888}:8888"      # Debug/metrics endpoint
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+      # HyperDX configuration for OTLP export
+      # HyperDX OTLP ports are internal only (4318 HTTP, 4317 gRPC within Docker network)
+      - HYPERDX_OTLP_ENDPOINT=http://hyperdx:4318
+      - HYPERDX_API_KEY=${HYPERDX_API_KEY:-test-key}
+    healthcheck:
+      # Check if OTLP HTTP receiver is accepting connections
+      test: ["CMD-SHELL", "nc -z localhost 4318 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - observe_kit-network
+    depends_on:
+      - hyperdx
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: observe_kit-prometheus
+    volumes:
+      - ./prometheus-config.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT:-9090}:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - observe_kit-network
+
+  # Optional: Sentry self-hosted or use Sentry Relay
+  # Uncomment if you want to test Sentry integration
+  # sentry:
+  #   image: getsentry/sentry:latest
+  #   container_name: observe_kit-sentry
+  #   environment:
+  #     - SENTRY_SECRET_KEY=${SENTRY_SECRET_KEY:-secret-key-change-me}
+  #     - SENTRY_POSTGRES_HOST=postgres
+  #     - SENTRY_DB_USER=sentry
+  #     - SENTRY_DB_PASSWORD=sentry
+  #     - SENTRY_REDIS_HOST=redis
+  #   ports:
+  #     - "${SENTRY_PORT:-9000}:9000"
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   networks:
+  #     - observe_kit-network
+
+  # ClickHouse database for HyperDX
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: observe_kit-clickhouse
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT:-8123}:8123"  # HTTP interface
+      - "${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT:-9000}:9000"  # Native protocol
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_DB=hyperdx
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+    networks:
+      - observe_kit-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # HyperDX for unified observability (logs, traces, metrics visualization)
+  hyperdx:
+    image: hyperdx/hyperdx:latest
+    container_name: observe_kit-hyperdx
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_HYPERDX_PORT:-8080}:8080"  # Web UI (exposed to host)
+      # OTLP ports are internal only (not exposed to host to avoid conflicts with OTEL Collector)
+      # HyperDX receives OTLP data from OTEL Collector via Docker network on internal ports
+    environment:
+      - HYPERDX_API_KEY=${HYPERDX_API_KEY:-test-key}
+      # ClickHouse connection for HyperDX
+      - CLICKHOUSE_HOST=http://clickhouse:8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=
+      # HyperDX configuration
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - observe_kit-network
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  prometheus-data:
+  clickhouse-data:
+
+networks:
+  observe_kit-network:
+    driver: bridge
+

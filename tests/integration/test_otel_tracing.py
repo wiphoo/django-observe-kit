@@ -24,20 +24,27 @@ pytestmark = pytest.mark.integration
 @pytest.fixture(scope="function")
 def otel_collector_endpoint() -> str:
     """OTEL Collector gRPC endpoint from environment."""
-    return os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT", "4317"
+    )
+    return f"http://localhost:{port}"
 
 
 @pytest.fixture(scope="function")
 def otel_http_endpoint() -> str:
     """OTEL Collector HTTP endpoint from environment."""
-    port = os.getenv("OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
+    )
     return f"http://localhost:{port}"
 
 
 @pytest.fixture(scope="function")
 def otel_metrics_endpoint() -> str:
     """OTEL Collector metrics endpoint for verification."""
-    port = os.getenv("OTEL_COLLECTOR_DEBUG_PORT", "8888")
+    port = os.getenv(
+        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT", "8888"
+    )
     return f"http://localhost:{port}"
 
 

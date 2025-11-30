@@ -98,11 +98,49 @@ test-watch:
 # Integration Testing
 #=============================================================================
 
+# =============================================================================
+# Port Configuration (Source of Truth)
+# =============================================================================
+# All integration test service ports are defined here and exported for use in
+# docker-compose and tests. Override via environment variables if needed.
+#
+# Note: HyperDX OTLP ports (4317, 4318) are internal only within Docker network
+# and NOT exposed to host to avoid conflicts with OTEL Collector ports.
+
+# OTEL Collector ports
+OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT ?= 4318
+OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT ?= 4317
+OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT ?= 8888
+
+# Other service ports
+OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT ?= 9090
+OBSERVE_KIT_INTEGRATION_HYPERDX_PORT ?= 8080
+OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT ?= 8123
+OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT ?= 9000
+
+# Export all port variables for docker-compose
+export OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT \
+       OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT \
+       OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT \
+       OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT \
+       OBSERVE_KIT_INTEGRATION_HYPERDX_PORT \
+       OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT \
+       OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT
+
+
 .PHONY: integration-up integration-down integration-logs
 
 ## Start integration test stack
 integration-up:
 	@echo "🐳 Starting integration test stack..."
+	@echo "📋 Port configuration:"
+	@echo "   OTEL Collector HTTP: $(OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT)"
+	@echo "   OTEL Collector gRPC: $(OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT)"
+	@echo "   OTEL Collector Debug: $(OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT)"
+	@echo "   Prometheus: $(OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT)"
+	@echo "   HyperDX UI: $(OBSERVE_KIT_INTEGRATION_HYPERDX_PORT)"
+	@echo "   ClickHouse HTTP: $(OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT)"
+	@echo "   ClickHouse Native: $(OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT)"
 	$(DOCKER_COMPOSE) -f $(COMPOSE_FILE) up -d
 	@echo "⏳ Waiting for services to be healthy..."
 	@sleep 5
