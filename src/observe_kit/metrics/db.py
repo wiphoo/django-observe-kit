@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from django.db import connections
+
+if TYPE_CHECKING:
+    pass
 
 
 class QueryRecorder:
@@ -13,7 +16,9 @@ class QueryRecorder:
         self.count = 0
         self.total_time = 0.0
 
-    def __call__(self, execute, sql, params, many, context):  # type: ignore[override]
+    def __call__(
+        self, execute: Callable[..., Any], sql: str, params: Any, many: bool, context: Any
+    ) -> Any:
         start = time.perf_counter()
         try:
             return execute(sql, params, many, context)
@@ -22,7 +27,7 @@ class QueryRecorder:
             self.total_time += time.perf_counter() - start
 
 
-def wrap_connections(recorder: Callable) -> Callable[[], None]:
+def wrap_connections(recorder: Callable[..., Any]) -> Callable[[], list[Any]]:
     removers = []
     for connection in connections.all():
         remover = connection.execute_wrapper(recorder)

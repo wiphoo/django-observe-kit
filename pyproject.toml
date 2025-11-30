@@ -9,7 +9,7 @@ description = "Drop-in observability toolkit for Django/DRF/Wagtail"
 readme = "README.md"
 authors = [{ name = "Observe Kit" }]
 license = { file = "LICENSE" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "Django>=3.2",
     "djangorestframework>=3.14",
@@ -22,11 +22,6 @@ dependencies = [
 
 [project.optional-dependencies]
 wagtail = ["wagtail>=5"]
-dev = [
-    "ruff>=0.6.4",
-    "uv>=0.4.0",
-    "pytest>=7.4",
-]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -36,14 +31,76 @@ include = ["observe_kit*"]
 "observe_kit" = ["py.typed"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
+# F401: unused imports (automatically removed by ruff --fix)
+# I: import sorting (automatically sorted by ruff --fix)
+
+[tool.ruff.lint.isort]
+known-first-party = ["observe_kit"]
+split-on-trailing-comma = false
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = true
 line-ending = "lf"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6.4",
+    "uv>=0.4.0",
+    "pytest>=7.4",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.0.0",
+    "coverage>=7.0.0",
+    "mypy>=1.0.0",
+    "hypothesis>=6.0.0",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "django.*",
+    "rest_framework.*",
+    "wagtail.*",
+    "prometheus_client.*",
+    "opentelemetry.*",
+    "sentry_sdk.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=observe_kit",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-fail-under=85",
+    "-v",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests (require docker stack)",
+    "e2e: marks tests as end-to-end tests",
+]

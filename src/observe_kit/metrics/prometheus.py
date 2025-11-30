@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 HTTP_REQUESTS_TOTAL = Counter(
-    "http_requests_total",
-    "Total HTTP requests",
-    ["method", "route", "status", "tenant"],
+    "http_requests_total", "Total HTTP requests", ["method", "route", "status", "tenant"]
 )
 
 HTTP_REQUEST_DURATION = Histogram(
@@ -31,15 +29,11 @@ DB_TIME_PER_REQUEST = Histogram(
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5),
 )
 
-WAGTAIL_PUBLISHED = Counter(
-    "wagtail_pages_published_total", "Wagtail pages published", ["tenant"]
-)
+WAGTAIL_PUBLISHED = Counter("wagtail_pages_published_total", "Wagtail pages published", ["tenant"])
 WAGTAIL_UNPUBLISHED = Counter(
     "wagtail_pages_unpublished_total", "Wagtail pages unpublished", ["tenant"]
 )
-WAGTAIL_DELETED = Counter(
-    "wagtail_pages_deleted_total", "Wagtail pages deleted", ["tenant"]
-)
+WAGTAIL_DELETED = Counter("wagtail_pages_deleted_total", "Wagtail pages deleted", ["tenant"])
 
 AUDIT_EVENTS = Counter("audit_events_total", "Total audit events emitted", ["tenant"])
 
@@ -56,7 +50,9 @@ def observe_request(
     tenant_label = tenant or "unknown"
     status_label = str(status)
     HTTP_REQUESTS_TOTAL.labels(method, route, status_label, tenant_label).inc()
-    HTTP_REQUEST_DURATION.labels(method, route, status_label, tenant_label).observe(duration_seconds)
+    HTTP_REQUEST_DURATION.labels(method, route, status_label, tenant_label).observe(
+        duration_seconds
+    )
     DB_QUERIES_PER_REQUEST.labels(route, tenant_label).observe(db_queries)
     DB_TIME_PER_REQUEST.labels(route, tenant_label).observe(db_time_seconds)
 
@@ -65,15 +61,15 @@ class metrics_view:  # noqa: N801 - align with Django-style class-based view
     """Simple Django view exposing Prometheus metrics."""
 
     @classmethod
-    def as_view(cls, **initkwargs):  # type: ignore[override]
-        def view(request):
+    def as_view(cls, **initkwargs: Any) -> Callable[..., Any]:
+        def view(request: Any) -> Any:
             output = generate_latest()
             return cls._build_response(output)
 
         return view
 
     @staticmethod
-    def _build_response(payload: bytes):
+    def _build_response(payload: bytes) -> Any:
         from django.http import HttpResponse
 
         return HttpResponse(payload, content_type=CONTENT_TYPE_LATEST)

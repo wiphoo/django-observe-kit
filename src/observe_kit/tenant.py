@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, TypeAlias
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
+    RequestType: TypeAlias = HttpRequest
+else:
+    RequestType: TypeAlias = object
 
 
-def resolve_tenant_id(request) -> Optional[str]:
+def resolve_tenant_id(request: RequestType) -> Optional[str]:
     tenant = getattr(request, "tenant", None)
-    if tenant and getattr(tenant, "id", None):
-        return str(tenant.id)
+    if tenant:
+        tenant_id = getattr(tenant, "id", None)
+        if tenant_id is not None:
+            return str(tenant_id)
     header_value = request.META.get("HTTP_X_TENANT_ID")
     if header_value:
         return str(header_value)
@@ -14,5 +23,5 @@ def resolve_tenant_id(request) -> Optional[str]:
     if host and "." in host:
         subdomain = host.split(".")[0]
         if subdomain not in {"www", "localhost"}:
-            return subdomain
+            return str(subdomain)
     return None

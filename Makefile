@@ -40,30 +40,19 @@ install:
 # Code Quality
 #=============================================================================
 
-.PHONY: lint lint-fix format format-check typecheck check
+.PHONY: fix check
 
-## Run linter
-lint:
-	$(RUNNER) ruff check src tests
-
-## Auto-fix linting issues
-lint-fix:
+## Fix linting + format (removes unused imports, sorts imports)
+fix:
 	$(RUNNER) ruff check --fix src tests
-
-## Format code
-format:
 	$(RUNNER) ruff format src tests
+	@echo "✅ Code fixed and formatted!"
 
-## Check code formatting (CI)
-format-check:
+## Run all checks (format-check, lint, typecheck)
+check:
 	$(RUNNER) ruff format --check src tests
-
-## Run type checker
-typecheck:
+	$(RUNNER) ruff check src tests
 	$(RUNNER) mypy src
-
-## Run all quality checks (lint, format-check, typecheck)
-check: format-check lint typecheck
 	@echo "✅ All quality checks passed!"
 
 #=============================================================================

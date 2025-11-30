@@ -14,7 +14,7 @@ from ..logging import log_request_complete
 logger = logging.getLogger(__name__)
 
 
-def observed_exception_handler(exc: Exception, context: dict):
+def observed_exception_handler(exc: Exception, context: dict) -> Optional[Response]:
     """DRF exception handler that is PII-safe and Sentry-aware."""
 
     response = exception_handler(exc, context)
@@ -23,7 +23,9 @@ def observed_exception_handler(exc: Exception, context: dict):
         return response
 
     if response is None:
-        response = Response({"detail": "Server Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        response = Response(
+            {"detail": "Server Error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
     if importlib.util.find_spec("sentry_sdk") is not None:
         import sentry_sdk

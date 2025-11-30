@@ -26,6 +26,7 @@ class RequestContext:
     duration_ms: Optional[float] = None
     db_queries: int = 0
     db_time_ms: float = 0.0
+    framework: Optional[str] = None  # e.g., "wagtail_admin", "django", "drf"
     attributes: Dict[str, Any] = field(default_factory=dict)
 
     def as_log_context(self) -> Dict[str, Any]:
@@ -44,7 +45,7 @@ class RequestContext:
         }
 
     def as_attributes(self) -> Dict[str, Any]:
-        return {
+        attrs = {
             "http.method": self.method,
             "http.path": self.path,
             "http.route": self.route,
@@ -54,6 +55,9 @@ class RequestContext:
             "db.query.count": self.db_queries,
             "db.query.time_ms": self.db_time_ms,
         }
+        if self.framework:
+            attrs["framework"] = self.framework
+        return attrs
 
 
 _request_context: contextvars.ContextVar[RequestContext] = contextvars.ContextVar(

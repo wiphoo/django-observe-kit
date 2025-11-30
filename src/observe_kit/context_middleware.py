@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.utils.deprecation import MiddlewareMixin
 
-from .conf import DEFAULT_PII_LEVEL
+if TYPE_CHECKING:
+    pass
+
+from .conf import ENABLE_DB_TRACKING, PII_SINK_LOGS
 from .context import RequestContext, RequestTiming, get_request_context, set_request_context
 from .metrics.db import QueryRecorder, wrap_connections
-from .pii_rules import PiiLevel, sanitize_headers, sanitize_query_params
+from .pii_rules import PiiLevel, get_pii_config, sanitize_headers, sanitize_query_params
 from .tenant import resolve_tenant_id
+from .typing import DjangoRequest, DjangoResponse
 
 logger = logging.getLogger(__name__)
 
@@ -17,27 +21,73 @@ logger = logging.getLogger(__name__)
 class RequestContextMiddleware(MiddlewareMixin):
     """Build and store request context for each Django request."""
 
-    def __init__(self, get_response=None, pii_level: str = DEFAULT_PII_LEVEL):
+    pii_level: Optional[PiiLevel]
+
+    def __init__(self, get_response: Optional[Any] = None, pii_level: Optional[str] = None) -> None:
+        """Initialize request context middleware.
+
+        Args:
+            get_response: Django middleware get_response callable
+            pii_level: Optional PII level for context headers/params
+                      (defaults to 'logs' sink level).
+                      If None, uses the per-sink PII configuration.
+        """
         super().__init__(get_response)
-        self.pii_level = PiiLevel(pii_level)
+        if pii_level is not None:
+            self.pii_level = PiiLevel(pii_level)
+        else:
+            # Use logs sink level as default for context storage
+            self.pii_level = None
 
-    def process_request(self, request):
-        context = RequestContext()
-        context.method = request.method
-        context.path = request.path
-        context.remote_addr = request.META.get("REMOTE_ADDR")
-        context.user_agent = request.META.get("HTTP_USER_AGENT")
-        context.headers = sanitize_headers(getattr(request, "headers", {}), self.pii_level)
-        context.query_params = sanitize_query_params(getattr(request, "GET", {}), self.pii_level)
-        context.user_id = _safe_str(getattr(getattr(request, "user", None), "id", None))
-        context.tenant_id = resolve_tenant_id(request)
-        request._observe_kit_context = context
-        set_request_context(context)
-        request._observe_kit_timer = RequestTiming()
-        request._observe_kit_queries = QueryRecorder()
-        request._observe_kit_remove_wrappers = wrap_connections(request._observe_kit_queries)
+    def process_request(self, request: DjangoRequest) -> None:
+        try:
+            context = RequestContext()
+            context.method = request.method
+            context.path = request.path
+            context.remote_addr = request.META.get("REMOTE_ADDR")
+            context.user_agent = request.META.get("HTTP_USER_AGENT")
 
-    def process_view(self, request, view_func, view_args, view_kwargs):
+            # Use per-sink PII config if available, otherwise use instance level
+            if self.pii_level is None:
+                pii_config = get_pii_config()
+                level = pii_config.get_level(PII_SINK_LOGS)
+            else:
+                level = self.pii_level
+
+            context.headers = sanitize_headers(getattr(request, "headers", {}), level)
+            context.query_params = sanitize_query_params(getattr(request, "GET", {}), level)
+            context.user_id = _safe_str(getattr(getattr(request, "user", None), "id", None))
+            context.tenant_id = resolve_tenant_id(request)
+
+            # Detect framework
+            context.framework = _detect_framework(request)
+
+            request._observe_kit_context = context
+            set_request_context(context)
+            request._observe_kit_timer = RequestTiming()
+
+            # DB tracking is optional for performance
+            if ENABLE_DB_TRACKING:
+                request._observe_kit_queries = QueryRecorder()
+                request._observe_kit_remove_wrappers = wrap_connections(
+                    request._observe_kit_queries
+                )
+            else:
+                request._observe_kit_queries = None
+                request._observe_kit_remove_wrappers = None
+        except Exception as e:
+            logger.warning(
+                "Failed to initialize request context", extra={"error": str(e)}, exc_info=True
+            )
+            # Create minimal fallback context
+            context = RequestContext()
+            context.method = getattr(request, "method", None)
+            context.path = getattr(request, "path", None)
+            set_request_context(context)
+
+    def process_view(
+        self, request: DjangoRequest, view_func: Any, view_args: Any, view_kwargs: Any
+    ) -> None:
         context = get_request_context()
         resolver_match = getattr(request, "resolver_match", None)
         if resolver_match and resolver_match.route:
@@ -45,25 +95,35 @@ class RequestContextMiddleware(MiddlewareMixin):
         elif resolver_match and resolver_match.view_name:
             context.route = resolver_match.view_name
 
-    def process_response(self, request, response):
-        context = get_request_context()
-        context.status = getattr(response, "status_code", None)
-        context.duration_ms = (
-            request._observe_kit_timer.stop() if hasattr(request, "_observe_kit_timer") else None
-        )
-        if hasattr(request, "_observe_kit_queries"):
-            context.db_queries = request._observe_kit_queries.count
-            context.db_time_ms = request._observe_kit_queries.total_time * 1000
-        remover = getattr(request, "_observe_kit_remove_wrappers", None)
-        if callable(remover):
-            remover()
+    def process_response(self, request: DjangoRequest, response: DjangoResponse) -> DjangoResponse:
+        try:
+            context = get_request_context()
+            context.status = getattr(response, "status_code", None)
+            context.duration_ms = (
+                request._observe_kit_timer.stop()
+                if hasattr(request, "_observe_kit_timer")
+                else None
+            )
+            if (
+                hasattr(request, "_observe_kit_queries")
+                and request._observe_kit_queries is not None
+            ):
+                context.db_queries = request._observe_kit_queries.count
+                context.db_time_ms = request._observe_kit_queries.total_time * 1000
+            remover = getattr(request, "_observe_kit_remove_wrappers", None)
+            if callable(remover):
+                remover()
+        except Exception as e:
+            logger.warning(
+                "Failed to finalize request context", extra={"error": str(e)}, exc_info=True
+            )
         return response
 
 
 class UserLoggingContextMiddleware(MiddlewareMixin):
     """Expose the request context to all log entries during a request."""
 
-    def process_request(self, request):
+    def process_request(self, request: DjangoRequest) -> None:
         if hasattr(request, "_observe_kit_context"):
             set_request_context(request._observe_kit_context)
 
@@ -73,3 +133,34 @@ def _safe_str(value: Optional[object]) -> Optional[str]:
         return None
     value_str = str(value)
     return value_str or None
+
+
+def _detect_framework(request: DjangoRequest) -> Optional[str]:
+    """Detect the framework/interface for the request.
+
+    Returns:
+        - "wagtail_admin" for Wagtail admin requests
+        - "django_admin" for Django admin requests
+        - None for regular requests
+    """
+    path = request.path
+
+    # Check for Wagtail admin
+    import importlib.util
+
+    if importlib.util.find_spec("wagtail"):
+        # Wagtail admin typically uses /admin/ or /cms-admin/
+        if path.startswith("/admin/") or path.startswith("/cms-admin/"):
+            # Additional check: verify it's actually Wagtail admin
+            try:
+                import wagtail  # noqa: F401
+
+                return "wagtail_admin"
+            except ImportError:
+                pass
+
+    # Check for Django admin
+    if path.startswith("/admin/"):
+        return "django_admin"
+
+    return None

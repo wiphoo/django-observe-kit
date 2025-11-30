@@ -1,7 +1,7 @@
 from observe_kit.context import RequestContext, get_request_context, reset_request_context
 
 
-def test_request_context_round_trip():
+def test_request_context_round_trip() -> None:
     reset_request_context()
     context = get_request_context()
     context.method = "GET"

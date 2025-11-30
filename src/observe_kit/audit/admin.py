@@ -7,6 +7,6 @@ from .models import AuditLog
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ("timestamp", "actor", "action", "object_type", "tenant_id")
-    search_fields = ("action", "object_type", "tenant_id")
+    list_display = ("timestamp", "actor", "action", "object_type", "tenant_id", "trace_id")
+    search_fields = ("action", "object_type", "tenant_id", "trace_id")
     list_filter = ("action",)
