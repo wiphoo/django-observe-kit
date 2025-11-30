@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ..context import get_request_context
 from ..metrics import AUDIT_EVENTS
-from .models import AuditLog
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
 
     from ..typing import DjangoRequest
+    from .models import AuditLog
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,11 @@ def audit(
     obj: Optional[Any] = None,
     extra: Optional[Dict[str, Any]] = None,
     request: Optional[DjangoRequest] = None,
-) -> AuditLog:
+) -> "AuditLog":
+    """Create an audit log entry."""
+    # Import here to avoid circular dependency during Django setup
+    from .models import AuditLog
+
     context = get_request_context()
     tenant_id = context.tenant_id or getattr(getattr(request, "tenant", None), "id", None)
     remote_addr = context.remote_addr or (request.META.get("REMOTE_ADDR") if request else None)

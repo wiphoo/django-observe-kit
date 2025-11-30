@@ -34,7 +34,7 @@ def test_audit_creates_database_entry(test_user: "User", django_client: Client) 
 
     assert audit_entry is not None
     assert audit_entry.id is not None
-    assert audit_entry.actor_id == str(user.id)
+    assert audit_entry.actor_id == user.id  # actor_id is an integer ForeignKey
     assert audit_entry.action == "test_action"
 
     # Verify it's in database
@@ -141,12 +141,11 @@ def test_audit_log_model_ordering(test_user: "User", django_client: Client) -> N
 
     user = test_user
 
-    # Create multiple entries
+    # Create multiple entries with minimal delay
     audit(actor=user, action="action1")
-
-    time.sleep(0.01)  # Ensure different timestamps
+    time.sleep(0.001)  # Minimal delay to ensure different timestamps
     audit(actor=user, action="action2")
-    time.sleep(0.01)
+    time.sleep(0.001)
     audit(actor=user, action="action3")
 
     # Query should return in reverse chronological order
@@ -164,6 +163,10 @@ def test_audit_with_request_metadata(test_user: "User", django_client: Client) -
 
     from observe_kit.audit.models import AuditLog
     from observe_kit.audit.utils import audit
+    from observe_kit.context import reset_request_context
+
+    # Reset context to ensure no tenant_id from previous tests
+    reset_request_context()
 
     request_factory = RequestFactory()
     request = request_factory.get(

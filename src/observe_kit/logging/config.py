@@ -4,11 +4,17 @@ import logging
 import logging.config
 from typing import Any, Dict, Optional
 
-from pythonjsonlogger import jsonlogger
-
 from ..conf import PII_SINK_LOGS
 from ..pii_rules import PiiConfig, get_pii_config, set_pii_config
 from .filters import RequestContextFilter
+
+# Use new import location to avoid deprecation warning
+# pythonjsonlogger.jsonlogger has been moved to pythonjsonlogger.json
+try:
+    from pythonjsonlogger import json as json_logger
+except ImportError:
+    # Fallback for older versions that don't have the new location
+    import pythonjsonlogger.jsonlogger as json_logger  # type: ignore[no-redef]
 
 
 class ConfigurationError(ValueError):
@@ -52,7 +58,7 @@ def _validate_pii_levels(pii_levels: Dict[str, str]) -> None:
             )
 
 
-class RequestFormatter(jsonlogger.JsonFormatter):
+class RequestFormatter(json_logger.JsonFormatter):
     """Formatter that leaves message intact while providing structured defaults."""
 
     def add_fields(
