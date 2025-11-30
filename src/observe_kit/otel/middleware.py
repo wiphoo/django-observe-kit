@@ -6,10 +6,9 @@ from typing import TYPE_CHECKING, Any, Optional
 from django.utils.deprecation import MiddlewareMixin
 from opentelemetry import trace
 from opentelemetry.propagate import extract
-from opentelemetry.trace import Status, StatusCode
-from opentelemetry.trace import context_api as trace_context_api
+from opentelemetry.trace import SpanContext, SpanKind, Status, StatusCode, TraceFlags
 
-from ..context import get_request_context, set_request_context
+from ..context import get_request_context, reset_request_context, set_request_context
 from .config import SpanNamer, enrich_span
 
 if TYPE_CHECKING:
@@ -27,33 +26,110 @@ class TraceContextMiddleware(MiddlewareMixin):
 
     def __init__(self, get_response: Optional[Any] = None) -> None:
         super().__init__(get_response)
-        self.tracer = trace.get_tracer(__name__)
         self.namer = SpanNamer()
+
+    def _extract_trace_context_with_zero_parent(
+        self, traceparent: str, fallback_context: Any
+    ) -> Any:
+        """Handle W3C traceparent with zero parent_span_id.
+
+        W3C Trace Context spec allows zero parent_span_id to indicate "no parent span"
+        while continuing the same trace. OpenTelemetry SDK requires non-zero span_id
+        for valid SpanContext, so we create a synthetic parent to maintain trace continuity.
+        """
+        try:
+            # Parse traceparent: version-trace_id-parent_span_id-flags
+            parts = traceparent.split("-")
+            if len(parts) < 4:
+                return fallback_context
+
+            trace_id = int(parts[1], 16)
+            parent_span_id = int(parts[2], 16)
+            trace_flags = int(parts[3], 16)
+
+            # Only handle zero parent_span_id case
+            if parent_span_id != 0:
+                return fallback_context
+
+            # Generate synthetic span_id from trace_id (deterministic, non-zero)
+            synthetic_span_id = (trace_id & 0xFFFFFFFFFFFFFFFF) or 1
+
+            span_context = SpanContext(
+                trace_id=trace_id,
+                span_id=synthetic_span_id,
+                trace_flags=TraceFlags(trace_flags),
+                is_remote=True,
+            )
+
+            return trace.set_span_in_context(
+                trace.NonRecordingSpan(span_context), fallback_context
+            )
+        except (ValueError, IndexError) as e:
+            logger.debug("Failed to parse traceparent header", extra={"error": str(e)})
+            return fallback_context
 
     def process_request(self, request: "HttpRequest") -> None:
         try:
+            # Get tracer per-request to ensure we use the current tracer provider
+            # (which may be initialized after middleware instantiation in tests)
+            tracer = trace.get_tracer(__name__)
+
             # Extract trace context from incoming request headers
+            # Convert Django header format (HTTP_X_TRACE_ID) to standard format (x-trace-id)
             headers = {}
             for key, value in request.META.items():
                 if key.startswith("HTTP_"):
-                    # Convert Django header format (HTTP_X_TRACE_ID) to standard format (x-trace-id)
                     header_name = key[5:].replace("_", "-").lower()
                     headers[header_name] = value
                 elif key in ("traceparent", "tracestate"):
                     headers[key] = value
 
-            # Extract parent context if present
+            # Extract parent context using the global propagator (W3C TraceContext by default)
             parent_context = extract(headers)
 
-            # Create span with parent context if available
-            span_name = self.namer.name_for_request(request)
-            span = self.tracer.start_span(span_name, context=parent_context)
+            # Handle W3C Trace Context edge case: zero parent_span_id
+            # W3C spec allows zero parent_span_id to mean "no parent span" while continuing
+            # the trace. OpenTelemetry SDK requires non-zero span_id for valid SpanContext,
+            # so the propagator returns empty context. We manually create a valid context
+            # to maintain trace continuity.
+            if "traceparent" in headers:
+                parent_span = trace.get_current_span(parent_context)
+                if not parent_span.get_span_context().is_valid:
+                    parent_context = self._extract_trace_context_with_zero_parent(
+                        headers.get("traceparent", ""), parent_context
+                    )
 
-            # Set span as current for the request
-            token = trace_context_api.attach(
-                trace_context_api.set_span_in_context(span, parent_context)  # type: ignore[attr-defined]
+            # Create span with parent context using start_as_current_span
+            # Per OTel semantic conventions, use "{method} {route}" naming pattern
+            route = self.namer.name_for_request(request)
+            span_name = f"{request.method} {route}"
+
+            # Use SpanKind.SERVER for incoming HTTP requests (per semantic conventions)
+            span_context_manager = tracer.start_as_current_span(
+                span_name,
+                context=parent_context,
+                kind=SpanKind.SERVER,
             )
-            request._observe_kit_span_token = token
+            span = span_context_manager.__enter__()
+
+            # Set standard HTTP semantic attributes (per OTel semantic conventions)
+            # See: https://opentelemetry.io/docs/specs/semconv/http/http-spans/
+            span.set_attribute("http.request.method", request.method)
+            span.set_attribute("url.path", request.path)
+            span.set_attribute("url.scheme", request.scheme)
+            if request.get_host():
+                span.set_attribute("server.address", request.get_host())
+
+            # Verify span context is valid before proceeding
+            span_context = span.get_span_context()
+            if not span_context.is_valid:
+                logger.warning("Created span with invalid context, trace may be incomplete")
+
+            # Store context manager for cleanup in process_response
+            # Note: We manually manage the context manager lifecycle because Django
+            # middleware doesn't support using 'with' statements across process_request
+            # and process_response methods
+            request._observe_kit_span_context_manager = span_context_manager
 
             context = get_request_context()
             span_context = span.get_span_context()
@@ -68,31 +144,50 @@ class TraceContextMiddleware(MiddlewareMixin):
             context = get_request_context()
             set_request_context(context)
 
+    def process_exception(self, request: "HttpRequest", exception: Exception) -> None:
+        """Record exception in the current span.
+
+        Per OTel best practices, exceptions should be recorded in spans to provide
+        valuable debugging information in traces.
+        """
+        span = getattr(request, "_observe_kit_span", None)
+        if span:
+            span.record_exception(exception)
+            span.set_status(Status(StatusCode.ERROR, str(exception)))
+
     def process_response(self, request: "HttpRequest", response: "HttpResponse") -> "HttpResponse":
         try:
             span = getattr(request, "_observe_kit_span", None)
             if span:
                 status_code = getattr(response, "status_code", None)
-                span.set_attribute("http.status_code", status_code)
+
+                # Use semantic convention attribute name
+                span.set_attribute("http.response.status_code", status_code)
 
                 # Set span status based on HTTP status code
-                if status_code:
-                    if status_code >= 500:
-                        span.set_status(Status(StatusCode.ERROR, f"HTTP {status_code}"))
-                    elif status_code >= 400:
-                        span.set_status(Status(StatusCode.ERROR, f"HTTP {status_code}"))
+                # Per OTel semantic conventions, only 5xx server errors should be ERROR
+                # 4xx client errors are not server failures and should not set ERROR status
+                if status_code and status_code >= 500:
+                    span.set_status(Status(StatusCode.ERROR, f"HTTP {status_code}"))
 
                 enrich_span(span)
-                span.end()
 
-                # Detach span context
-                token = getattr(request, "_observe_kit_span_token", None)
-                if token is not None:
-                    trace_context_api.detach(token)
+                # Get trace ID from span before ending it
+                span_context = span.get_span_context()
+                trace_id = format(span_context.trace_id, "032x")
+                response["X-Trace-Id"] = trace_id
 
-                trace_id = get_request_context().trace_id
-                if trace_id:
-                    response["X-Trace-Id"] = trace_id
+                # Exit the context manager to properly end the span
+                # This will automatically detach the context set by start_as_current_span
+                span_context_manager = getattr(request, "_observe_kit_span_context_manager", None)
+                if span_context_manager is not None:
+                    span_context_manager.__exit__(None, None, None)
+                else:
+                    # Fallback: manually end the span if context manager is missing
+                    span.end()
         except Exception as e:
             logger.warning("Failed to finalize trace span", extra={"error": str(e)}, exc_info=True)
+        finally:
+            # Cleanup request context to prevent leaks between requests
+            reset_request_context()
         return response
