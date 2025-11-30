@@ -56,6 +56,7 @@ def django_client(wait_for_services: Generator[None, None, None]) -> Client:
             INSTALLED_APPS=[
                 "django.contrib.contenttypes",
                 "django.contrib.auth",
+                "django.contrib.admin",
                 "observe_kit",
                 "observe_kit.audit",
             ],
