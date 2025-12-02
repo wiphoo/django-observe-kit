@@ -35,7 +35,7 @@ def test_trace_context_middleware_init(mock_get_response: Mock) -> None:
     """Test TraceContextMiddleware initialization."""
     middleware = TraceContextMiddleware(mock_get_response)
     assert middleware.get_response == mock_get_response
-    assert middleware.tracer is not None
+    # The middleware uses SpanNamer for naming spans
     assert middleware.namer is not None
 
 
@@ -48,26 +48,13 @@ def test_process_request_creates_span(
     middleware = TraceContextMiddleware(mock_get_response)
     request = request_factory.get("/test/")
 
-    with patch("observe_kit.otel.middleware.extract") as mock_extract:
-        with patch("observe_kit.otel.middleware.trace_context_api") as mock_api:
-            mock_context = Mock()
-            mock_extract.return_value = mock_context
-            mock_span = Mock()
-            mock_span_context = Mock()
-            mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
-            mock_span_context.span_id = 0x1234567890ABCDEF
-            mock_span.get_span_context.return_value = mock_span_context
-            middleware.tracer.start_span = Mock(return_value=mock_span)
-            mock_token = Mock()
-            mock_api.attach.return_value = mock_token
+    middleware.process_request(request)
 
-            middleware.process_request(request)
-
-            assert hasattr(request, "_observe_kit_span")
-            assert hasattr(request, "_observe_kit_span_token")
-            context = get_request_context()
-            assert context.trace_id is not None
-            assert context.span_id is not None
+    assert hasattr(request, "_observe_kit_span")
+    assert hasattr(request, "_observe_kit_span_context_manager")
+    context = get_request_context()
+    assert context.trace_id is not None
+    assert context.span_id is not None
 
 
 def test_process_request_extracts_trace_context(
@@ -76,25 +63,19 @@ def test_process_request_extracts_trace_context(
     """Test that process_request extracts trace context from headers."""
     middleware = TraceContextMiddleware(mock_get_response)
     request = request_factory.get(
-        "/test/", HTTP_TRACEPARENT="00-1234567890abcdef-1234567890abcdef-01"
+        "/test/", HTTP_TRACEPARENT="00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
     )
 
     with patch("observe_kit.otel.middleware.extract") as mock_extract:
-        with patch("observe_kit.otel.middleware.trace_context_api"):
-            mock_context = Mock()
-            mock_extract.return_value = mock_context
-            mock_span = Mock()
-            mock_span_context = Mock()
-            mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
-            mock_span_context.span_id = 0x1234567890ABCDEF
-            mock_span.get_span_context.return_value = mock_span_context
-            middleware.tracer.start_span = Mock(return_value=mock_span)
+        # Return a valid mock context
+        mock_context = Mock()
+        mock_extract.return_value = mock_context
 
-            middleware.process_request(request)
+        middleware.process_request(request)
 
-            mock_extract.assert_called_once()
-            call_args = mock_extract.call_args[0][0]
-            assert "traceparent" in call_args
+        mock_extract.assert_called_once()
+        call_args = mock_extract.call_args[0][0]
+        assert "traceparent" in call_args
 
 
 def test_process_request_handles_exception(
@@ -123,14 +104,19 @@ def test_process_response_sets_status_code(
     request = request_factory.get("/test/")
     response = HttpResponse(status=200)
     mock_span = Mock()
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_token = Mock()
+    request._observe_kit_span_context_manager = Mock()
 
     middleware.process_response(request, response)
 
-    # Check that set_attribute was called with http.status_code
+    # Check that set_attribute was called with http.response.status_code (OTel semantic convention)
     calls = [
-        call for call in mock_span.set_attribute.call_args_list if call[0][0] == "http.status_code"
+        call
+        for call in mock_span.set_attribute.call_args_list
+        if call[0][0] == "http.response.status_code"
     ]
     assert len(calls) > 0
     assert calls[0][0][1] == 200
@@ -144,8 +130,11 @@ def test_process_response_sets_error_status_for_5xx(
     request = request_factory.get("/test/")
     response = HttpResponse(status=500)
     mock_span = Mock()
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_token = Mock()
+    request._observe_kit_span_context_manager = Mock()
 
     middleware.process_response(request, response)
 
@@ -154,22 +143,28 @@ def test_process_response_sets_error_status_for_5xx(
     assert call_args.status_code == StatusCode.ERROR
 
 
-def test_process_response_sets_error_status_for_4xx(
+def test_process_response_does_not_set_error_for_4xx(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
-    """Test that process_response sets error status for 4xx responses."""
+    """Test that process_response does NOT set error status for 4xx responses.
+
+    Per OTel semantic conventions, only 5xx server errors should set ERROR status.
+    4xx client errors are not server failures.
+    """
     middleware = TraceContextMiddleware(mock_get_response)
     request = request_factory.get("/test/")
     response = HttpResponse(status=404)
     mock_span = Mock()
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_token = Mock()
+    request._observe_kit_span_context_manager = Mock()
 
     middleware.process_response(request, response)
 
-    mock_span.set_status.assert_called_once()
-    call_args = mock_span.set_status.call_args[0][0]
-    assert call_args.status_code == StatusCode.ERROR
+    # 4xx should NOT set error status per OTel semantic conventions
+    mock_span.set_status.assert_not_called()
 
 
 def test_process_response_enriches_span(
@@ -180,14 +175,21 @@ def test_process_response_enriches_span(
     request = request_factory.get("/test/")
     response = HttpResponse(status=200)
     mock_span = Mock()
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
+    # Use MagicMock for context manager which has __exit__ defined
+    mock_context_manager = Mock()
+    mock_context_manager.__exit__ = Mock()
     request._observe_kit_span = mock_span
-    request._observe_kit_span_token = Mock()
+    request._observe_kit_span_context_manager = mock_context_manager
 
     with patch("observe_kit.otel.middleware.enrich_span") as mock_enrich:
         middleware.process_response(request, response)
 
         mock_enrich.assert_called_once_with(mock_span)
-        mock_span.end.assert_called_once()
+        # The context manager's __exit__ is called to properly end the span
+        mock_context_manager.__exit__.assert_called_once()
 
 
 def test_process_response_adds_trace_id_header(
@@ -198,34 +200,40 @@ def test_process_response_adds_trace_id_header(
     request = request_factory.get("/test/")
     response = HttpResponse(status=200)
     mock_span = Mock()
+    mock_span_context = Mock()
+    # Set up the span context to return a specific trace_id
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_token = Mock()
-
-    context = RequestContext()
-    context.trace_id = "test-trace-id-123"
-    set_request_context(context)
+    request._observe_kit_span_context_manager = Mock()
 
     middleware.process_response(request, response)
 
-    assert response.get("X-Trace-Id") == "test-trace-id-123"
+    # The trace ID should be formatted as 32-char hex from the span context
+    assert response.get("X-Trace-Id") == "1234567890abcdef1234567890abcdef"
 
 
-def test_process_response_detaches_token(
+def test_process_response_uses_context_manager(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
-    """Test that process_response detaches span context token."""
+    """Test that process_response uses context manager to properly end span."""
     middleware = TraceContextMiddleware(mock_get_response)
     request = request_factory.get("/test/")
     response = HttpResponse(status=200)
     mock_span = Mock()
-    mock_token = Mock()
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
+    # Use MagicMock for context manager which has __exit__ defined
+    mock_context_manager = Mock()
+    mock_context_manager.__exit__ = Mock()
     request._observe_kit_span = mock_span
-    request._observe_kit_span_token = mock_token
+    request._observe_kit_span_context_manager = mock_context_manager
 
-    with patch("observe_kit.otel.middleware.trace_context_api") as mock_api:
-        middleware.process_response(request, response)
+    middleware.process_response(request, response)
 
-        mock_api.detach.assert_called_once_with(mock_token)
+    # Context manager's __exit__ should be called to properly detach context
+    mock_context_manager.__exit__.assert_called_once_with(None, None, None)
 
 
 def test_process_response_handles_missing_span(

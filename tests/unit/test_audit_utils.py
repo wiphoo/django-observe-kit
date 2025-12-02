@@ -33,7 +33,7 @@ def test_audit_with_obj_pk(request_factory: RequestFactory) -> None:
     obj = TestModel()
     request = request_factory.get("/")
 
-    with patch("observe_kit.audit.utils.AuditLog") as mock_audit_log:
+    with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
         mock_entry = Mock()
         mock_entry.id = 1
         mock_entry.object_type = "TestModel"
@@ -61,7 +61,7 @@ def test_audit_with_obj_id(request_factory: RequestFactory) -> None:
     obj = TestModel()
     request = request_factory.get("/")
 
-    with patch("observe_kit.audit.utils.AuditLog") as mock_audit_log:
+    with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
         mock_entry = Mock()
         mock_entry.id = 1
         mock_entry.object_type = "TestModel"
@@ -88,7 +88,7 @@ def test_audit_with_obj_no_id(request_factory: RequestFactory) -> None:
     obj = TestModel()
     request = request_factory.get("/")
 
-    with patch("observe_kit.audit.utils.AuditLog") as mock_audit_log:
+    with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
         mock_entry = Mock()
         mock_entry.id = 1
         mock_entry.object_type = "TestModel"
@@ -115,7 +115,7 @@ def test_audit_with_tenant_from_request(request_factory: RequestFactory) -> None
     request = request_factory.get("/")
     request.tenant = MockTenant()
 
-    with patch("observe_kit.audit.utils.AuditLog") as mock_audit_log:
+    with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
         mock_entry = Mock()
         mock_entry.id = 1
         mock_audit_log.objects.create.return_value = mock_entry
@@ -137,7 +137,7 @@ def test_audit_with_remote_addr_from_request(request_factory: RequestFactory) ->
 
     request = request_factory.get("/", REMOTE_ADDR="192.168.1.100")
 
-    with patch("observe_kit.audit.utils.AuditLog") as mock_audit_log:
+    with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
         mock_entry = Mock()
         mock_entry.id = 1
         mock_audit_log.objects.create.return_value = mock_entry
@@ -159,7 +159,7 @@ def test_audit_with_user_agent_from_request(request_factory: RequestFactory) -> 
 
     request = request_factory.get("/", HTTP_USER_AGENT="test-agent/1.0")
 
-    with patch("observe_kit.audit.utils.AuditLog") as mock_audit_log:
+    with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
         mock_entry = Mock()
         mock_entry.id = 1
         mock_audit_log.objects.create.return_value = mock_entry
@@ -183,7 +183,7 @@ def test_audit_logs_event(request_factory: RequestFactory) -> None:
     request = request_factory.get("/")
 
     with (
-        patch("observe_kit.audit.utils.AuditLog") as mock_audit_log,
+        patch("observe_kit.audit.models.AuditLog") as mock_audit_log,
         patch("observe_kit.audit.utils.logger") as mock_logger,
     ):
         mock_entry = Mock()

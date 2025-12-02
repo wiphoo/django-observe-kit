@@ -1,13 +1,20 @@
 """Comprehensive tests for Wagtail hooks."""
 
+import importlib.util
 from unittest.mock import Mock, patch
 
 import pytest
 from django.test import RequestFactory
 
-pytestmark = pytest.mark.skipif(
-    not __import__("importlib.util").util.find_spec("django"), reason="django not installed"
-)
+# Skip if either django or wagtail is not installed
+pytestmark = [
+    pytest.mark.skipif(
+        not importlib.util.find_spec("django"), reason="django not installed"
+    ),
+    pytest.mark.skipif(
+        not importlib.util.find_spec("wagtail"), reason="wagtail not installed"
+    ),
+]
 
 
 @pytest.fixture

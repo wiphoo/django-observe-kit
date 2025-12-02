@@ -70,21 +70,23 @@ def test_resolve_tenant_id_from_subdomain(subdomain: str, domain: str) -> None:
 @pytest.mark.parametrize(
     "host,expected",
     [
-        ("localhost", None),
-        ("127.0.0.1", "127"),  # IPs extract first segment
-        ("example.com", "example"),  # Single segment before dot is extracted
+        ("localhost", None),  # Single-part hostname returns None
+        ("127.0.0.1", "127"),  # IP addresses have 4 parts, extracts first segment
+        ("example.com", None),  # 2-part domain.tld returns None
         ("www.example.com", None),  # "www" is filtered out
+        ("tenant.example.com", "tenant"),  # Valid 3-part subdomain is extracted
     ],
 )
-def test_resolve_tenant_id_no_subdomain_returns_none(host: str, expected: str | None) -> None:
-    """Property: Hosts without valid tenant subdomain return None."""
+def test_resolve_tenant_id_subdomain_extraction(host: str, expected: str | None) -> None:
+    """Property: Subdomain extraction based on hostname parts."""
     request = Mock()
     request.tenant = None
     request.META = {}
     request.get_host.return_value = host
 
     result = resolve_tenant_id(request)
-    # The function extracts subdomain if it exists and isn't in the exclusion list
+    # The function extracts subdomain for hostnames with 3+ parts
+    # unless the first part is in the exclusion list (www, localhost)
     assert result == expected
 
 
