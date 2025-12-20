@@ -48,7 +48,7 @@ def otel_metrics_endpoint() -> str:
     return f"http://localhost:{port}"
 
 
-def verify_collector_ready(otel_http_endpoint: str, timeout: int = 10) -> bool:
+def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
     """Verify the OTEL collector is ready to accept traces.
     
     Args:
@@ -68,13 +68,24 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 10) -> bool:
                 traces_endpoint,
                 headers={"Content-Type": "application/json"},
                 json={},
-                timeout=2
+                timeout=3
             )
             # Any response (even 400/415 for bad content type) means collector is up
-            if response.status_code in (200, 400, 405, 415):
+            if response.status_code in (200, 400, 405, 415, 404):
                 return True
-        except requests.exceptions.RequestException:
+        except requests.exceptions.ConnectionError:
+            # Connection refused - service not ready yet
             pass
+        except requests.exceptions.RequestException:
+            # Other errors might mean service is up but rejecting request
+            # Try health endpoint as fallback
+            try:
+                health_endpoint = otel_http_endpoint.replace(":4318", ":13133")
+                health_response = requests.get(f"{health_endpoint}/", timeout=2)
+                if health_response.status_code == 200:
+                    return True
+            except Exception:
+                pass
         time.sleep(0.5)
     
     return False
