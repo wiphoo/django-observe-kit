@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 from django.http import HttpResponse
 from django.test import RequestFactory
-from opentelemetry.trace import StatusCode
+from opentelemetry.trace import Status, StatusCode
 
 from observe_kit.context import RequestContext, reset_request_context, set_request_context
 from observe_kit.otel.middleware import TraceContextMiddleware
@@ -120,6 +120,46 @@ def test_process_response_sets_status_code(
     ]
     assert len(calls) > 0
     assert calls[0][0][1] == 200
+
+
+def test_process_response_sets_ok_status_for_2xx_without_prior_error(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    """Test that successful responses mark spans OK when no error was recorded."""
+    middleware = TraceContextMiddleware(mock_get_response)
+    request = request_factory.get("/test/")
+    response = HttpResponse(status=204)
+    mock_span = Mock()
+    mock_span.status = Status(StatusCode.UNSET)
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
+    request._observe_kit_span = mock_span
+    request._observe_kit_span_context_manager = Mock()
+
+    middleware.process_response(request, response)
+
+    assert any(call[0][0].status_code == StatusCode.OK for call in mock_span.set_status.call_args_list)
+
+
+def test_process_response_preserves_prior_error_status_for_2xx(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    """Test that a handled error is not overwritten by a later 2xx response."""
+    middleware = TraceContextMiddleware(mock_get_response)
+    request = request_factory.get("/test/")
+    response = HttpResponse(status=200)
+    mock_span = Mock()
+    mock_span.status = Status(StatusCode.ERROR, "boom")
+    mock_span_context = Mock()
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
+    request._observe_kit_span = mock_span
+    request._observe_kit_span_context_manager = Mock()
+
+    middleware.process_response(request, response)
+
+    assert not any(call[0][0].status_code == StatusCode.OK for call in mock_span.set_status.call_args_list)
 
 
 def test_process_response_sets_error_status_for_5xx(

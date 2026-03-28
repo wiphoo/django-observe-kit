@@ -117,8 +117,17 @@ class TraceContextMiddleware(MiddlewareMixin):
             span.set_attribute("http.request.method", request.method)
             span.set_attribute("url.path", request.path)
             span.set_attribute("url.scheme", request.scheme)
+            # Also set http.scheme for consistency (OTel semantic convention)
+            span.set_attribute("http.scheme", request.scheme)
             if request.get_host():
                 span.set_attribute("server.address", request.get_host())
+                # Also set http.host for consistency (OTel semantic convention)
+                span.set_attribute("http.host", request.get_host())
+            # Set http.target (full path with query string if present)
+            span.set_attribute("http.target", request.get_full_path())
+            # Set http.route if available (will be updated later if route is detected)
+            if route and route != "unknown":
+                span.set_attribute("http.route", route)
 
             # Verify span context is valid before proceeding
             span_context = span.get_span_context()
@@ -135,6 +144,9 @@ class TraceContextMiddleware(MiddlewareMixin):
             span_context = span.get_span_context()
             context.trace_id = format(span_context.trace_id, "032x")
             context.span_id = format(span_context.span_id, "016x")
+            # Update http.route if context has a route (e.g., from DRF detection)
+            if context.route and context.route != route:
+                span.set_attribute("http.route", context.route)
             request._observe_kit_span = span
             set_request_context(context)
         except Exception as e:
@@ -159,16 +171,32 @@ class TraceContextMiddleware(MiddlewareMixin):
         try:
             span = getattr(request, "_observe_kit_span", None)
             if span:
+                # Update http.route if it was detected later (e.g., from DRF)
+                context = get_request_context()
+                if context.route:
+                    span.set_attribute("http.route", context.route)
+
                 status_code = getattr(response, "status_code", None)
 
                 # Use semantic convention attribute name
                 span.set_attribute("http.response.status_code", status_code)
 
                 # Set span status based on HTTP status code
-                # Per OTel semantic conventions, only 5xx server errors should be ERROR
-                # 4xx client errors are not server failures and should not set ERROR status
-                if status_code and status_code >= 500:
-                    span.set_status(Status(StatusCode.ERROR, f"HTTP {status_code}"))
+                # Per OTel semantic conventions:
+                # - 2xx: Set to OK (successful operation)
+                # - 4xx: Leave as UNSET (client error, not a server failure)
+                # - 5xx: Set to ERROR (server error)
+                if status_code:
+                    if 200 <= status_code < 300:
+                        # Preserve earlier error signals recorded during request handling.
+                        current_status = getattr(span, "status", None)
+                        current_status_code = getattr(current_status, "status_code", None)
+                        if current_status_code != StatusCode.ERROR:
+                            span.set_status(Status(StatusCode.OK))
+                    elif status_code >= 500:
+                        # Server errors should be marked as ERROR
+                        span.set_status(Status(StatusCode.ERROR, f"HTTP {status_code}"))
+                    # 4xx and other codes remain UNSET (default)
 
                 enrich_span(span)
 
