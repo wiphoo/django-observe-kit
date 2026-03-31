@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 
 
 @dataclass
@@ -87,15 +87,15 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     Safe to call before Django is fully initialised — returns all defaults if
     ``django.conf.settings`` is not yet configured or ``OBSERVE_KIT`` is absent.
     """
+    user_config: dict[str, object] = {}
     try:
         from django.conf import settings as django_settings
 
         raw_user_config = getattr(django_settings, "OBSERVE_KIT", None)
         configured = isinstance(raw_user_config, dict)
-        user_config = raw_user_config if configured else {}
+        user_config = cast(dict[str, object], raw_user_config) if configured else {}
     except Exception:
         configured = False
-        user_config = {}
 
     def _get(key: str, env_var: Optional[str] = None, default: object = None) -> object:
         if key in user_config:

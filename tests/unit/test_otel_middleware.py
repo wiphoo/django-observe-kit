@@ -1,6 +1,6 @@
 """Unit tests for OpenTelemetry middleware."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from django.http import HttpResponse
@@ -108,7 +108,7 @@ def test_process_response_sets_status_code(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_context_manager = Mock()
+    request._observe_kit_span_context_manager = MagicMock()
 
     middleware.process_response(request, response)
 
@@ -135,7 +135,7 @@ def test_process_response_sets_ok_status_for_2xx_without_prior_error(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_context_manager = Mock()
+    request._observe_kit_span_context_manager = MagicMock()
 
     middleware.process_response(request, response)
 
@@ -157,7 +157,7 @@ def test_process_response_preserves_prior_error_status_for_2xx(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_context_manager = Mock()
+    request._observe_kit_span_context_manager = MagicMock()
 
     middleware.process_response(request, response)
 
@@ -178,7 +178,7 @@ def test_process_response_sets_error_status_for_5xx(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_context_manager = Mock()
+    request._observe_kit_span_context_manager = MagicMock()
 
     middleware.process_response(request, response)
 
@@ -203,7 +203,7 @@ def test_process_response_does_not_set_error_for_4xx(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_context_manager = Mock()
+    request._observe_kit_span_context_manager = MagicMock()
 
     middleware.process_response(request, response)
 
@@ -249,7 +249,7 @@ def test_process_response_adds_trace_id_header(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     request._observe_kit_span = mock_span
-    request._observe_kit_span_context_manager = Mock()
+    request._observe_kit_span_context_manager = MagicMock()
 
     middleware.process_response(request, response)
 
@@ -269,8 +269,7 @@ def test_process_response_uses_context_manager(
     mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
     mock_span.get_span_context.return_value = mock_span_context
     # Use MagicMock for context manager which has __exit__ defined
-    mock_context_manager = Mock()
-    mock_context_manager.__exit__ = Mock()
+    mock_context_manager = MagicMock()
     request._observe_kit_span = mock_span
     request._observe_kit_span_context_manager = mock_context_manager
 

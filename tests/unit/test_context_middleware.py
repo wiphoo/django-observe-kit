@@ -158,14 +158,16 @@ def test_process_request_handles_exception(
     with patch(
         "observe_kit.context_middleware.get_pii_config", side_effect=Exception("Test error")
     ):
-        middleware = RequestContextMiddleware(mock_get_response)
-        request = request_factory.get("/test/")
+        with patch("observe_kit.context_middleware.logger") as mock_logger:
+            middleware = RequestContextMiddleware(mock_get_response)
+            request = request_factory.get("/test/")
 
-        middleware.process_request(request)
+            middleware.process_request(request)
 
-        # Should create fallback context
-        context = get_request_context()
-        assert context is not None
+            mock_logger.warning.assert_called_once()
+            # Should create fallback context
+            context = get_request_context()
+            assert context is not None
 
 
 def test_process_view_sets_route_from_resolver_match(
@@ -307,8 +309,10 @@ def test_process_response_handles_exception(
 
     # Make get_request_context raise an exception
     with patch("observe_kit.context_middleware.get_request_context", side_effect=Exception("Test")):
-        result = middleware.process_response(request, response)
-        assert result == response
+        with patch("observe_kit.context_middleware.logger") as mock_logger:
+            result = middleware.process_response(request, response)
+            mock_logger.warning.assert_called_once()
+            assert result == response
 
 
 def test_user_logging_context_middleware_sets_context(
