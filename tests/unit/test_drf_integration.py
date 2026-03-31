@@ -53,26 +53,26 @@ def test_detect_drf_route_from_view_instance(request_factory: RequestFactory) ->
 
     with patch("observe_kit.drf.integration.importlib.util.find_spec", return_value=Mock()):
         # Create a mock ViewSet class
-        class MockViewSet:
+        class MockViewSetMixin:
             pass
 
-        mock_viewset = MockViewSet()
+        mock_viewset = MockViewSetMixin()
         mock_viewset.__class__.__name__ = "TestViewSet"
         mock_viewset.action = "list"
         request.view = mock_viewset
 
-        # Mock the ViewSet import inside the function
-        with patch("rest_framework.viewsets.ViewSet"):
+        # Mock the ViewSetMixin import inside the function
+        with patch("rest_framework.viewsets.ViewSetMixin"):
             # Make isinstance check work
             import rest_framework.viewsets
 
-            original_viewset = rest_framework.viewsets.ViewSet
-            rest_framework.viewsets.ViewSet = MockViewSet
+            original_viewset_mixin = rest_framework.viewsets.ViewSetMixin
+            rest_framework.viewsets.ViewSetMixin = MockViewSetMixin
             try:
                 result = detect_drf_route(request)
                 assert result == "drf.TestViewSet.list"
             finally:
-                rest_framework.viewsets.ViewSet = original_viewset
+                rest_framework.viewsets.ViewSetMixin = original_viewset_mixin
 
 
 def test_detect_drf_route_from_resolver_match(request_factory: RequestFactory) -> None:
@@ -83,10 +83,10 @@ def test_detect_drf_route_from_resolver_match(request_factory: RequestFactory) -
 
     with patch("observe_kit.drf.integration.importlib.util.find_spec", return_value=Mock()):
         # Create a mock ViewSet class
-        class MockViewSet:
+        class MockViewSetMixin:
             pass
 
-        class UserViewSet(MockViewSet):
+        class UserViewSet(MockViewSetMixin):
             pass
 
         mock_view_func = Mock()
@@ -96,16 +96,16 @@ def test_detect_drf_route_from_resolver_match(request_factory: RequestFactory) -
         mock_resolver_match.kwargs = {}
         request.resolver_match = mock_resolver_match
 
-        # Mock the ViewSet import
+        # Mock the ViewSetMixin import
         import rest_framework.viewsets
 
-        original_viewset = rest_framework.viewsets.ViewSet
-        rest_framework.viewsets.ViewSet = MockViewSet
+        original_viewset_mixin = rest_framework.viewsets.ViewSetMixin
+        rest_framework.viewsets.ViewSetMixin = MockViewSetMixin
         try:
             result = detect_drf_route(request)
             assert result == "drf.UserViewSet.list"
         finally:
-            rest_framework.viewsets.ViewSet = original_viewset
+            rest_framework.viewsets.ViewSetMixin = original_viewset_mixin
 
 
 def test_detect_drf_route_handles_exception(request_factory: RequestFactory) -> None:
@@ -117,8 +117,8 @@ def test_detect_drf_route_handles_exception(request_factory: RequestFactory) -> 
     request.view.action = "list"
 
     with patch("observe_kit.drf.integration.importlib.util.find_spec", return_value=Mock()):
-        # Make the ViewSet import raise an exception
-        with patch("rest_framework.viewsets.ViewSet", side_effect=Exception("Test")):
+        # Make the ViewSetMixin import raise an exception
+        with patch("rest_framework.viewsets.ViewSetMixin", side_effect=Exception("Test")):
             with patch("observe_kit.drf.integration.logger") as mock_logger:
                 result = detect_drf_route(request)
 

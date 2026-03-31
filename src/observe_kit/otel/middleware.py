@@ -67,6 +67,7 @@ class TraceContextMiddleware(MiddlewareMixin):
             return fallback_context
 
     def process_request(self, request: "HttpRequest") -> None:
+        span_context_manager: Optional[Any] = None
         try:
             # Get tracer per-request to ensure we use the current tracer provider
             # (which may be initialized after middleware instantiation in tests)
@@ -146,6 +147,11 @@ class TraceContextMiddleware(MiddlewareMixin):
             request._observe_kit_span = span
             set_request_context(context)
         except Exception as e:
+            if span_context_manager is not None:
+                try:
+                    span_context_manager.__exit__(type(e), e, e.__traceback__)
+                except Exception:
+                    logger.debug("Failed to unwind trace span after setup error", exc_info=True)
             # Log error but don't break the request
             logger.warning("Failed to create trace span", extra={"error": str(e)}, exc_info=True)
             # Create a fallback context without trace info

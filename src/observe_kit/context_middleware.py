@@ -8,10 +8,11 @@ from django.utils.deprecation import MiddlewareMixin
 if TYPE_CHECKING:
     pass
 
-from .conf import ENABLE_DB_TRACKING, PII_SINK_LOGS
+from .conf import PII_SINK_LOGS
 from .context import RequestContext, RequestTiming, get_request_context, set_request_context
 from .metrics.db import QueryRecorder, wrap_connections
 from .pii_rules import PiiLevel, get_pii_config, sanitize_headers, sanitize_query_params
+from .settings import get_observe_kit_settings
 from .tenant import resolve_tenant_id
 from .typing import DjangoRequest, DjangoResponse
 
@@ -66,8 +67,8 @@ class RequestContextMiddleware(MiddlewareMixin):
             set_request_context(context)
             request._observe_kit_timer = RequestTiming()
 
-            # DB tracking is optional for performance
-            if ENABLE_DB_TRACKING:
+            # DB tracking is optional and follows the resolved runtime setting.
+            if get_observe_kit_settings().db_tracking:
                 request._observe_kit_queries = QueryRecorder()
                 request._observe_kit_remove_wrappers = wrap_connections(
                     request._observe_kit_queries

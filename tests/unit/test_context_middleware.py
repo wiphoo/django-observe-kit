@@ -137,10 +137,11 @@ def test_process_request_with_user(
 def test_process_request_enables_db_tracking(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
-    """Test that process_request enables DB tracking when configured."""
+    """Test that process_request enables DB tracking from resolved settings."""
     with patch("observe_kit.context_middleware.resolve_tenant_id", return_value=None):
-        with patch("observe_kit.context_middleware.ENABLE_DB_TRACKING", True):
+        with patch("observe_kit.context_middleware.get_observe_kit_settings") as mock_settings:
             with patch("observe_kit.context_middleware.wrap_connections") as mock_wrap:
+                mock_settings.return_value.db_tracking = True
                 mock_wrap.return_value = Mock()
                 middleware = RequestContextMiddleware(mock_get_response)
                 request = request_factory.get("/test/")
@@ -149,6 +150,24 @@ def test_process_request_enables_db_tracking(
 
                 assert hasattr(request, "_observe_kit_queries")
                 mock_wrap.assert_called_once()
+
+
+def test_process_request_disables_db_tracking(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    """Test that process_request skips DB tracking when disabled in resolved settings."""
+    with patch("observe_kit.context_middleware.resolve_tenant_id", return_value=None):
+        with patch("observe_kit.context_middleware.get_observe_kit_settings") as mock_settings:
+            with patch("observe_kit.context_middleware.wrap_connections") as mock_wrap:
+                mock_settings.return_value.db_tracking = False
+                middleware = RequestContextMiddleware(mock_get_response)
+                request = request_factory.get("/test/")
+
+                middleware.process_request(request)
+
+                assert request._observe_kit_queries is None
+                assert request._observe_kit_remove_wrappers is None
+                mock_wrap.assert_not_called()
 
 
 def test_process_request_handles_exception(

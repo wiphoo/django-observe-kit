@@ -5,6 +5,7 @@ import logging.config
 from typing import Any, Dict, Optional
 
 from ..conf import PII_SINK_LOGS
+from ..otel.config import _OTEL_LOG_HANDLER_ATTR
 from ..pii_rules import PiiConfig, get_pii_config, set_pii_config
 from .filters import RequestContextFilter
 
@@ -58,6 +59,10 @@ def _validate_pii_levels(pii_levels: Dict[str, str]) -> None:
             )
 
 
+def _normalize_pii_levels(pii_levels: Dict[str, str]) -> Dict[str, str]:
+    return {sink: level.upper() for sink, level in pii_levels.items()}
+
+
 class RequestFormatter(json_logger.JsonFormatter):
     """Formatter that leaves message intact while providing structured defaults."""
 
@@ -94,7 +99,7 @@ def configure_logging(
 
     if pii_levels:
         _validate_pii_levels(pii_levels)
-        config = PiiConfig(levels=pii_levels)
+        config = PiiConfig(levels=_normalize_pii_levels(pii_levels))
         set_pii_config(config)
     elif pii_level:
         _validate_pii_level(pii_level)
@@ -122,7 +127,17 @@ def configure_logging(
     }
     if extra:
         logging_config.update(extra)
+
+    root_logger = logging.getLogger()
+    preserved_handlers = [
+        handler
+        for handler in root_logger.handlers
+        if getattr(handler, _OTEL_LOG_HANDLER_ATTR, False)
+    ]
     logging.config.dictConfig(logging_config)
+    for handler in preserved_handlers:
+        if handler not in root_logger.handlers:
+            root_logger.addHandler(handler)
 
 
 def log_request_complete(logger: logging.Logger, **fields: Any) -> None:

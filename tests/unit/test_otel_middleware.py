@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+from django.core.exceptions import DisallowedHost
 from django.http import HttpResponse
 from django.test import RequestFactory
 from opentelemetry.trace import Status, StatusCode
@@ -94,6 +95,37 @@ def test_process_request_handles_exception(
             mock_logger.warning.assert_called_once()
             context = get_request_context()
             assert context is not None
+
+
+def test_process_request_exits_span_context_manager_on_setup_error(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    """Errors after span entry should unwind the current span context."""
+    middleware = TraceContextMiddleware(mock_get_response)
+    request = request_factory.get("/test/")
+
+    mock_span = Mock()
+    mock_span_context = Mock()
+    mock_span_context.is_valid = True
+    mock_span_context.trace_id = 0x1234567890ABCDEF1234567890ABCDEF
+    mock_span_context.span_id = 0x1234567890ABCDEF
+    mock_span.get_span_context.return_value = mock_span_context
+
+    mock_context_manager = Mock()
+    mock_context_manager.__enter__ = Mock(return_value=mock_span)
+    mock_context_manager.__exit__ = Mock(return_value=None)
+
+    mock_tracer = Mock()
+    mock_tracer.start_as_current_span.return_value = mock_context_manager
+
+    with patch("observe_kit.otel.middleware.trace.get_tracer", return_value=mock_tracer):
+        with patch.object(request, "get_host", side_effect=DisallowedHost("bad host")):
+            with patch("observe_kit.otel.middleware.logger") as mock_logger:
+                middleware.process_request(request)
+
+    mock_context_manager.__exit__.assert_called_once()
+    mock_logger.warning.assert_called_once()
+    assert not hasattr(request, "_observe_kit_span")
 
 
 def test_process_response_sets_status_code(

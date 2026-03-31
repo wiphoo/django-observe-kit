@@ -105,6 +105,30 @@ def test_detect_drf_route_actions_dict(request_factory: RequestFactory) -> None:
         assert result == "drf.TestViewSet.custom_action"
 
 
+def test_detect_drf_route_generic_viewset_subclass(request_factory: RequestFactory) -> None:
+    """Test detect_drf_route with a GenericViewSet subclass from DRF routers."""
+    from observe_kit.drf.integration import detect_drf_route
+
+    request = request_factory.get("/test/")
+    mock_resolver = Mock()
+    mock_resolver.kwargs = {}
+    mock_view_func = Mock()
+
+    from rest_framework.viewsets import GenericViewSet
+
+    class TestGenericViewSet(GenericViewSet):
+        queryset = []
+
+    mock_view_func.cls = TestGenericViewSet
+    mock_view_func.actions = {"get": "list"}
+    mock_resolver.func = mock_view_func
+    request.resolver_match = mock_resolver
+
+    with patch("observe_kit.drf.integration.importlib.util.find_spec", return_value=Mock()):
+        result = detect_drf_route(request)
+        assert result == "drf.TestGenericViewSet.list"
+
+
 def test_set_drf_action_preserves_existing() -> None:
     """Test that set_drf_action preserves existing route if new is None."""
     from observe_kit.context import (

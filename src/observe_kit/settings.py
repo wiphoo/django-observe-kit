@@ -113,14 +113,10 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         sample_rate = 0.0
 
     raw_enabled = _get("ENABLED", default=True)
-    enabled = raw_enabled if isinstance(raw_enabled, bool) else str(raw_enabled).lower() != "false"
+    enabled = _as_bool(raw_enabled)
 
     raw_db_tracking = _get("DB_TRACKING", default=True)
-    db_tracking = (
-        raw_db_tracking
-        if isinstance(raw_db_tracking, bool)
-        else str(raw_db_tracking).lower() != "false"
-    )
+    db_tracking = _as_bool(raw_db_tracking)
 
     pii_levels = _get("PII_LEVELS", default=None)
 
@@ -137,3 +133,9 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         enabled=enabled,
         db_tracking=db_tracking,
     )
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() != "false"

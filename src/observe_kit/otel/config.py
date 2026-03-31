@@ -146,31 +146,59 @@ def _init_otel_log_export(resource: Resource, endpoint: Optional[str]) -> None:
     global _LOG_EXPORT_INITIALIZED
 
     if _LOG_EXPORT_INITIALIZED:
+        current_provider = get_logger_provider()
+        if isinstance(current_provider, LoggerProvider):
+            _ensure_otel_logging_handler(current_provider)
         logger.debug("otel log export already configured")
         return
 
-    log_endpoint = _normalize_otlp_http_endpoint(endpoint, "logs")
-    log_exporter = OTLPLogExporter(endpoint=log_endpoint) if log_endpoint else OTLPLogExporter()
-    log_provider = LoggerProvider(resource=resource)
-    log_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     current_provider = get_logger_provider()
-    if not isinstance(current_provider, LoggerProvider):
-        set_logger_provider(log_provider)
-    else:
+    if isinstance(current_provider, LoggerProvider):
         log_provider = current_provider
-    # Bridge Python's standard logging into the OTEL SDK.
+    else:
+        log_provider = LoggerProvider(resource=resource)
+        set_logger_provider(log_provider)
+
+    log_endpoint = _normalize_otlp_http_endpoint(endpoint, "logs")
+    if not _has_otlp_log_processor(log_provider, log_endpoint):
+        log_exporter = OTLPLogExporter(endpoint=log_endpoint) if log_endpoint else OTLPLogExporter()
+        log_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+
+    _ensure_otel_logging_handler(log_provider)
+    _LOG_EXPORT_INITIALIZED = True
+    logger.info("otel log export configured", extra={"endpoint": log_endpoint})
+
+
+def _has_otlp_log_processor(provider: LoggerProvider, endpoint: Optional[str]) -> bool:
+    multi_processor = getattr(provider, "_multi_log_record_processor", None)
+    processors = getattr(multi_processor, "_log_record_processors", ())
+
+    for processor in processors:
+        if not isinstance(processor, BatchLogRecordProcessor):
+            continue
+        batch_processor = getattr(processor, "_batch_processor", None)
+        exporter = getattr(batch_processor, "_exporter", None)
+        if exporter is None:
+            continue
+        if getattr(exporter, "_endpoint", None) == endpoint:
+            return True
+
+    return False
+
+
+def _ensure_otel_logging_handler(log_provider: LoggerProvider) -> None:
     root_logger = logging.getLogger()
     has_handler = any(
         isinstance(handler, LoggingHandler) and getattr(handler, _OTEL_LOG_HANDLER_ATTR, False)
         for handler in root_logger.handlers
     )
-    if not has_handler:
-        handler = LoggingHandler(level=logging.NOTSET, logger_provider=log_provider)
-        setattr(handler, _OTEL_LOG_HANDLER_ATTR, True)
-        handler.addFilter(OTelLogRecordSanitizer())
-        root_logger.addHandler(handler)
-    _LOG_EXPORT_INITIALIZED = True
-    logger.info("otel log export configured", extra={"endpoint": log_endpoint})
+    if has_handler:
+        return
+
+    handler = LoggingHandler(level=logging.NOTSET, logger_provider=log_provider)
+    setattr(handler, _OTEL_LOG_HANDLER_ATTR, True)
+    handler.addFilter(OTelLogRecordSanitizer())
+    root_logger.addHandler(handler)
 
 
 def init_tracing(
@@ -202,6 +230,9 @@ def init_tracing(
     _validate_resource_attributes(resource_attributes)
 
     if _TRACING_INITIALIZED:
+        current_provider = get_logger_provider()
+        if isinstance(current_provider, LoggerProvider):
+            _ensure_otel_logging_handler(current_provider)
         logger.debug("otel tracer already configured", extra={"service": service_name})
         return
 

@@ -25,6 +25,4 @@ PII_SINK_AUDIT = "audit"
 # Never log request or response bodies to prevent PII exposure
 BODY_LOG_WARNING = "[BODY_OMITTED] Request/response bodies are never logged to prevent PII exposure"
 
-# DB tracking configuration
-# Set to False to disable DB query tracking (improves performance on high-traffic sites)
-ENABLE_DB_TRACKING = True
+# DB query tracking defaults are resolved via observe_kit.settings.get_observe_kit_settings().

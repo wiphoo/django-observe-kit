@@ -26,9 +26,9 @@ def detect_drf_route(request: "HttpRequest") -> Optional[str]:
         # First try to get from view instance (available after view is initialized)
         view_instance = getattr(request, "view", None)
         if view_instance:
-            from rest_framework.viewsets import ViewSet
+            from rest_framework.viewsets import ViewSetMixin
 
-            if isinstance(view_instance, ViewSet):
+            if isinstance(view_instance, ViewSetMixin):
                 action = getattr(view_instance, "action", None)
                 if action:
                     viewset_name = view_instance.__class__.__name__
@@ -48,10 +48,10 @@ def detect_drf_route(request: "HttpRequest") -> Optional[str]:
         if not view_cls:
             return None
 
-        # Check if it's a ViewSet
-        from rest_framework.viewsets import ViewSet
+        # Check if it's a DRF ViewSet-style class, including GenericViewSet subclasses.
+        from rest_framework.viewsets import ViewSetMixin
 
-        if not issubclass(view_cls, ViewSet):
+        if not issubclass(view_cls, ViewSetMixin):
             return None
 
         # Try to get action from view_func.actions (set by @action decorator)
