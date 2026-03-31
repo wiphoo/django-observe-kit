@@ -5,49 +5,23 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Trace Context Propagation**: Extract W3C Trace-Context headers from incoming requests for distributed tracing
-- **Per-Sink PII Configuration**: Support different PII levels for logs, OTEL, Sentry, and audit sinks
-- **DRF Integration Middleware**: Automatic detection of DRF ViewSet actions with span renaming (`drf.<ViewSet>.<action>`)
-- **Framework Detection**: Automatic detection of Wagtail admin and Django admin requests with `framework` attribute
-- **Error Handling**: Comprehensive error handling in all middleware to prevent observability failures from breaking requests
-- **Trace ID in AuditLog**: Added `trace_id` field to AuditLog model for trace correlation
-- **Request Body Sanitization Guards**: Automatic prevention of request/response body logging to protect PII
-- **DB Tracking Performance Option**: Configurable flag to disable DB query tracking for high-traffic sites
-- **Configuration Validation**: Comprehensive validation for `init_tracing()`, `init_sentry()`, and `configure_logging()` with clear error messages
-- **Advanced Documentation**: Expanded README with advanced usage examples and customization guides
-- **Type Hints**: Added comprehensive type hints for Django request/response objects using TYPE_CHECKING
-- **Coverage Gate**: Default maintained test suite now enforces 90% package coverage
+- OTEL tracing with automatic W3C trace-context propagation plus the `X-Trace-Id` header.
+- Per-sink PII configuration (`PiiConfig`) spanning logs, OTEL, Sentry, and audit sinks.
+- DRF integration middleware that detects ViewSet actions and renames spans to `drf.<ViewSet>.<action>` while tagging frameworks.
+- Structured logging, audit entries with trace IDs, request body sanitization, and optional DB-tracking controls.
+- Health checks, validation helpers, and documentation that explain advanced usage and observability guardrails.
 
 ### Changed
-- **TraceContextMiddleware**: Now extracts parent trace context from incoming requests instead of always creating new spans
-- **RequestContext**: Added `framework` field to track request source (wagtail_admin, django_admin, etc.)
-- **PII Configuration**: Refactored to support per-sink PII levels via `PiiConfig` class
-- **Sentry Integration**: `init_sentry()` now uses per-sink PII config when `pii_level` not specified
-- **Logging Configuration**: `configure_logging()` now accepts `pii_levels` dict for per-sink configuration
-- **DRF Exception Handler**: Clarified documentation about ValidationError handling
-- **Logging Filters**: Added automatic filtering of request/response body fields to prevent PII exposure
-- **DB Tracking**: Made optional via `ENABLE_DB_TRACKING` configuration flag
-- **Type Annotations**: Enhanced type hints across all middleware and core functions
-- **Test Infrastructure**: Consolidated around maintained unit and integration suites
+- `configure_logging`, `init_tracing`, and `init_sentry` now validate inputs, honor per-sink PII, and document the new defaults.
+- Middlewares gain graceful error handling, framework detection, and tighter span naming for DRF routes.
+- Metrics, health checks, and Wagtail hooks now surface tenant/trace metadata consistently.
 
 ### Fixed
-- Trace context propagation across microservices
-- Missing `trace_id` in audit logs
-- Incomplete DRF ViewSet action detection
-- Missing Wagtail admin request tagging
-- Lack of error handling in middleware
-- Misleading DRF ValidationError documentation
+- Missing trace_id propagation in audit logs and logging handlers.
+- DRF action detection gaps, Wagtail admin tagging, and middleware exceptions that previously halted requests.
+- Misleading ValidationError documentation and coverage gaps around core middleware.
 
 ### Documentation
-- Updated README with per-sink PII configuration examples
-- Added DRF middleware setup instructions
-- Clarified ValidationError handling behavior
-- Added migration instructions for AuditLog model
-- Added comprehensive "Advanced Usage" section with examples for:
-  - Custom span names and attributes
-  - Using audit() helper
-  - Disabling DB tracking
-  - Request body sanitization
-  - Configuration validation
-  - Per-sink PII configuration
-  - Custom exception handling
+- README trimmed to the essentials with new pointers to the consolidated internal status summary.
+- CONTRIBUTING now focuses on the minimal workflow, and CHANGELOG highlights only user-facing releases.
+- Internal docs replaced by `docs/internal/status.md`, which lists the completed phases, testing flow, and next steps.
