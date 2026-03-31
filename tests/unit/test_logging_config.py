@@ -110,7 +110,10 @@ def test_configure_logging_preserves_observe_kit_otel_root_handlers() -> None:
                 handler for handler in root_logger.handlers if handler is not otel_handler
             ]
 
-        with patch("observe_kit.logging.config.logging.config.dictConfig", side_effect=fake_dict_config):
+        with patch(
+            "observe_kit.logging.config.logging.config.dictConfig",
+            side_effect=fake_dict_config,
+        ):
             configure_logging(level="INFO")
 
         assert otel_handler in root_logger.handlers

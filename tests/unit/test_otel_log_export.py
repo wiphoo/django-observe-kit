@@ -68,8 +68,7 @@ def test_init_tracing_adds_logging_handler() -> None:
 
 def test_init_tracing_reinstalls_logging_handler_when_missing() -> None:
     """A repeated init_tracing() call should restore the OTEL handler if it was removed."""
-    from opentelemetry.sdk._logs import LoggingHandler
-    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
 
     from observe_kit.otel import config as otel_config
     from observe_kit.otel.config import init_tracing
