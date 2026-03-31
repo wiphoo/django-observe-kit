@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Initialize HyperDX with default admin user and team.
+"""Initialize HyperDX with MongoDB collections, default admin user, and ClickHouse datasource.
 
-This script creates a default team and admin user in HyperDX using its API.
+This script:
+1. Creates required MongoDB collections for HyperDX
+2. Creates a default admin user in HyperDX using its API
+3. Verifies ClickHouse datasource is configured (via environment variables or API)
 It uses the /register/password endpoint to properly create users with
 passport-local-mongoose compatible password hashing.
+
+Note: HyperDX should auto-create the ClickHouse datasource from DEFAULT_CONNECTIONS
+and DEFAULT_SOURCES environment variables. This script verifies the setup is working.
 """
 
 import json
@@ -12,7 +18,14 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Optional
+
+try:
+    from pymongo import MongoClient  # type: ignore
+except ImportError:
+    print("❌ pymongo is required. Install it with: pip install pymongo", file=sys.stderr)
+    sys.exit(1)
 
 
 def get_env_var(name: str, default: str) -> str:
@@ -20,58 +33,91 @@ def get_env_var(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
-def wait_for_hyperdx(api_url: str, max_retries: int = 60, delay: int = 2) -> bool:
-    """Wait for HyperDX API to be available."""
-    print("⏳ Waiting for HyperDX API to be available...")
-    health_url = f"{api_url}/api/health"
-    
+def _retry_until_ready(probe: Callable[[], None], label: str, max_retries: int, delay: int) -> bool:
+    """Retry probe() up to max_retries times, sleeping delay seconds between attempts."""
+    print(f"⏳ Waiting for {label} to be available...")
     for i in range(max_retries):
         try:
-            req = urllib.request.Request(health_url, method="GET")
-            with urllib.request.urlopen(req, timeout=5) as response:
-                if response.status == 200:
-                    print("✅ HyperDX API is ready!")
-                    return True
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+            probe()
+            print(f"✅ {label} is ready!")
+            return True
+        except Exception as e:
             if i < max_retries - 1:
-                print(f"   Attempt {i + 1}/{max_retries}...")
+                print(f"   Attempt {i + 1}/{max_retries}... ({e})")
                 time.sleep(delay)
             else:
-                print("❌ Failed to connect to HyperDX API", file=sys.stderr)
-                return False
+                print(f"❌ Failed to connect to {label}: {e}", file=sys.stderr)
     return False
 
 
-def create_team_via_api(api_url: str, team_name: str) -> Optional[str]:
-    """Create team via API. Returns team ID or None."""
-    # Note: HyperDX creates a default team when the first user registers
-    # This function is kept for potential future use
-    print(f"ℹ️  Team will be created automatically during user registration")
-    return None
+def wait_for_mongodb(mongo_uri: str, max_retries: int = 60, delay: int = 2) -> bool:
+    """Wait for MongoDB to be available."""
+    def probe() -> None:
+        with MongoClient(mongo_uri, serverSelectionTimeoutMS=5000) as client:
+            client.admin.command('ping')
+    return _retry_until_ready(probe, "MongoDB", max_retries, delay)
+
+
+def create_mongodb_collections(mongo_uri: str, database_name: str = "hyperdx") -> bool:
+    """Create required MongoDB collections for HyperDX."""
+    print(f"📦 Creating MongoDB collections in database '{database_name}'...")
+
+    collections = ['teams', 'users', 'dashboards', 'alerts', 'saved_searches']
+
+    try:
+        with MongoClient(mongo_uri, serverSelectionTimeoutMS=10000) as client:
+            db = client[database_name]
+            existing = set(db.list_collection_names())
+
+            created_count = 0
+            for collection_name in collections:
+                if collection_name not in existing:
+                    db.create_collection(collection_name)
+                    print(f"   ✅ Created collection '{collection_name}'")
+                    created_count += 1
+                else:
+                    print(f"   ℹ️  Collection '{collection_name}' already exists")
+
+        skipped = len(collections) - created_count
+        print(f"✅ MongoDB collections initialized ({created_count} new, {skipped} existing)")
+        return True
+    except Exception as e:
+        print(f"❌ Error creating MongoDB collections: {e}", file=sys.stderr)
+        return False
+
+
+def wait_for_hyperdx(api_url: str, max_retries: int = 60, delay: int = 2) -> bool:
+    """Wait for HyperDX API to be available."""
+    def probe() -> None:
+        req = urllib.request.Request(f"{api_url}/api/health", method="GET")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            if response.status != 200:
+                raise RuntimeError(f"status {response.status}")
+    return _retry_until_ready(probe, "HyperDX API", max_retries, delay)
 
 
 def register_user(
     api_url: str, email: str, password: str
 ) -> bool:
     """Register a user via HyperDX API.
-    
+
     Password requirements:
     - At least 12 characters
     - Both lower and upper case characters
     - At least one special character
     """
     register_url = f"{api_url}/api/register/password"
-    
+
     payload = json.dumps({
         "email": email,
         "password": password,
         "confirmPassword": password,
     }).encode("utf-8")
-    
+
     headers = {
         "Content-Type": "application/json",
     }
-    
+
     try:
         req = urllib.request.Request(
             register_url,
@@ -96,7 +142,7 @@ def register_user(
                     return True
                 print(f"⚠️  Registration failed (400): {error_body}")
             except Exception:
-                print(f"⚠️  Registration failed with status 400 - user may already exist")
+                print("⚠️  Registration failed with status 400 - user may already exist")
             return True  # Assume user exists
         elif e.code == 409:
             print(f"✅ User '{email}' already exists (409 Conflict)")
@@ -112,45 +158,178 @@ def register_user(
         return False
 
 
-def check_user_exists(api_url: str, email: str) -> bool:
-    """Check if we can log in with the given credentials."""
-    # We can't easily check without logging in, so we'll just try to register
-    return False
+def login_user(api_url: str, email: str, password: str) -> Optional[str]:
+    """Login to HyperDX and return session token/cookie.
+
+    Returns the session token if successful, None otherwise.
+    """
+    login_url = f"{api_url}/api/login/password"
+
+    payload = json.dumps({
+        "email": email,
+        "password": password,
+    }).encode("utf-8")
+
+    headers = {
+        "Content-Type": "application/json",
+    }
+
+    try:
+        req = urllib.request.Request(
+            login_url,
+            data=payload,
+            headers=headers,
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as response:
+            if response.status == 200:
+                cookies: Optional[str] = response.headers.get("Set-Cookie")
+                if cookies:
+                    print(f"✅ Successfully logged in as '{email}'")
+                    return cookies
+                try:
+                    body = json.loads(response.read().decode("utf-8"))
+                    if isinstance(body, dict):
+                        token = body.get("token") or body.get("session")
+                        if token:
+                            return str(token)
+                except Exception as parse_err:
+                    print(f"   ⚠️  Could not parse login response body: {parse_err}")
+                print(f"✅ Successfully logged in as '{email}' (no token extracted)")
+                return "authenticated"
+            else:
+                print(f"⚠️  Unexpected status {response.status} when logging in")
+                return None
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            print(f"❌ Invalid credentials for '{email}'", file=sys.stderr)
+        else:
+            print(f"❌ HTTP Error {e.code}: {e.reason}", file=sys.stderr)
+        return None
+    except urllib.error.URLError as e:
+        print(f"❌ URL Error: {e.reason}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"❌ Error logging in: {e}", file=sys.stderr)
+        return None
 
 
-def main():
+def verify_clickhouse_connection(api_url: str, session_token: Optional[str] = None) -> None:
+    """Log ClickHouse datasource status. Best-effort — auto-configured via env vars."""
+    print("🔍 Verifying ClickHouse datasource configuration...")
+
+    connections_url = f"{api_url}/api/connections"
+
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+    }
+
+    if session_token:
+        if session_token.startswith("token="):
+            headers["Cookie"] = session_token
+        else:
+            headers["Authorization"] = f"Bearer {session_token}"
+
+    try:
+        req = urllib.request.Request(
+            connections_url,
+            headers=headers,
+            method="GET"
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode("utf-8"))
+                connections = data.get("connections", []) if isinstance(data, dict) else []
+                if connections:
+                    print(f"   ✅ Found {len(connections)} ClickHouse connection(s)")
+                    for conn in connections:
+                        name = conn.get("name", "Unknown")
+                        print(f"      - {name}")
+                else:
+                    print("   ⚠️  No connections found (may be using environment variables)")
+            else:
+                print(f"   ⚠️  Could not verify connections (status {response.status})")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            print("   ⚠️  Authentication required to verify connections")
+        else:
+            print(f"   ⚠️  Could not verify connections (HTTP {e.code})")
+        print("   ℹ️  Datasource should be auto-configured via environment variables")
+    except Exception as e:
+        print(f"   ⚠️  Could not verify connections: {e}")
+        print("   ℹ️  Datasource should be auto-configured via environment variables")
+
+
+def main() -> int:
     """Main initialization function."""
-    # Get configuration from environment variables
     hyperdx_url = get_env_var("HYPERDX_URL", "http://hyperdx:8080")
+    mongo_uri = get_env_var("MONGO_URI", "mongodb://mongodb:27017/hyperdx")
+    mongo_db = get_env_var("MONGO_DB", "hyperdx")
     admin_email = get_env_var("HYPERDX_ADMIN_EMAIL", "admin@example.com")
-    # Password must be: 12+ chars, upper+lower case, special char
     admin_password = get_env_var("HYPERDX_ADMIN_PASSWORD", "Admin123!@#$")
-    
+
     print("🚀 Initializing HyperDX...")
     print(f"   HyperDX URL: {hyperdx_url}")
+    print(f"   MongoDB URI: {mongo_uri}")
+    print(f"   MongoDB Database: {mongo_db}")
     print(f"   Admin Email: {admin_email}")
     print("")
-    
-    # Wait for HyperDX API
+
+    print("=" * 60)
+    print("Step 1: MongoDB Initialization")
+    print("=" * 60)
+    if not wait_for_mongodb(mongo_uri):
+        print("⚠️  MongoDB not ready, but continuing anyway...")
+        print("   Collections may be auto-created by HyperDX")
+    else:
+        create_mongodb_collections(mongo_uri, mongo_db)
+
+    print("")
+    print("=" * 60)
+    print("Step 2: HyperDX User Registration")
+    print("=" * 60)
     if not wait_for_hyperdx(hyperdx_url):
         print("⚠️  HyperDX API not ready, but continuing anyway...")
-        # Don't exit - the user might want to register manually
-    
-    # Register admin user via API
+        print("   You may need to register manually at the HyperDX web UI.")
+        return 1
+
     print("")
     print("📝 Registering admin user...")
-    if register_user(hyperdx_url, admin_email, admin_password):
-        print("")
-        print("✅ HyperDX initialization complete!")
-        print(f"   Admin user: {admin_email}")
-        print(f"   Password: {admin_password}")
-        print("   ⚠️  CHANGE THESE CREDENTIALS IN PRODUCTION!")
-    else:
+    if not register_user(hyperdx_url, admin_email, admin_password):
         print("")
         print("⚠️  Could not register admin user automatically.")
         print("   You can register manually at the HyperDX web UI.")
-        # Don't fail - user can register manually
-    
+        return 1
+
+    print("")
+    print("=" * 60)
+    print("Step 3: ClickHouse Datasource Verification")
+    print("=" * 60)
+    print("")
+    print("🔐 Logging in to verify setup...")
+    session_token = login_user(hyperdx_url, admin_email, admin_password)
+
+    if not session_token:
+        print("   ⚠️  Could not login to verify datasource")
+        print("   ℹ️  Datasource should be auto-configured via DEFAULT_CONNECTIONS env var")
+
+    verify_clickhouse_connection(hyperdx_url, session_token)
+
+    print("")
+    print("=" * 60)
+    print("✅ HyperDX initialization complete!")
+    print("=" * 60)
+    print(f"   Admin user: {admin_email}")
+    print(f"   Password: {admin_password}")
+    print("   ⚠️  CHANGE THESE CREDENTIALS IN PRODUCTION!")
+    print("")
+    print("   ClickHouse datasource should be auto-configured via environment variables.")
+    print("   If you don't see data in HyperDX, check:")
+    print("   1. OTEL Collector is running and connected to ClickHouse")
+    print("   2. ClickHouse tables are created (init-clickhouse service)")
+    print("   3. HyperDX DEFAULT_CONNECTIONS and DEFAULT_SOURCES are set correctly")
+    print("")
+
     return 0
 
 

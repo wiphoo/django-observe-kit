@@ -1,6 +1,7 @@
 """Tests for configuration validation."""
 
 import importlib.util
+from unittest.mock import patch
 
 import pytest
 
@@ -14,10 +15,9 @@ def test_otel_config_validation() -> None:
     from observe_kit.otel.config import ConfigurationError, init_tracing
 
     # Valid configuration should not raise
-    try:
-        init_tracing(service_name="test-service")
-    except Exception:
-        pass  # May fail if OTEL not properly set up, but validation should pass
+    with patch("observe_kit.otel.config.OTLPSpanExporter"):
+        with patch("observe_kit.otel.config.OTLPLogExporter"):
+            init_tracing(service_name="test-service")
 
     # Invalid service name should raise
     with pytest.raises(ConfigurationError):

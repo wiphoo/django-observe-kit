@@ -119,3 +119,4 @@ def test_wrap_connections_remover_returns_list() -> None:
 
         remover()
         mock_remover.assert_called_once()
+
