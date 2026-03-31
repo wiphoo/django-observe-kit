@@ -105,14 +105,14 @@ def test_configure_logging_preserves_observe_kit_otel_root_handlers() -> None:
     root_logger.addHandler(otel_handler)
 
     try:
+
         def fake_dict_config(_: dict) -> None:
             root_logger.handlers = [
                 handler for handler in root_logger.handlers if handler is not otel_handler
             ]
 
         with patch(
-            "observe_kit.logging.config.logging.config.dictConfig",
-            side_effect=fake_dict_config,
+            "observe_kit.logging.config.logging.config.dictConfig", side_effect=fake_dict_config
         ):
             configure_logging(level="INFO")
 
