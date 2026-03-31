@@ -72,6 +72,12 @@ def test_wrap_connections_wraps_all_connections() -> None:
         mock_remover1 = Mock()
         mock_remover2 = Mock()
         mock_remover3 = Mock()
+        mock_remover1.__enter__ = Mock(return_value=None)
+        mock_remover2.__enter__ = Mock(return_value=None)
+        mock_remover3.__enter__ = Mock(return_value=None)
+        mock_remover1.__exit__ = Mock(return_value=None)
+        mock_remover2.__exit__ = Mock(return_value=None)
+        mock_remover3.__exit__ = Mock(return_value=None)
         mock_conn1.execute_wrapper.return_value = mock_remover1
         mock_conn2.execute_wrapper.return_value = mock_remover2
         mock_conn3.execute_wrapper.return_value = mock_remover3
@@ -89,9 +95,12 @@ def test_wrap_connections_wraps_all_connections() -> None:
 
         # Test remover function
         remover()
-        mock_remover1.assert_called_once()
-        mock_remover2.assert_called_once()
-        mock_remover3.assert_called_once()
+        mock_remover1.__enter__.assert_called_once()
+        mock_remover2.__enter__.assert_called_once()
+        mock_remover3.__enter__.assert_called_once()
+        mock_remover1.__exit__.assert_called_once_with(None, None, None)
+        mock_remover2.__exit__.assert_called_once_with(None, None, None)
+        mock_remover3.__exit__.assert_called_once_with(None, None, None)
 
 
 def test_wrap_connections_empty_connections() -> None:
@@ -111,6 +120,8 @@ def test_wrap_connections_remover_returns_list() -> None:
     with patch("observe_kit.metrics.db.connections") as mock_connections:
         mock_conn = Mock()
         mock_remover = Mock()
+        mock_remover.__enter__ = Mock(return_value=None)
+        mock_remover.__exit__ = Mock(return_value=None)
         mock_conn.execute_wrapper.return_value = mock_remover
         mock_connections.all.return_value = [mock_conn]
 
@@ -118,5 +129,5 @@ def test_wrap_connections_remover_returns_list() -> None:
         remover = wrap_connections(recorder)
 
         remover()
-        mock_remover.assert_called_once()
-
+        mock_remover.__enter__.assert_called_once()
+        mock_remover.__exit__.assert_called_once_with(None, None, None)

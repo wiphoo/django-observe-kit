@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 
 # Lazy imports to avoid Django configuration issues at module load time
 if TYPE_CHECKING:
-    from rest_framework.viewsets import ViewSet
+    pass
 
 
 from observe_kit.context import get_request_context, reset_request_context  # noqa: E402

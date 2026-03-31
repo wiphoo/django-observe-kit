@@ -36,10 +36,10 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     # observe_kit middleware (order matters!)
     "observe_kit.otel.middleware.TraceContextMiddleware",
-    "observe_kit.context_middleware.RequestContextMiddleware",
-    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.logging.middleware.RequestLoggingMiddleware",
     "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+    "observe_kit.context_middleware.RequestContextMiddleware",
+    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.sentry.middleware.SentryContextMiddleware",
     # Django middleware
     "django.middleware.security.SecurityMiddleware",
@@ -138,7 +138,6 @@ configure_logging(
 # Optional: Disable DB query tracking for performance
 # import observe_kit.conf as observe_conf
 # observe_conf.ENABLE_DB_TRACKING = False
-
 
 
 

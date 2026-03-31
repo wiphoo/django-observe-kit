@@ -14,9 +14,9 @@ import pytest
 import requests
 from django.test import Client
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 pytestmark = pytest.mark.integration
 
@@ -50,17 +50,17 @@ def otel_metrics_endpoint() -> str:
 
 def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
     """Verify the OTEL collector is ready to accept traces.
-    
+
     Args:
         otel_http_endpoint: Base HTTP endpoint (e.g., http://localhost:4318)
         timeout: Seconds to wait for collector
-        
+
     Returns:
         True if collector is ready
     """
     traces_endpoint = f"{otel_http_endpoint}/v1/traces"
     start = time.time()
-    
+
     while time.time() - start < timeout:
         try:
             # Send an empty trace request - collector should respond
@@ -87,7 +87,7 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
             except Exception:
                 pass
         time.sleep(0.5)
-    
+
     return False
 
 
@@ -96,26 +96,26 @@ def fresh_tracer_provider(
     otel_http_endpoint: str, wait_for_otel_collector: Generator[None, None, None]
 ) -> Generator[TracerProvider, None, None]:
     """Create a fresh TracerProvider connected to the real collector.
-    
+
     This fixture creates a new provider for each test to avoid state pollution.
     """
     # Verify collector is actually ready
     assert verify_collector_ready(otel_http_endpoint), (
         f"OTEL Collector not ready at {otel_http_endpoint}"
     )
-    
+
     # Create exporter and provider
     traces_endpoint = f"{otel_http_endpoint}/v1/traces"
     exporter = OTLPSpanExporter(endpoint=traces_endpoint)
     provider = TracerProvider()
     provider.add_span_processor(BatchSpanProcessor(exporter))
-    
+
     # Set as the global provider (needed for middleware integration)
     old_provider = trace.get_tracer_provider()
     trace.set_tracer_provider(provider)
-    
+
     yield provider
-    
+
     # Cleanup
     try:
         provider.force_flush(timeout_millis=5000)
@@ -125,7 +125,7 @@ def fresh_tracer_provider(
         provider.shutdown()
     except Exception:
         pass
-    
+
     # Restore old provider
     trace.set_tracer_provider(old_provider)
 
@@ -153,7 +153,7 @@ def test_otel_collector_is_running(
     assert response.status_code == 200, (
         f"OTEL Collector OTLP endpoint not accessible: {response.text}"
     )
-    
+
     # Check collector metrics endpoint
     response = requests.get(f"{otel_metrics_endpoint}/metrics", timeout=5)
     assert response.status_code == 200, "OTEL Collector metrics endpoint not accessible"

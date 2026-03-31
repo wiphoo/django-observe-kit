@@ -60,10 +60,10 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     # observe_kit middleware (order matters!)
     "observe_kit.otel.middleware.TraceContextMiddleware",
-    "observe_kit.context_middleware.RequestContextMiddleware",
-    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.logging.middleware.RequestLoggingMiddleware",
     "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+    "observe_kit.context_middleware.RequestContextMiddleware",
+    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.sentry.middleware.SentryContextMiddleware",
     # Django/Wagtail middleware
     "django.middleware.security.SecurityMiddleware",
@@ -211,4 +211,3 @@ if OTEL_ENDPOINT:
         endpoint=OTEL_ENDPOINT,
         resource_attributes=resource_attributes,
     )
-

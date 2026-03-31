@@ -6,6 +6,7 @@ These tests REQUIRE a running OTEL Collector and ClickHouse. They verify:
 3. Standard OTEL metadata is present in both traces and logs
 """
 
+import json
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -14,10 +15,10 @@ import pytest
 import requests
 from django.test import Client
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 pytestmark = pytest.mark.integration
 
@@ -69,7 +70,7 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
     """Verify the OTEL collector is ready to accept traces."""
     traces_endpoint = f"{otel_http_endpoint}/v1/traces"
     start = time.time()
-    
+
     while time.time() - start < timeout:
         try:
             response = requests.post(
@@ -95,7 +96,7 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
             except Exception:
                 pass
         time.sleep(0.5)
-    
+
     return False
 
 
@@ -112,7 +113,7 @@ def fresh_tracer_provider(
     # Create exporter and provider with service name
     traces_endpoint = f"{otel_http_endpoint}/v1/traces"
     exporter = OTLPSpanExporter(endpoint=traces_endpoint)
-    
+
     # Set service name in resource attributes
     resource = Resource.create({"service.name": "test-service"})
     provider = TracerProvider(resource=resource)
@@ -153,11 +154,11 @@ def query_clickhouse_traces(
     url = clickhouse_client["url"]
     auth = (clickhouse_client["user"], clickhouse_client["password"])
     last_error = None
-    
+
     while time.time() - start_time < max_wait_seconds:
         try:
             query = """
-                SELECT 
+                SELECT
                     ServiceName,
                     StatusCode,
                     SpanName,
@@ -169,19 +170,19 @@ def query_clickhouse_traces(
                 FROM default.otel_traces
                 WHERE 1=1
             """
-            
+
             if service_name:
                 # Escape single quotes in service name
                 escaped_name = service_name.replace("'", "''")
                 query += f" AND ServiceName = '{escaped_name}'"
-            
+
             if trace_id:
                 # Escape single quotes in trace_id
                 escaped_trace_id = trace_id.replace("'", "''")
                 query += f" AND TraceId = '{escaped_trace_id}'"
-            
+
             query += " ORDER BY Timestamp DESC LIMIT 100"
-            
+
             # Use HTTP API with format=JSONEachRow
             response = requests.post(
                 f"{url}?default_format=JSONEachRow",
@@ -189,26 +190,29 @@ def query_clickhouse_traces(
                 auth=auth,
                 timeout=5,
             )
-            
+
             if response.status_code != 200:
-                last_error = f"ClickHouse returned status {response.status_code}: {response.text[:200]}"
+                last_error = (
+                    f"ClickHouse returned status {response.status_code}: "
+                    f"{response.text[:200]}"
+                )
                 time.sleep(0.5)
                 continue
-            
+
             if response.text.strip():
                 # Parse JSONEachRow format (one JSON object per line)
                 rows = []
                 for line in response.text.strip().split("\n"):
                     if line:
                         try:
-                            rows.append(requests.utils.json.loads(line))
+                            rows.append(json.loads(line))
                         except Exception as e:
                             last_error = f"Failed to parse JSON: {e}, line: {line[:100]}"
                             continue
-                
+
                 if rows:
                     return rows
-            
+
             time.sleep(0.5)
         except requests.exceptions.RequestException as e:
             last_error = f"Request error: {e}"
@@ -216,7 +220,7 @@ def query_clickhouse_traces(
         except Exception as e:
             last_error = f"Unexpected error: {e}"
             time.sleep(0.5)
-    
+
     # If we get here, return empty list but log the last error for debugging
     if last_error:
         print(f"DEBUG: Last error querying ClickHouse: {last_error}")
@@ -233,11 +237,11 @@ def query_clickhouse_logs(
     start_time = time.time()
     url = clickhouse_client["url"]
     auth = (clickhouse_client["user"], clickhouse_client["password"])
-    
+
     while time.time() - start_time < max_wait_seconds:
         try:
             query = """
-                SELECT 
+                SELECT
                     ServiceName,
                     Body,
                     SeverityText,
@@ -248,12 +252,12 @@ def query_clickhouse_logs(
                 FROM default.otel_logs
                 WHERE ServiceName = '{service_name}'
             """.format(service_name=service_name)
-            
+
             if trace_id:
                 query += f" AND TraceId = '{trace_id}'"
-            
+
             query += " ORDER BY Timestamp DESC LIMIT 100"
-            
+
             # Use HTTP API with format=JSONEachRow
             response = requests.post(
                 f"{url}?default_format=JSONEachRow",
@@ -261,28 +265,27 @@ def query_clickhouse_logs(
                 auth=auth,
                 timeout=5,
             )
-            
+
             if response.status_code == 200 and response.text.strip():
                 # Parse JSONEachRow format (one JSON object per line)
                 rows = []
                 for line in response.text.strip().split("\n"):
                     if line:
-                        rows.append(requests.utils.json.loads(line))
-                
+                        rows.append(json.loads(line))
+
                 if rows:
                     return rows
-            
+
             time.sleep(0.5)
-        except Exception as e:
+        except Exception:
             # If table doesn't exist or other error, wait and retry
             time.sleep(0.5)
-    
+
     return []
 
 
 def test_traces_stored_in_clickhouse_with_service_name(
     django_client: Client,
-    test_tracer: trace.Tracer,
     clickhouse_client: Any,
     wait_for_clickhouse: None,
     wait_for_otel_collector: Any,
@@ -291,13 +294,13 @@ def test_traces_stored_in_clickhouse_with_service_name(
     """Test that traces are stored in ClickHouse with ServiceName."""
     # First, ensure OTEL is initialized with service name
     from observe_kit.otel import init_tracing
-    
+
     # Initialize tracing with a known service name
     init_tracing(
         service_name="test-service",
-        endpoint=f"{otel_http_endpoint}/v1/traces",
+        endpoint=otel_http_endpoint,
     )
-    
+
     # Make a request that will create a span
     response = django_client.get("/metrics")
     assert response.status_code == 200
@@ -321,7 +324,7 @@ def test_traces_stored_in_clickhouse_with_service_name(
         trace_id=trace_id,
         max_wait_seconds=30,
     )
-    
+
     if not all_traces:
         # Try querying all traces to see what service names exist
         all_traces_all = query_clickhouse_traces(
@@ -338,7 +341,7 @@ def test_traces_stored_in_clickhouse_with_service_name(
 
     # Now filter by service name
     traces = [t for t in all_traces if t.get("ServiceName") == "test-service"]
-    
+
     if not traces:
         # Show what service names we actually got
         actual_service_names = {t.get("ServiceName") for t in all_traces if t.get("ServiceName")}
@@ -346,7 +349,7 @@ def test_traces_stored_in_clickhouse_with_service_name(
             f"No traces found with ServiceName='test-service'. "
             f"Found traces with service names: {actual_service_names}"
         )
-    
+
     # Verify ServiceName is present
     for trace_row in traces:
         assert trace_row["ServiceName"] == "test-service", (
@@ -358,7 +361,6 @@ def test_traces_stored_in_clickhouse_with_service_name(
 
 def test_traces_stored_with_status_code(
     django_client: Client,
-    test_tracer: trace.Tracer,
     clickhouse_client: Any,
     wait_for_clickhouse: None,
     wait_for_otel_collector: Any,
@@ -369,9 +371,9 @@ def test_traces_stored_with_status_code(
     from observe_kit.otel import init_tracing
     init_tracing(
         service_name="test-service",
-        endpoint=f"{otel_http_endpoint}/v1/traces",
+        endpoint=otel_http_endpoint,
     )
-    
+
     # Make requests with different status codes
     test_cases = [
         ("/metrics", 200, "OK"),  # Successful request
@@ -417,7 +419,7 @@ def test_traces_stored_with_status_code(
 
     # Verify StatusCode is present and correct
     found_traces = {t["TraceId"]: t for t in traces if t.get("TraceId")}
-    
+
     for trace_id, expected_code in trace_ids:
         if trace_id in found_traces:
             trace_row = found_traces[trace_id]
@@ -431,7 +433,6 @@ def test_traces_stored_with_status_code(
 
 def test_traces_have_standard_otel_metadata(
     django_client: Client,
-    test_tracer: trace.Tracer,
     clickhouse_client: Any,
     wait_for_clickhouse: None,
     wait_for_otel_collector: Any,
@@ -442,9 +443,9 @@ def test_traces_have_standard_otel_metadata(
     from observe_kit.otel import init_tracing
     init_tracing(
         service_name="test-service",
-        endpoint=f"{otel_http_endpoint}/v1/traces",
+        endpoint=otel_http_endpoint,
     )
-    
+
     # Make a request
     response = django_client.get("/metrics")
     assert response.status_code == 200
@@ -482,7 +483,7 @@ def test_traces_have_standard_otel_metadata(
 
     # Verify standard metadata
     trace_row = traces[0]
-    
+
     # ResourceAttributes should contain service.name
     resource_attrs = trace_row.get("ResourceAttributes", {})
     if isinstance(resource_attrs, dict):
@@ -514,7 +515,7 @@ def test_logs_stored_in_clickhouse_with_service_name(
     wait_for_otel_collector: Any,
 ) -> None:
     """Test that application logs are stored in ClickHouse with ServiceName.
-    
+
     Note: This test requires OTLP logging to be configured. Currently, logs
     are only exported via Python logging (JSON format), not via OTEL.
     This test verifies the infrastructure is ready for OTLP logging.
@@ -526,7 +527,7 @@ def test_logs_stored_in_clickhouse_with_service_name(
     # Note: Currently, logs are not exported via OTEL, so this test
     # may not find logs in ClickHouse. This is expected until OTLP
     # logging is implemented.
-    
+
     # Wait a bit for any potential log processing
     time.sleep(2)
 
@@ -556,7 +557,6 @@ def test_logs_stored_in_clickhouse_with_service_name(
 
 def test_traces_and_logs_linked_by_trace_id(
     django_client: Client,
-    test_tracer: trace.Tracer,
     clickhouse_client: Any,
     wait_for_clickhouse: None,
     wait_for_otel_collector: Any,
@@ -567,9 +567,9 @@ def test_traces_and_logs_linked_by_trace_id(
     from observe_kit.otel import init_tracing
     init_tracing(
         service_name="test-service",
-        endpoint=f"{otel_http_endpoint}/v1/traces",
+        endpoint=otel_http_endpoint,
     )
-    
+
     # Make a request
     response = django_client.get("/metrics")
     assert response.status_code == 200
@@ -610,7 +610,8 @@ def test_traces_and_logs_linked_by_trace_id(
             max_wait_seconds=5,
         )
         pytest.fail(
-            f"No traces found for trace_id={trace_id}. Found {len(all_traces)} traces without service filter."
+            f"No traces found for trace_id={trace_id}. "
+            f"Found {len(all_traces)} traces without service filter."
         )
 
     # Verify trace_id matches
@@ -625,4 +626,3 @@ def test_traces_and_logs_linked_by_trace_id(
             assert log_row["TraceId"] == trace_id, (
                 f"Log TraceId mismatch: expected {trace_id}, got {log_row['TraceId']}"
             )
-

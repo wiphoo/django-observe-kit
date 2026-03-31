@@ -179,15 +179,19 @@ See `examples/README.md` for details and `examples/QUICK_START.md` for quick set
 ```python
 MIDDLEWARE = [
     "observe_kit.otel.middleware.TraceContextMiddleware",
+    "observe_kit.logging.middleware.RequestLoggingMiddleware",
+    "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
     "observe_kit.context_middleware.RequestContextMiddleware",
     "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.drf.integration.DRFIntegrationMiddleware",  # Optional: for DRF ViewSet action detection
-    "observe_kit.logging.middleware.RequestLoggingMiddleware",
-    "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
     "observe_kit.sentry.middleware.SentryContextMiddleware",
     # ... your existing middleware ...
 ]
 ```
+
+Keep `RequestContextMiddleware` later than logging/metrics in `MIDDLEWARE`. Django runs
+`process_response()` in reverse order, so this ensures request timing and DB counters are
+finalized before `request_complete` logs and Prometheus samples are emitted.
 
 2. **Configure logging:**
 

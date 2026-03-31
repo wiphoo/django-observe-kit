@@ -76,7 +76,7 @@ check: format-check lint typecheck
 
 ## Run the default maintained test suite (unit tests with coverage)
 test:
-	$(RUNNER) pytest
+	$(RUNNER) pytest tests/unit -v --cov=observe_kit --cov-report=term-missing --cov-report=html --cov-fail-under=90
 
 ## Run unit tests only
 test-unit:

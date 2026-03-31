@@ -8,6 +8,8 @@ from django.test import RequestFactory
 
 from observe_kit.context import RequestContext, get_request_context, reset_request_context
 from observe_kit.context_middleware import RequestContextMiddleware, UserLoggingContextMiddleware
+from observe_kit.logging.middleware import RequestLoggingMiddleware
+from observe_kit.metrics.middleware import PrometheusRequestMiddleware
 from observe_kit.pii_rules import PiiLevel
 
 
@@ -257,6 +259,42 @@ def test_process_response_updates_db_metrics(
     assert context.db_queries == 5
     assert context.db_time_ms == 100.0  # 0.1 * 1000
     request._observe_kit_remove_wrappers.assert_called_once()
+
+
+def test_recommended_middleware_order_finalizes_context_before_logs_and_metrics(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    """Recommended ordering should populate timing/DB fields before emitters run."""
+    request = request_factory.get("/test/")
+    response = HttpResponse(status=201)
+    middlewares = [
+        RequestLoggingMiddleware(mock_get_response),
+        PrometheusRequestMiddleware(mock_get_response),
+        RequestContextMiddleware(mock_get_response),
+    ]
+
+    middlewares[-1].process_request(request)
+    request._observe_kit_timer = Mock()
+    request._observe_kit_timer.stop.return_value = 123.45
+    request._observe_kit_queries = Mock(count=7, total_time=0.015)
+    request._observe_kit_remove_wrappers = Mock()
+
+    with patch("observe_kit.logging.middleware.logger.info") as mock_log:
+        with patch("observe_kit.metrics.middleware.observe_request") as mock_observe:
+            for middleware in reversed(middlewares):
+                response = middleware.process_response(request, response)
+
+    assert response.status_code == 201
+
+    log_extra = mock_log.call_args.kwargs["extra"]["extra"]
+    assert log_extra["duration_ms"] == 123.45
+    assert log_extra["db_queries"] == 7
+    assert log_extra["db_time_ms"] == 15.0
+
+    observe_kwargs = mock_observe.call_args.kwargs
+    assert observe_kwargs["duration_seconds"] == 0.12345
+    assert observe_kwargs["db_queries"] == 7
+    assert observe_kwargs["db_time_seconds"] == 0.015
 
 
 def test_process_response_handles_exception(

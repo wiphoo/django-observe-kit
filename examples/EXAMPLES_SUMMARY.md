@@ -157,10 +157,10 @@ All examples demonstrate:
 ```python
 MIDDLEWARE = [
     "observe_kit.otel.middleware.TraceContextMiddleware",
-    "observe_kit.context_middleware.RequestContextMiddleware",
-    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.logging.middleware.RequestLoggingMiddleware",
     "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+    "observe_kit.context_middleware.RequestContextMiddleware",
+    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.sentry.middleware.SentryContextMiddleware",
     # ... Django middleware
 ]
@@ -306,7 +306,6 @@ Every response includes `X-Trace-Id` header for correlation.
 ---
 
 For detailed instructions, see individual example README files or `QUICK_START.md`.
-
 
 
 

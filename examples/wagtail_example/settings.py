@@ -46,10 +46,10 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     # observe_kit middleware (order matters!)
     "observe_kit.otel.middleware.TraceContextMiddleware",
-    "observe_kit.context_middleware.RequestContextMiddleware",
-    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.logging.middleware.RequestLoggingMiddleware",
     "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+    "observe_kit.context_middleware.RequestContextMiddleware",
+    "observe_kit.context_middleware.UserLoggingContextMiddleware",
     "observe_kit.sentry.middleware.SentryContextMiddleware",
     # Wagtail middleware
     "django.middleware.security.SecurityMiddleware",
@@ -150,7 +150,6 @@ configure_logging(
 #     dsn="https://your-key@o0.ingest.sentry.io/your-project",
 #     environment="development",
 # )
-
 
 
 

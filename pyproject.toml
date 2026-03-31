@@ -94,10 +94,6 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "--cov=observe_kit",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-fail-under=90",
     "-v",
 ]
 markers = [

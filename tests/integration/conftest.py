@@ -258,10 +258,10 @@ def configure_django() -> None:
             ],
             MIDDLEWARE=[
                 "observe_kit.otel.middleware.TraceContextMiddleware",
-                "observe_kit.context_middleware.RequestContextMiddleware",
-                "observe_kit.context_middleware.UserLoggingContextMiddleware",
                 "observe_kit.logging.middleware.RequestLoggingMiddleware",
                 "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+                "observe_kit.context_middleware.RequestContextMiddleware",
+                "observe_kit.context_middleware.UserLoggingContextMiddleware",
                 "observe_kit.sentry.middleware.SentryContextMiddleware",
                 "observe_kit.drf.integration.DRFIntegrationMiddleware",
             ],

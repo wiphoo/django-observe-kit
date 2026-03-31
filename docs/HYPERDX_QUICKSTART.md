@@ -68,11 +68,11 @@ OBSERVE_KIT = {
 # Add middleware (order is important).
 MIDDLEWARE = [
     "observe_kit.otel.middleware.TraceContextMiddleware",       # 1. extract/create trace
-    "observe_kit.context_middleware.RequestContextMiddleware",  # 2. init per-request context
-    "observe_kit.context_middleware.UserLoggingContextMiddleware",  # 3. attach user_id
+    "observe_kit.logging.middleware.RequestLoggingMiddleware",  # 2. log request_complete
+    "observe_kit.metrics.middleware.PrometheusRequestMiddleware",  # 3. Prometheus metrics
+    "observe_kit.context_middleware.RequestContextMiddleware",  # 4. finalize duration + DB stats first on response
+    "observe_kit.context_middleware.UserLoggingContextMiddleware",  # 5. attach user_id
     # "observe_kit.drf.integration.DRFIntegrationMiddleware",   # optional: DRF ViewSet span names
-    "observe_kit.logging.middleware.RequestLoggingMiddleware",  # 4. log request_complete
-    "observe_kit.metrics.middleware.PrometheusRequestMiddleware",  # 5. Prometheus metrics
     "observe_kit.sentry.middleware.SentryContextMiddleware",    # 6. Sentry enrichment
     # ... rest of your Django middleware ...
     "django.middleware.security.SecurityMiddleware",
@@ -85,6 +85,10 @@ MIDDLEWARE = [
 # Expose /metrics for Prometheus (optional).
 # urls.py:  path("", include("observe_kit.urls"))
 ```
+
+`RequestContextMiddleware` is intentionally later in the middleware list than logging and
+metrics. That makes its `process_response()` run first, so `duration_ms`, `db_queries`, and
+`db_time_ms` are populated before logs/metrics read the shared request context.
 
 `INSTALLED_APPS` registration triggers `ObserveKitConfig.ready()` which calls
 `configure_logging()`, `init_tracing()`, and optionally `init_sentry()` automatically —

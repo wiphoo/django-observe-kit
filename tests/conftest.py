@@ -5,8 +5,6 @@ This is necessary because some modules (like observe_kit.drf) import Django
 REST Framework at module level, which requires Django settings to be configured.
 """
 
-import os
-
 
 def pytest_configure(config):
     """Configure Django settings before test collection."""
@@ -27,10 +25,10 @@ def pytest_configure(config):
             ],
             MIDDLEWARE=[
                 "observe_kit.otel.middleware.TraceContextMiddleware",
-                "observe_kit.context_middleware.RequestContextMiddleware",
-                "observe_kit.context_middleware.UserLoggingContextMiddleware",
                 "observe_kit.logging.middleware.RequestLoggingMiddleware",
                 "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+                "observe_kit.context_middleware.RequestContextMiddleware",
+                "observe_kit.context_middleware.UserLoggingContextMiddleware",
                 "observe_kit.sentry.middleware.SentryContextMiddleware",
                 "observe_kit.drf.integration.DRFIntegrationMiddleware",
             ],

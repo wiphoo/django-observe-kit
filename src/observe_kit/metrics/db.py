@@ -30,6 +30,7 @@ class QueryRecorder:
 def wrap_connections(recorder: Callable[..., Any]) -> Callable[[], list[Any]]:
     removers = []
     for connection in connections.all():
-        remover = connection.execute_wrapper(recorder)
-        removers.append(remover)
-    return lambda: [remover() for remover in removers]
+        context_manager = connection.execute_wrapper(recorder)
+        context_manager.__enter__()
+        removers.append(context_manager)
+    return lambda: [remover.__exit__(None, None, None) for remover in removers]
