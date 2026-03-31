@@ -1,6 +1,8 @@
 """Shared fixtures for unit tests."""
 
+import contextlib
 import os
+from typing import Any, Generator
 
 import pytest
 
@@ -39,3 +41,23 @@ def configure_django():
             ALLOWED_HOSTS=["*", "testserver", "localhost"],
         )
         django.setup()
+
+
+@pytest.fixture
+def observe_kit_settings() -> Generator[Any, None, None]:
+    """Temporarily set django.conf.settings.OBSERVE_KIT and restore it afterwards."""
+    from django.conf import settings as django_settings
+
+    @contextlib.contextmanager
+    def _set(config: dict) -> Generator[None, None, None]:  # type: ignore[misc]
+        original = getattr(django_settings, "OBSERVE_KIT", None)
+        django_settings.OBSERVE_KIT = config  # type: ignore[attr-defined]
+        try:
+            yield
+        finally:
+            if original is None:
+                del django_settings.OBSERVE_KIT  # type: ignore[attr-defined]
+            else:
+                django_settings.OBSERVE_KIT = original  # type: ignore[attr-defined]
+
+    yield _set

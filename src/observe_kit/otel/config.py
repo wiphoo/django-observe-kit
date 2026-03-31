@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from opentelemetry import trace
 from opentelemetry._logs import get_logger_provider, set_logger_provider
@@ -48,10 +48,11 @@ def _normalize_otlp_http_endpoint(endpoint: Optional[str], signal: str) -> Optio
     for known_signal in ("traces", "logs"):
         suffix = f"/v1/{known_signal}"
         if path.endswith(suffix):
-            return endpoint[: -len(suffix)] + f"/v1/{signal}"
+            new_path = path[: -len(suffix)] + f"/v1/{signal}"
+            return urlunparse(parsed._replace(path=new_path))
 
     if path in ("", "/"):
-        return endpoint.rstrip("/") + f"/v1/{signal}"
+        return urlunparse(parsed._replace(path=f"/v1/{signal}"))
 
     return endpoint
 
@@ -75,7 +76,7 @@ class OTelLogRecordSanitizer(logging.Filter):
     """Coerce unsupported Python logging extras into OTEL-safe values."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        for key, value in vars(record).items():
+        for key, value in list(vars(record).items()):
             if key.startswith("_"):
                 continue
             if not _is_otel_log_attribute_value(value):
@@ -249,8 +250,8 @@ def init_tracing(
         "otel tracer configured", extra={"service": service_name, "endpoint": traces_endpoint}
     )
 
-    _init_otel_log_export(resource=resource, endpoint=endpoint)
     _TRACING_INITIALIZED = True
+    _init_otel_log_export(resource=resource, endpoint=endpoint)
 
 
 def enrich_span(span: Span) -> None:
