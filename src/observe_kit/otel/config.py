@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 _TRACING_INITIALIZED = False
 _LOG_EXPORT_INITIALIZED = False
 _OTEL_LOG_HANDLER_ATTR = "_observe_kit_otel_handler"
+_LOG_RECORD_CORE_FIELDS = {
+    "name",
+    "msg",
+    "args",
+    "levelname",
+    "levelno",
+    "pathname",
+    "filename",
+    "module",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "lineno",
+    "funcName",
+    "created",
+    "msecs",
+    "relativeCreated",
+    "thread",
+    "threadName",
+    "processName",
+    "process",
+    "message",
+    "asctime",
+}
 
 
 class ConfigurationError(ValueError):
@@ -77,7 +101,7 @@ class OTelLogRecordSanitizer(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         for key, value in list(vars(record).items()):
-            if key.startswith("_"):
+            if key.startswith("_") or key in _LOG_RECORD_CORE_FIELDS:
                 continue
             if not _is_otel_log_attribute_value(value):
                 setattr(record, key, repr(value))
