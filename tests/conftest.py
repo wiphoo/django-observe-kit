@@ -37,11 +37,7 @@ def pytest_configure(config):
             AUTH_USER_MODEL="auth.User",
             USE_TZ=True,
             ALLOWED_HOSTS=["*", "testserver", "localhost"],
-            REST_FRAMEWORK={
-                "DEFAULT_RENDERER_CLASSES": [
-                    "rest_framework.renderers.JSONRenderer",
-                ],
-            },
+            REST_FRAMEWORK={"DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]},
         )
         django.setup()
 

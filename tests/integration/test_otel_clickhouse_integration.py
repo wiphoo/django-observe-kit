@@ -34,11 +34,7 @@ def clickhouse_url() -> str:
 def clickhouse_client(clickhouse_url: str) -> Any:
     """ClickHouse client for querying data using HTTP API."""
     # Use HTTP API instead of native client to avoid extra dependencies
-    return {
-        "url": clickhouse_url,
-        "user": "default",
-        "password": "clickhouse",
-    }
+    return {"url": clickhouse_url, "user": "default", "password": "clickhouse"}
 
 
 @pytest.fixture(scope="function")
@@ -60,9 +56,7 @@ def wait_for_clickhouse(clickhouse_url: str) -> None:
 @pytest.fixture(scope="function")
 def otel_http_endpoint() -> str:
     """OTEL Collector HTTP endpoint from environment."""
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
     return f"http://localhost:{port}"
 
 
@@ -74,10 +68,7 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
     while time.time() - start < timeout:
         try:
             response = requests.post(
-                traces_endpoint,
-                headers={"Content-Type": "application/json"},
-                json={},
-                timeout=3
+                traces_endpoint, headers={"Content-Type": "application/json"}, json={}, timeout=3
             )
             # Any HTTP response (even errors) means the service is running
             if response.status_code in (200, 400, 405, 415, 404):
@@ -101,10 +92,7 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
 
 
 @pytest.fixture(scope="function")
-def fresh_tracer_provider(
-    otel_http_endpoint: str,
-    wait_for_otel_collector: Any,
-) -> Any:
+def fresh_tracer_provider(otel_http_endpoint: str, wait_for_otel_collector: Any) -> Any:
     """Create a fresh TracerProvider with service name for testing."""
     assert verify_collector_ready(otel_http_endpoint), (
         f"OTEL Collector not ready at {otel_http_endpoint}"
@@ -185,16 +173,12 @@ def query_clickhouse_traces(
 
             # Use HTTP API with format=JSONEachRow
             response = requests.post(
-                f"{url}?default_format=JSONEachRow",
-                data=query,
-                auth=auth,
-                timeout=5,
+                f"{url}?default_format=JSONEachRow", data=query, auth=auth, timeout=5
             )
 
             if response.status_code != 200:
                 last_error = (
-                    f"ClickHouse returned status {response.status_code}: "
-                    f"{response.text[:200]}"
+                    f"ClickHouse returned status {response.status_code}: {response.text[:200]}"
                 )
                 time.sleep(0.5)
                 continue
@@ -260,10 +244,7 @@ def query_clickhouse_logs(
 
             # Use HTTP API with format=JSONEachRow
             response = requests.post(
-                f"{url}?default_format=JSONEachRow",
-                data=query,
-                auth=auth,
-                timeout=5,
+                f"{url}?default_format=JSONEachRow", data=query, auth=auth, timeout=5
             )
 
             if response.status_code == 200 and response.text.strip():
@@ -296,10 +277,7 @@ def test_traces_stored_in_clickhouse_with_service_name(
     from observe_kit.otel import init_tracing
 
     # Initialize tracing with a known service name
-    init_tracing(
-        service_name="test-service",
-        endpoint=otel_http_endpoint,
-    )
+    init_tracing(service_name="test-service", endpoint=otel_http_endpoint)
 
     # Make a request that will create a span
     response = django_client.get("/metrics")
@@ -319,19 +297,13 @@ def test_traces_stored_in_clickhouse_with_service_name(
 
     # First, query without service name filter to see what's actually there
     all_traces = query_clickhouse_traces(
-        clickhouse_client,
-        service_name=None,
-        trace_id=trace_id,
-        max_wait_seconds=30,
+        clickhouse_client, service_name=None, trace_id=trace_id, max_wait_seconds=30
     )
 
     if not all_traces:
         # Try querying all traces to see what service names exist
         all_traces_all = query_clickhouse_traces(
-            clickhouse_client,
-            service_name=None,
-            trace_id=None,
-            max_wait_seconds=5,
+            clickhouse_client, service_name=None, trace_id=None, max_wait_seconds=5
         )
         service_names = {t.get("ServiceName") for t in all_traces_all if t.get("ServiceName")}
         pytest.fail(
@@ -369,10 +341,8 @@ def test_traces_stored_with_status_code(
     """Test that traces are stored in ClickHouse with StatusCode."""
     # Initialize tracing
     from observe_kit.otel import init_tracing
-    init_tracing(
-        service_name="test-service",
-        endpoint=otel_http_endpoint,
-    )
+
+    init_tracing(service_name="test-service", endpoint=otel_http_endpoint)
 
     # Make requests with different status codes
     test_cases = [
@@ -400,17 +370,13 @@ def test_traces_stored_with_status_code(
 
     # Query ClickHouse for traces
     traces = query_clickhouse_traces(
-        clickhouse_client,
-        service_name="test-service",
-        max_wait_seconds=30,
+        clickhouse_client, service_name="test-service", max_wait_seconds=30
     )
 
     if not traces:
         # Try without service name filter
         all_traces = query_clickhouse_traces(
-            clickhouse_client,
-            service_name=None,
-            max_wait_seconds=5,
+            clickhouse_client, service_name=None, max_wait_seconds=5
         )
         pytest.fail(
             f"No traces found in ClickHouse with ServiceName='test-service'. "
@@ -426,9 +392,7 @@ def test_traces_stored_with_status_code(
             status_code = trace_row.get("StatusCode")
             assert status_code is not None, "StatusCode should not be None"
             # StatusCode should be one of: OK, ERROR, UNSET
-            assert status_code in ("OK", "ERROR", "UNSET"), (
-                f"Invalid StatusCode: {status_code}"
-            )
+            assert status_code in ("OK", "ERROR", "UNSET"), f"Invalid StatusCode: {status_code}"
 
 
 def test_traces_have_standard_otel_metadata(
@@ -441,10 +405,8 @@ def test_traces_have_standard_otel_metadata(
     """Test that traces have standard OTEL metadata (resource attributes, span attributes)."""
     # Initialize tracing
     from observe_kit.otel import init_tracing
-    init_tracing(
-        service_name="test-service",
-        endpoint=otel_http_endpoint,
-    )
+
+    init_tracing(service_name="test-service", endpoint=otel_http_endpoint)
 
     # Make a request
     response = django_client.get("/metrics")
@@ -464,18 +426,12 @@ def test_traces_have_standard_otel_metadata(
 
     # Query ClickHouse
     traces = query_clickhouse_traces(
-        clickhouse_client,
-        service_name="test-service",
-        trace_id=trace_id,
-        max_wait_seconds=30,
+        clickhouse_client, service_name="test-service", trace_id=trace_id, max_wait_seconds=30
     )
 
     if not traces:
         all_traces = query_clickhouse_traces(
-            clickhouse_client,
-            service_name=None,
-            trace_id=trace_id,
-            max_wait_seconds=5,
+            clickhouse_client, service_name=None, trace_id=trace_id, max_wait_seconds=5
         )
         pytest.fail(
             f"No traces found in ClickHouse. Found {len(all_traces)} traces without service filter."
@@ -487,21 +443,15 @@ def test_traces_have_standard_otel_metadata(
     # ResourceAttributes should contain service.name
     resource_attrs = trace_row.get("ResourceAttributes", {})
     if isinstance(resource_attrs, dict):
-        assert "service.name" in resource_attrs, (
-            "ResourceAttributes should contain 'service.name'"
-        )
+        assert "service.name" in resource_attrs, "ResourceAttributes should contain 'service.name'"
         assert resource_attrs["service.name"] == "test-service"
 
     # SpanAttributes should contain HTTP attributes
     span_attrs = trace_row.get("SpanAttributes", {})
     if isinstance(span_attrs, dict):
         # Should have at least some HTTP attributes
-        has_http_attrs = any(
-            key.startswith("http.") for key in span_attrs.keys()
-        )
-        assert has_http_attrs, (
-            "SpanAttributes should contain HTTP semantic convention attributes"
-        )
+        has_http_attrs = any(key.startswith("http.") for key in span_attrs.keys())
+        assert has_http_attrs, "SpanAttributes should contain HTTP semantic convention attributes"
 
     # Should have SpanName
     assert trace_row["SpanName"] is not None, "SpanName should not be None"
@@ -532,21 +482,13 @@ def test_logs_stored_in_clickhouse_with_service_name(
     time.sleep(2)
 
     # Query ClickHouse for logs
-    logs = query_clickhouse_logs(
-        clickhouse_client,
-        service_name="test-service",
-        max_wait_seconds=5,
-    )
+    logs = query_clickhouse_logs(clickhouse_client, service_name="test-service", max_wait_seconds=5)
 
     # If logs are found, verify ServiceName
     if logs:
         for log_row in logs:
-            assert log_row["ServiceName"] is not None, (
-                "ServiceName should not be None in logs"
-            )
-            assert log_row["ServiceName"] != "", (
-                "ServiceName should not be empty in logs"
-            )
+            assert log_row["ServiceName"] is not None, "ServiceName should not be None in logs"
+            assert log_row["ServiceName"] != "", "ServiceName should not be empty in logs"
     else:
         # This is expected until OTLP logging is implemented
         pytest.skip(
@@ -565,10 +507,8 @@ def test_traces_and_logs_linked_by_trace_id(
     """Test that traces and logs can be linked by TraceId."""
     # Initialize tracing
     from observe_kit.otel import init_tracing
-    init_tracing(
-        service_name="test-service",
-        endpoint=otel_http_endpoint,
-    )
+
+    init_tracing(service_name="test-service", endpoint=otel_http_endpoint)
 
     # Make a request
     response = django_client.get("/metrics")
@@ -588,26 +528,17 @@ def test_traces_and_logs_linked_by_trace_id(
 
     # Query both traces and logs with the same trace_id
     traces = query_clickhouse_traces(
-        clickhouse_client,
-        service_name="test-service",
-        trace_id=trace_id,
-        max_wait_seconds=30,
+        clickhouse_client, service_name="test-service", trace_id=trace_id, max_wait_seconds=30
     )
 
     logs = query_clickhouse_logs(
-        clickhouse_client,
-        service_name="test-service",
-        trace_id=trace_id,
-        max_wait_seconds=20,
+        clickhouse_client, service_name="test-service", trace_id=trace_id, max_wait_seconds=20
     )
 
     # Should have at least traces
     if not traces:
         all_traces = query_clickhouse_traces(
-            clickhouse_client,
-            service_name=None,
-            trace_id=trace_id,
-            max_wait_seconds=5,
+            clickhouse_client, service_name=None, trace_id=trace_id, max_wait_seconds=5
         )
         pytest.fail(
             f"No traces found for trace_id={trace_id}. "

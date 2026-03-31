@@ -24,27 +24,21 @@ pytestmark = pytest.mark.integration
 @pytest.fixture(scope="function")
 def otel_collector_endpoint() -> str:
     """OTEL Collector gRPC endpoint from environment."""
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT", "4317"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT", "4317")
     return f"http://localhost:{port}"
 
 
 @pytest.fixture(scope="function")
 def otel_http_endpoint() -> str:
     """OTEL Collector HTTP endpoint from environment."""
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
     return f"http://localhost:{port}"
 
 
 @pytest.fixture(scope="function")
 def otel_metrics_endpoint() -> str:
     """OTEL Collector metrics endpoint for verification."""
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT", "8888"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT", "8888")
     return f"http://localhost:{port}"
 
 
@@ -65,10 +59,7 @@ def verify_collector_ready(otel_http_endpoint: str, timeout: int = 30) -> bool:
         try:
             # Send an empty trace request - collector should respond
             response = requests.post(
-                traces_endpoint,
-                headers={"Content-Type": "application/json"},
-                json={},
-                timeout=3
+                traces_endpoint, headers={"Content-Type": "application/json"}, json={}, timeout=3
             )
             # Any response (even 400/415 for bad content type) means collector is up
             if response.status_code in (200, 400, 405, 415, 404):
@@ -147,7 +138,7 @@ def test_otel_collector_is_running(
         f"{otel_http_endpoint}/v1/traces",
         headers={"Content-Type": "application/json"},
         json={},
-        timeout=5
+        timeout=5,
     )
     # Empty request should return success or partial success
     assert response.status_code == 200, (
@@ -160,8 +151,7 @@ def test_otel_collector_is_running(
 
 
 def test_otel_collector_accepts_traces(
-    test_tracer: trace.Tracer,
-    otel_metrics_endpoint: str,
+    test_tracer: trace.Tracer, otel_metrics_endpoint: str
 ) -> None:
     """Test that traces are exported and accepted by OTEL Collector."""
     # Create a span with identifiable attributes
@@ -242,9 +232,7 @@ def test_multiple_requests_have_different_trace_ids(
     assert len(trace_ids) == 5, "Expected 5 unique trace IDs for 5 requests"
 
 
-def test_span_creation_and_attributes(
-    test_tracer: trace.Tracer,
-) -> None:
+def test_span_creation_and_attributes(test_tracer: trace.Tracer) -> None:
     """Test that spans can be created with HTTP attributes."""
     # Create span with HTTP semantic conventions
     with test_tracer.start_as_current_span("http-request-span") as span:
@@ -263,9 +251,7 @@ def test_span_creation_and_attributes(
         assert ctx.span_id != 0, "Span ID should be non-zero"
 
 
-def test_nested_spans_share_trace_id(
-    test_tracer: trace.Tracer,
-) -> None:
+def test_nested_spans_share_trace_id(test_tracer: trace.Tracer) -> None:
     """Test that nested spans share the same trace ID."""
     with test_tracer.start_as_current_span("parent-span") as parent:
         parent_ctx = parent.get_span_context()
@@ -283,9 +269,7 @@ def test_nested_spans_share_trace_id(
             )
 
 
-def test_span_enrichment_with_context(
-    test_tracer: trace.Tracer,
-) -> None:
+def test_span_enrichment_with_context(test_tracer: trace.Tracer) -> None:
     """Test that spans can be enriched with request context."""
     from observe_kit.context import (
         RequestContext,

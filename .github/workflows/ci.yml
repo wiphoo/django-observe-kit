@@ -11,6 +11,9 @@ env:
   UV_CACHE_DIR: .uv-cache
   PYTHON_VERSION: "3.12"
 
+permissions:
+  contents: read
+
 jobs:
   lint-typecheck:
     name: Lint & Typecheck
@@ -169,7 +172,12 @@ jobs:
         run: uv sync --dev
       
       - name: Run E2E tests
-        run: uv run pytest tests/e2e -v -m e2e
+        run: |
+          if find tests/e2e -type f -name 'test_*.py' | grep -q .; then
+            uv run pytest tests/e2e -v -m e2e
+          else
+            echo "No E2E tests found under tests/e2e; skipping."
+          fi
 
   build:
     name: Build & Smoke Test
@@ -187,14 +195,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       
-      - name: Install build dependencies
-        run: uv pip install build
-      
       - name: Build package
-        run: python -m build
+        run: uv run --with build python -m build
       
       - name: Install built package
-        run: uv pip install dist/*.whl
+        run: uv pip install --system dist/*.whl
       
       - name: Smoke test import
         run: python -c "import observe_kit; print('Import successful')"
@@ -210,6 +215,10 @@ jobs:
   security-scan:
     name: Security Scan (Trivy)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
       
@@ -223,7 +232,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
       
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         with:
           sarif_file: 'trivy-results.sarif'

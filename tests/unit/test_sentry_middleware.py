@@ -48,10 +48,7 @@ def test_sentry_context_middleware_with_sentry_sdk(
 
     mock_sentry = Mock()
     mock_scope = Mock()
-    mock_context_manager = Mock()
-    mock_context_manager.__enter__ = Mock(return_value=mock_scope)
-    mock_context_manager.__exit__ = Mock(return_value=None)
-    mock_sentry.configure_scope.return_value = mock_context_manager
+    mock_sentry.get_isolation_scope.return_value = mock_scope
 
     with patch.object(importlib.util, "find_spec", return_value=Mock()):
         # Patch sentry_sdk in sys.modules before the import happens
@@ -103,7 +100,7 @@ def test_sentry_context_middleware_handles_exception(
     request = request_factory.get("/test/")
 
     mock_sentry = Mock()
-    mock_sentry.configure_scope.side_effect = Exception("Test")
+    mock_sentry.get_isolation_scope.side_effect = Exception("Test")
 
     with patch.object(importlib.util, "find_spec", return_value=Mock()):
         original_sentry = sys.modules.get("sentry_sdk")
@@ -145,10 +142,7 @@ def test_sentry_context_middleware_partial_context(
 
     mock_sentry = Mock()
     mock_scope = Mock()
-    mock_context_manager = Mock()
-    mock_context_manager.__enter__ = Mock(return_value=mock_scope)
-    mock_context_manager.__exit__ = Mock(return_value=None)
-    mock_sentry.configure_scope.return_value = mock_context_manager
+    mock_sentry.get_isolation_scope.return_value = mock_scope
 
     with patch.object(importlib.util, "find_spec", return_value=Mock()):
         original_sentry = sys.modules.get("sentry_sdk")

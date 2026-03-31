@@ -140,8 +140,7 @@ def test_process_response_sets_ok_status_for_2xx_without_prior_error(
     middleware.process_response(request, response)
 
     assert any(
-        call[0][0].status_code == StatusCode.OK
-        for call in mock_span.set_status.call_args_list
+        call[0][0].status_code == StatusCode.OK for call in mock_span.set_status.call_args_list
     )
 
 
@@ -163,8 +162,7 @@ def test_process_response_preserves_prior_error_status_for_2xx(
     middleware.process_response(request, response)
 
     assert not any(
-        call[0][0].status_code == StatusCode.OK
-        for call in mock_span.set_status.call_args_list
+        call[0][0].status_code == StatusCode.OK for call in mock_span.set_status.call_args_list
     )
 
 

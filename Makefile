@@ -88,7 +88,11 @@ test-int:
 
 ## Run end-to-end tests
 test-e2e:
-	$(RUNNER) pytest tests/e2e -v -m e2e
+	@if find tests/e2e -type f -name 'test_*.py' | grep -q .; then \
+		$(RUNNER) pytest tests/e2e -v -m e2e; \
+	else \
+		echo "No E2E tests found under tests/e2e; skipping."; \
+	fi
 
 ## Run all test suites
 test-all:

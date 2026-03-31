@@ -154,9 +154,7 @@ def wait_for_otel_collector() -> Generator[None, None, None]:
     Start services with: make integration-up
     """
     # Check the OTLP HTTP receiver port to verify collector is running
-    http_port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
-    )
+    http_port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
     if not _check_service("otel_collector", http_port):
         raise RuntimeError(
             f"Required Docker service OTEL Collector is not available on HTTP port {http_port}. "
@@ -201,12 +199,8 @@ def wait_for_services() -> Generator[None, None, None]:
         "otel_collector": os.getenv(
             "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
         ),
-        "prometheus": os.getenv(
-            "OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"
-        ),
-        "hyperdx": os.getenv(
-            "OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080"
-        ),
+        "prometheus": os.getenv("OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"),
+        "hyperdx": os.getenv("OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080"),
     }
 
     unavailable_services = []
@@ -270,11 +264,7 @@ def configure_django() -> None:
             AUTH_USER_MODEL="auth.User",
             USE_TZ=True,
             ALLOWED_HOSTS=["*", "testserver", "localhost"],
-            REST_FRAMEWORK={
-                "DEFAULT_RENDERER_CLASSES": [
-                    "rest_framework.renderers.JSONRenderer",
-                ],
-            },
+            REST_FRAMEWORK={"DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]},
         )
         django.setup()
 
@@ -337,9 +327,7 @@ def otel_endpoint() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running collector, also use wait_for_otel_collector.
     """
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT", "4317"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT", "4317")
     return f"http://localhost:{port}"
 
 
@@ -350,9 +338,7 @@ def otel_http_endpoint() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running collector, also use wait_for_otel_collector.
     """
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT", "4318")
     return f"http://localhost:{port}"
 
 
@@ -363,9 +349,7 @@ def prometheus_url() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running Prometheus, also use wait_for_prometheus.
     """
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090")
     return f"http://localhost:{port}"
 
 
@@ -376,7 +360,5 @@ def hyperdx_url() -> str:
     Note: This provides the URL for configuration purposes.
     For tests that need a running HyperDX, also use wait_for_hyperdx.
     """
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_HYPERDX_PORT", "8080")
     return f"http://localhost:{port}"

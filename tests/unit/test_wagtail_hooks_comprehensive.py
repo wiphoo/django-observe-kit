@@ -8,12 +8,8 @@ from django.test import RequestFactory
 
 # Skip if either django or wagtail is not installed
 pytestmark = [
-    pytest.mark.skipif(
-        not importlib.util.find_spec("django"), reason="django not installed"
-    ),
-    pytest.mark.skipif(
-        not importlib.util.find_spec("wagtail"), reason="wagtail not installed"
-    ),
+    pytest.mark.skipif(not importlib.util.find_spec("django"), reason="django not installed"),
+    pytest.mark.skipif(not importlib.util.find_spec("wagtail"), reason="wagtail not installed"),
 ]
 
 

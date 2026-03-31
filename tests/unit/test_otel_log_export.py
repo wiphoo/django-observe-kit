@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -65,7 +66,7 @@ def test_init_tracing_adds_logging_handler() -> None:
 
 
 def test_init_otel_log_export_uses_same_endpoint() -> None:
-    """_init_otel_log_export passes the endpoint to OTLPLogExporter."""
+    """_init_otel_log_export derives the logs endpoint from the OTLP HTTP base URL."""
     from opentelemetry.sdk.resources import Resource
 
     from observe_kit.otel.config import _init_otel_log_export
@@ -76,7 +77,7 @@ def test_init_otel_log_export_uses_same_endpoint() -> None:
             resource = Resource.create({"service.name": "svc"})
             _init_otel_log_export(resource=resource, endpoint="http://otel:4318")
 
-    mock_cls.assert_called_once_with(endpoint="http://otel:4318")
+    mock_cls.assert_called_once_with(endpoint="http://otel:4318/v1/logs")
 
 
 def test_init_otel_log_export_uses_default_when_no_endpoint() -> None:
@@ -121,5 +122,35 @@ def test_init_tracing_is_idempotent() -> None:
             init_tracing(service_name="test-svc", endpoint="http://localhost:4318")
             init_tracing(service_name="test-svc", endpoint="http://localhost:4318")
 
-    mock_span.assert_called_once_with(endpoint="http://localhost:4318")
-    mock_log.assert_called_once_with(endpoint="http://localhost:4318")
+    mock_span.assert_called_once_with(endpoint="http://localhost:4318/v1/traces")
+    mock_log.assert_called_once_with(endpoint="http://localhost:4318/v1/logs")
+
+
+def test_init_tracing_preserves_explicit_signal_endpoint() -> None:
+    from observe_kit.otel.config import init_tracing
+
+    with patch("observe_kit.otel.config.OTLPSpanExporter") as mock_span:
+        with patch("observe_kit.otel.config.OTLPLogExporter") as mock_log:
+            init_tracing(service_name="test-svc", endpoint="http://localhost:4318/v1/traces")
+
+    mock_span.assert_called_once_with(endpoint="http://localhost:4318/v1/traces")
+    mock_log.assert_called_once_with(endpoint="http://localhost:4318/v1/logs")
+
+
+def test_otel_log_record_sanitizer_stringifies_unsupported_extra() -> None:
+    from observe_kit.otel.config import OTelLogRecordSanitizer
+
+    record = logging.makeLogRecord(
+        {
+            "msg": "request warning",
+            "levelno": logging.WARNING,
+            "levelname": "WARNING",
+            "request": SimpleNamespace(path="/missing"),
+        }
+    )
+
+    sanitizer = OTelLogRecordSanitizer()
+
+    assert sanitizer.filter(record) is True
+    assert isinstance(record.request, str)
+    assert "path='/missing'" in record.request

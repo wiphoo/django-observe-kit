@@ -21,7 +21,8 @@ class SentryContextMiddleware(MiddlewareMixin):
             import sentry_sdk
 
             context = get_request_context()
-            with sentry_sdk.configure_scope() as scope:
+            if hasattr(sentry_sdk, "get_isolation_scope"):
+                scope = sentry_sdk.get_isolation_scope()
                 if context.trace_id:
                     scope.set_tag("otel.trace_id", context.trace_id)
                 if context.tenant_id:
@@ -30,6 +31,16 @@ class SentryContextMiddleware(MiddlewareMixin):
                     scope.set_tag("http.method", context.method)
                 if context.path:
                     scope.set_tag("http.path", context.path)
+            else:
+                with sentry_sdk.configure_scope() as scope:
+                    if context.trace_id:
+                        scope.set_tag("otel.trace_id", context.trace_id)
+                    if context.tenant_id:
+                        scope.set_tag("tenant_id", context.tenant_id)
+                    if context.method:
+                        scope.set_tag("http.method", context.method)
+                    if context.path:
+                        scope.set_tag("http.path", context.path)
         except Exception as e:
             import logging
 

@@ -3,6 +3,7 @@
 This module provides audit logging functionality. Models are imported lazily
 to avoid circular dependencies during Django setup.
 """
+
 from .utils import audit
 
 __all__ = ["AuditLog", "ObserveAuditConfig", "audit"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -27,6 +28,59 @@ class ConfigurationError(ValueError):
     """Raised when configuration is invalid."""
 
     pass
+
+
+def _normalize_otlp_http_endpoint(endpoint: Optional[str], signal: str) -> Optional[str]:
+    """Return a signal-specific OTLP HTTP endpoint.
+
+    Accepts either a base OTLP HTTP endpoint like ``http://host:4318`` or an
+    explicit signal path like ``http://host:4318/v1/traces``.
+    """
+    if endpoint is None:
+        return None
+
+    parsed = urlparse(endpoint)
+    path = parsed.path.rstrip("/")
+
+    if path.endswith(f"/v1/{signal}"):
+        return endpoint
+
+    for known_signal in ("traces", "logs"):
+        suffix = f"/v1/{known_signal}"
+        if path.endswith(suffix):
+            return endpoint[: -len(suffix)] + f"/v1/{signal}"
+
+    if path in ("", "/"):
+        return endpoint.rstrip("/") + f"/v1/{signal}"
+
+    return endpoint
+
+
+def _is_otel_log_attribute_value(value: Any) -> bool:
+    """Check whether a log attribute is OTEL-compatible."""
+    scalar_types = (type(None), bool, bytes, int, float, str)
+    if isinstance(value, scalar_types):
+        return True
+    if isinstance(value, Mapping):
+        return all(
+            isinstance(key, str) and _is_otel_log_attribute_value(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return all(_is_otel_log_attribute_value(item) for item in value)
+    return False
+
+
+class OTelLogRecordSanitizer(logging.Filter):
+    """Coerce unsupported Python logging extras into OTEL-safe values."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        for key, value in vars(record).items():
+            if key.startswith("_"):
+                continue
+            if not _is_otel_log_attribute_value(value):
+                setattr(record, key, repr(value))
+        return True
 
 
 def _validate_service_name(service_name: str) -> None:
@@ -86,8 +140,8 @@ def _init_otel_log_export(resource: Resource, endpoint: Optional[str]) -> None:
     log records in ClickHouse's ``otel_logs`` table carry a matching
     ``ServiceName`` and can be correlated with traces via ``TraceId``.
 
-    The exporter appends ``/v1/logs`` to the base endpoint automatically,
-    mirroring how ``OTLPSpanExporter`` appends ``/v1/traces``.
+    Base OTLP HTTP endpoints are normalized to signal-specific paths so logs
+    go to ``/v1/logs`` and traces go to ``/v1/traces``.
     """
     global _LOG_EXPORT_INITIALIZED
 
@@ -95,7 +149,8 @@ def _init_otel_log_export(resource: Resource, endpoint: Optional[str]) -> None:
         logger.debug("otel log export already configured")
         return
 
-    log_exporter = OTLPLogExporter(endpoint=endpoint) if endpoint else OTLPLogExporter()
+    log_endpoint = _normalize_otlp_http_endpoint(endpoint, "logs")
+    log_exporter = OTLPLogExporter(endpoint=log_endpoint) if log_endpoint else OTLPLogExporter()
     log_provider = LoggerProvider(resource=resource)
     log_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
     current_provider = get_logger_provider()
@@ -112,9 +167,10 @@ def _init_otel_log_export(resource: Resource, endpoint: Optional[str]) -> None:
     if not has_handler:
         handler = LoggingHandler(level=logging.NOTSET, logger_provider=log_provider)
         setattr(handler, _OTEL_LOG_HANDLER_ATTR, True)
+        handler.addFilter(OTelLogRecordSanitizer())
         root_logger.addHandler(handler)
     _LOG_EXPORT_INITIALIZED = True
-    logger.info("otel log export configured", extra={"endpoint": endpoint})
+    logger.info("otel log export configured", extra={"endpoint": log_endpoint})
 
 
 def init_tracing(
@@ -132,8 +188,8 @@ def init_tracing(
         service_name: Name of the service (required, alphanumeric with
                       hyphens/underscores, max 255 chars)
         resource_attributes: Optional additional resource attributes
-        endpoint: Optional OTLP base endpoint URL (http/https). Exporters
-                  append ``/v1/traces`` and ``/v1/logs`` automatically.
+        endpoint: Optional OTLP HTTP endpoint URL (http/https). Base collector
+                  URLs are normalized to ``/v1/traces`` and ``/v1/logs``.
 
     Raises:
         ConfigurationError: If any configuration parameter is invalid
@@ -153,11 +209,14 @@ def init_tracing(
     resource = Resource.create(attributes)
 
     provider = TracerProvider(resource=resource)
-    exporter = OTLPSpanExporter(endpoint=endpoint) if endpoint else OTLPSpanExporter()
+    traces_endpoint = _normalize_otlp_http_endpoint(endpoint, "traces")
+    exporter = OTLPSpanExporter(endpoint=traces_endpoint) if traces_endpoint else OTLPSpanExporter()
     processor = BatchSpanProcessor(exporter)
     provider.add_span_processor(processor)
     trace.set_tracer_provider(provider)
-    logger.info("otel tracer configured", extra={"service": service_name, "endpoint": endpoint})
+    logger.info(
+        "otel tracer configured", extra={"service": service_name, "endpoint": traces_endpoint}
+    )
 
     _init_otel_log_export(resource=resource, endpoint=endpoint)
     _TRACING_INITIALIZED = True

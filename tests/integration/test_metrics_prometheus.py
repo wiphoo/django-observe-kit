@@ -26,9 +26,7 @@ from observe_kit.metrics.prometheus import observe_request  # noqa: E402
 @pytest.fixture(scope="function")
 def prometheus_url() -> str:
     """Prometheus query URL."""
-    port = os.getenv(
-        "OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090"
-    )
+    port = os.getenv("OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT", "9090")
     return f"http://localhost:{port}"
 
 
@@ -59,7 +57,7 @@ def get_metric_value_from_output(
                         return float(match.group(1))
     else:
         # Simple metric without labels
-        pattern = rf'^{re.escape(metric_name)}\s+(\d+\.?\d*(?:e[+-]?\d+)?)\s*$'
+        pattern = rf"^{re.escape(metric_name)}\s+(\d+\.?\d*(?:e[+-]?\d+)?)\s*$"
         match = re.search(pattern, content, re.MULTILINE)
         if match:
             return float(match.group(1))
@@ -101,17 +99,13 @@ def test_metrics_endpoint_exposes_prometheus_format(
     assert "# HELP" in content or "# TYPE" in content, "Missing Prometheus format markers"
 
     # Verify key metrics are present
-    expected_metrics = [
-        "http_requests_total",
-        "http_request_duration_seconds",
-    ]
+    expected_metrics = ["http_requests_total", "http_request_duration_seconds"]
     for metric in expected_metrics:
         assert metric in content, f"Expected metric '{metric}' not found in /metrics output"
 
 
 def test_http_request_counter_increments_in_metrics_output(
-    django_client: Client,
-    wait_for_prometheus: Generator[None, None, None],
+    django_client: Client, wait_for_prometheus: Generator[None, None, None]
 ) -> None:
     """Test that HTTP requests increment the counter in /metrics output."""
     # Get initial state
@@ -146,8 +140,7 @@ def test_http_request_counter_increments_in_metrics_output(
 
 
 def test_http_request_duration_histogram_in_metrics_output(
-    django_client: Client,
-    wait_for_prometheus: Generator[None, None, None],
+    django_client: Client, wait_for_prometheus: Generator[None, None, None]
 ) -> None:
     """Test that HTTP request duration histogram is recorded in /metrics output."""
     # Make a request
@@ -156,20 +149,13 @@ def test_http_request_duration_histogram_in_metrics_output(
     content = response.content.decode("utf-8")
 
     # Histogram should have _bucket, _sum, and _count metrics
-    assert "http_request_duration_seconds_bucket" in content, (
-        "Duration histogram buckets not found"
-    )
-    assert "http_request_duration_seconds_sum" in content, (
-        "Duration histogram sum not found"
-    )
-    assert "http_request_duration_seconds_count" in content, (
-        "Duration histogram count not found"
-    )
+    assert "http_request_duration_seconds_bucket" in content, "Duration histogram buckets not found"
+    assert "http_request_duration_seconds_sum" in content, "Duration histogram sum not found"
+    assert "http_request_duration_seconds_count" in content, "Duration histogram count not found"
 
 
 def test_observe_request_records_metrics(
-    django_client: Client,
-    wait_for_prometheus: Generator[None, None, None],
+    django_client: Client, wait_for_prometheus: Generator[None, None, None]
 ) -> None:
     """Test that observe_request() function records metrics visible in /metrics."""
     # Use unique labels to identify our test
@@ -204,15 +190,14 @@ def test_observe_request_records_metrics(
     value = get_metric_value_from_output(
         content,
         "http_requests_total",
-        {"method": "POST", "route": test_route, "status": "201", "tenant": test_tenant}
+        {"method": "POST", "route": test_route, "status": "201", "tenant": test_tenant},
     )
     assert value is not None, "Metric not found with expected labels"
     assert value >= 1, f"Expected counter >= 1, got {value}"
 
 
 def test_db_metrics_recorded(
-    django_client: Client,
-    wait_for_prometheus: Generator[None, None, None],
+    django_client: Client, wait_for_prometheus: Generator[None, None, None]
 ) -> None:
     """Test that database metrics are recorded in /metrics output."""
     # Record a request with DB metrics
@@ -236,8 +221,7 @@ def test_db_metrics_recorded(
 
 
 def test_metrics_with_404_status(
-    django_client: Client,
-    wait_for_prometheus: Generator[None, None, None],
+    django_client: Client, wait_for_prometheus: Generator[None, None, None]
 ) -> None:
     """Test that metrics are recorded for 404 responses."""
     # Make a request to a non-existent path

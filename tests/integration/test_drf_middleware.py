@@ -43,9 +43,7 @@ def _create_test_viewset_class():
 
         def create(self, request):
             """Create action."""
-            return Response(
-                {"user": {"id": 1}, "action": "create"}, status=status.HTTP_201_CREATED
-            )
+            return Response({"user": {"id": 1}, "action": "create"}, status=status.HTTP_201_CREATED)
 
         @action(detail=False, methods=["get"])
         def active(self, request):

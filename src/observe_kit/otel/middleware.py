@@ -61,9 +61,7 @@ class TraceContextMiddleware(MiddlewareMixin):
                 is_remote=True,
             )
 
-            return trace.set_span_in_context(
-                trace.NonRecordingSpan(span_context), fallback_context
-            )
+            return trace.set_span_in_context(trace.NonRecordingSpan(span_context), fallback_context)
         except (ValueError, IndexError) as e:
             logger.debug("Failed to parse traceparent header", extra={"error": str(e)})
             return fallback_context
@@ -106,9 +104,7 @@ class TraceContextMiddleware(MiddlewareMixin):
 
             # Use SpanKind.SERVER for incoming HTTP requests (per semantic conventions)
             span_context_manager = tracer.start_as_current_span(
-                span_name,
-                context=parent_context,
-                kind=SpanKind.SERVER,
+                span_name, context=parent_context, kind=SpanKind.SERVER
             )
             span = span_context_manager.__enter__()
 
