@@ -5,24 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from observe_kit.settings import ObserveKitSettings
-
-
-def _make_cfg(**overrides: object) -> ObserveKitSettings:
-    defaults: dict = {
-        "configured": True,
-        "service_name": None,
-        "otel_endpoint": None,
-        "log_level": "INFO",
-        "pii_level": "BASIC",
-        "pii_levels": None,
-        "sentry_dsn": None,
-        "sentry_environment": "production",
-        "sentry_traces_sample_rate": 0.0,
-        "enabled": True,
-        "db_tracking": True,
-    }
-    defaults.update(overrides)
-    return ObserveKitSettings(**defaults)  # type: ignore[arg-type]
+from tests.unit.conftest import make_observe_kit_settings as _make_cfg
 
 
 def _run_ready(cfg: ObserveKitSettings):
@@ -59,7 +42,9 @@ def test_ready_calls_init_tracing_when_service_name_set() -> None:
     _, mock_trace, _ = _run_ready(
         _make_cfg(service_name="my-app", otel_endpoint="http://localhost:4318")
     )
-    mock_trace.assert_called_once_with(service_name="my-app", endpoint="http://localhost:4318")
+    mock_trace.assert_called_once_with(
+        service_name="my-app", endpoint="http://localhost:4318", sample_rate=None
+    )
 
 
 def test_ready_skips_init_sentry_when_no_dsn() -> None:

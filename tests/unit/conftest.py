@@ -2,9 +2,37 @@
 
 import contextlib
 import os
-from typing import Any, Generator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
+
+from observe_kit.settings import ObserveKitSettings
+
+_OBSERVE_KIT_SETTINGS_DEFAULTS: dict[str, Any] = {
+    "configured": True,
+    "service_name": None,
+    "otel_endpoint": None,
+    "log_level": "INFO",
+    "pii_level": "BASIC",
+    "pii_levels": None,
+    "sentry_dsn": None,
+    "sentry_environment": "production",
+    "sentry_traces_sample_rate": 0.0,
+    "enabled": True,
+    "db_tracking": True,
+    "pii_hash_salt": "",
+    "extra_drop_headers": frozenset(),
+    "extra_mask_fields": frozenset(),
+    "extra_hash_fields": frozenset(),
+    "trusted_proxies": [],
+    "otel_sample_rate": None,
+}
+
+
+def make_observe_kit_settings(**overrides: Any) -> ObserveKitSettings:
+    """Build an ObserveKitSettings instance with sane test defaults."""
+    return ObserveKitSettings(**{**_OBSERVE_KIT_SETTINGS_DEFAULTS, **overrides})  # type: ignore[arg-type]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -44,20 +72,20 @@ def configure_django():
 
 
 @pytest.fixture
-def observe_kit_settings() -> Generator[Any, None, None]:
+def observe_kit_settings() -> Callable[[dict[str, Any]], contextlib.AbstractContextManager[None]]:
     """Temporarily set django.conf.settings.OBSERVE_KIT and restore it afterwards."""
     from django.conf import settings as django_settings
 
     @contextlib.contextmanager
-    def _set(config: dict) -> Generator[None, None, None]:  # type: ignore[misc]
+    def _set(config: dict[str, Any]) -> Iterator[None]:
         original = getattr(django_settings, "OBSERVE_KIT", None)
-        django_settings.OBSERVE_KIT = config  # type: ignore[attr-defined]
+        setattr(django_settings, "OBSERVE_KIT", config)
         try:
             yield
         finally:
             if original is None:
-                del django_settings.OBSERVE_KIT  # type: ignore[attr-defined]
+                delattr(django_settings, "OBSERVE_KIT")
             else:
-                django_settings.OBSERVE_KIT = original  # type: ignore[attr-defined]
+                setattr(django_settings, "OBSERVE_KIT", original)
 
-    yield _set
+    return _set

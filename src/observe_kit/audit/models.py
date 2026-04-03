@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from django.apps import AppConfig
 from django.conf import settings
 from django.db import models
@@ -24,6 +26,14 @@ class AuditLog(models.Model):
 
     def __str__(self) -> str:  # pragma: no cover - representation helper
         return f"{self.timestamp} {self.actor} {self.action}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.pk is not None:
+            raise PermissionError("AuditLog records are immutable and cannot be modified.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        raise PermissionError("AuditLog records are immutable and cannot be deleted.")
 
 
 class ObserveAuditConfig(AppConfig):

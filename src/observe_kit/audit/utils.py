@@ -3,8 +3,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from ..conf import PII_SINK_AUDIT
 from ..context import get_request_context
 from ..metrics import AUDIT_EVENTS
+from ..pii_rules import PiiLevel, get_pii_config, sanitize_body
+from ..settings import get_observe_kit_settings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
@@ -21,8 +24,24 @@ def audit(
     obj: Optional[Any] = None,
     extra: Optional[Dict[str, Any]] = None,
     request: Optional[DjangoRequest] = None,
+    before: Optional[Dict[str, Any]] = None,
+    after: Optional[Dict[str, Any]] = None,
 ) -> "AuditLog":
-    """Create an audit log entry."""
+    """Create an immutable audit log entry.
+
+    Args:
+        actor: The user performing the action.
+        action: A short identifier for the action (e.g. ``"page.publish"``).
+        obj: The target object — its class name and PK are extracted automatically.
+        extra: Arbitrary metadata. PII is sanitised before storage according to
+               the ``audit`` sink PII level.
+        request: Optional Django request used to resolve ``remote_addr`` /
+                 ``user_agent`` when a ``RequestContext`` is unavailable.
+        before: Snapshot of the object state *before* the action. PII-sanitised
+                and stored under ``extra["_before"]``.
+        after: Snapshot of the object state *after* the action. PII-sanitised
+               and stored under ``extra["_after"]``.
+    """
     # Import here to avoid circular dependency during Django setup
     from .models import AuditLog
 
@@ -31,6 +50,25 @@ def audit(
     remote_addr = context.remote_addr or (request.META.get("REMOTE_ADDR") if request else None)
     user_agent = context.user_agent or (request.META.get("HTTP_USER_AGENT") if request else None)
     trace_id = context.trace_id
+
+    pii_level: PiiLevel = get_pii_config().get_level(PII_SINK_AUDIT)
+    cfg = get_observe_kit_settings()
+
+    def _sanitize(data: Any) -> Any:
+        return sanitize_body(
+            data,
+            pii_level,
+            extra_drop=cfg.extra_drop_headers,
+            extra_mask=cfg.extra_mask_fields,
+            extra_hash=cfg.extra_hash_fields,
+            hash_salt=cfg.pii_hash_salt,
+        )
+
+    sanitised_extra: Dict[str, Any] = dict(_sanitize(extra or {}))
+    if before is not None:
+        sanitised_extra["_before"] = _sanitize(before)
+    if after is not None:
+        sanitised_extra["_after"] = _sanitize(after)
 
     entry: AuditLog = AuditLog.objects.create(
         actor=actor,
@@ -41,7 +79,7 @@ def audit(
         trace_id=trace_id,
         remote_addr=remote_addr,
         user_agent=user_agent,
-        extra=extra or {},
+        extra=sanitised_extra,
     )
     AUDIT_EVENTS.labels(tenant=str(tenant_id or "unknown")).inc()
     logger.info(

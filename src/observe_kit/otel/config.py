@@ -14,6 +14,7 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased, TraceIdRatioBased
 from opentelemetry.trace import Span
 
 from ..context import get_request_context
@@ -45,6 +46,7 @@ _LOG_RECORD_CORE_FIELDS = {
     "process",
     "message",
     "asctime",
+    "taskName",
 }
 
 
@@ -230,6 +232,7 @@ def init_tracing(
     service_name: str,
     resource_attributes: Optional[Dict[str, str]] = None,
     endpoint: Optional[str] = None,
+    sample_rate: Optional[float] = None,
 ) -> None:
     """Configure the OpenTelemetry SDK with an OTLP HTTP exporter.
 
@@ -243,6 +246,9 @@ def init_tracing(
         resource_attributes: Optional additional resource attributes
         endpoint: Optional OTLP HTTP endpoint URL (http/https). Base collector
                   URLs are normalized to ``/v1/traces`` and ``/v1/logs``.
+        sample_rate: Optional trace sampling ratio (0.0–1.0). None means 100%
+                     sampling (ALWAYS_ON). Uses ParentBased(TraceIdRatioBased)
+                     so downstream services honour the sampling decision.
 
     Raises:
         ConfigurationError: If any configuration parameter is invalid
@@ -264,14 +270,24 @@ def init_tracing(
     attributes = {"service.name": service_name, **(resource_attributes or {})}
     resource = Resource.create(attributes)
 
-    provider = TracerProvider(resource=resource)
+    sampler = (
+        ParentBased(TraceIdRatioBased(sample_rate))
+        if sample_rate is not None and 0.0 <= sample_rate <= 1.0
+        else ALWAYS_ON
+    )
+    provider = TracerProvider(resource=resource, sampler=sampler)
     traces_endpoint = _normalize_otlp_http_endpoint(endpoint, "traces")
     exporter = OTLPSpanExporter(endpoint=traces_endpoint) if traces_endpoint else OTLPSpanExporter()
     processor = BatchSpanProcessor(exporter)
     provider.add_span_processor(processor)
     trace.set_tracer_provider(provider)
     logger.info(
-        "otel tracer configured", extra={"service": service_name, "endpoint": traces_endpoint}
+        "otel tracer configured",
+        extra={
+            "service": service_name,
+            "endpoint": traces_endpoint,
+            "sample_rate": sample_rate if sample_rate is not None else 1.0,
+        },
     )
 
     _TRACING_INITIALIZED = True

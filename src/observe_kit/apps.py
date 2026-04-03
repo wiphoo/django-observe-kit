@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from django.apps import AppConfig
+
+logger = logging.getLogger(__name__)
 
 
 class ObserveKitConfig(AppConfig):
@@ -30,22 +34,38 @@ class ObserveKitConfig(AppConfig):
             return
 
         # Always configure structured JSON logging.
-        from .logging import configure_logging
+        try:
+            from .logging import configure_logging
 
-        configure_logging(level=cfg.log_level, pii_levels=cfg.effective_pii_levels)
+            configure_logging(level=cfg.log_level, pii_levels=cfg.effective_pii_levels)
+        except Exception:
+            logger.exception("observe_kit: failed to configure structured logging")
 
         # Initialise OTEL tracing (and OTEL log export) when a service name is given.
         if cfg.service_name:
-            from .otel import init_tracing
+            try:
+                from .otel import init_tracing
 
-            init_tracing(service_name=cfg.service_name, endpoint=cfg.otel_endpoint)
+                init_tracing(
+                    service_name=cfg.service_name,
+                    endpoint=cfg.otel_endpoint,
+                    sample_rate=cfg.otel_sample_rate,
+                )
+            except Exception:
+                logger.exception(
+                    "observe_kit: failed to initialise OTel tracing",
+                    extra={"service": cfg.service_name},
+                )
 
         # Initialise Sentry when a DSN is provided.
         if cfg.sentry_dsn:
-            from .sentry import init_sentry
+            try:
+                from .sentry import init_sentry
 
-            init_sentry(
-                dsn=cfg.sentry_dsn,
-                environment=cfg.sentry_environment,
-                traces_sample_rate=cfg.sentry_traces_sample_rate,
-            )
+                init_sentry(
+                    dsn=cfg.sentry_dsn,
+                    environment=cfg.sentry_environment,
+                    traces_sample_rate=cfg.sentry_traces_sample_rate,
+                )
+            except Exception:
+                logger.exception("observe_kit: failed to initialise Sentry")

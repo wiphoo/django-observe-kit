@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional, cast
+from typing import Dict, FrozenSet, List, Optional, cast
 
 
 @dataclass
@@ -63,6 +63,28 @@ class ObserveKitSettings:
     db_tracking: bool
     """Enable per-request DB query tracking (slight performance overhead)."""
 
+    pii_hash_salt: str
+    """Salt prepended before hashing PII values (e.g. IP, user-agent).
+    Set to a secret per-environment value to prevent rainbow-table reversal.
+    """
+
+    extra_drop_headers: FrozenSet[str]
+    """Additional header names (lowercase) to drop beyond the built-in set."""
+
+    extra_mask_fields: FrozenSet[str]
+    """Additional field names (lowercase) to mask beyond the built-in set."""
+
+    extra_hash_fields: FrozenSet[str]
+    """Additional field names (lowercase) to hash beyond the built-in set."""
+
+    trusted_proxies: List[str]
+    """List of trusted proxy IPs (or ``["*"]`` for any proxy).
+    When non-empty, ``X-Forwarded-For`` is used to resolve the client IP.
+    """
+
+    otel_sample_rate: Optional[float]
+    """Trace sampling ratio (0.0–1.0). None means 100% sampling (ALWAYS_ON)."""
+
     @property
     def effective_pii_levels(self) -> Dict[str, str]:
         """Per-sink PII levels, expanding the global level when pii_levels is None."""
@@ -74,6 +96,12 @@ class ObserveKitSettings:
             "sentry": self.pii_level,
             "audit": self.pii_level,
         }
+
+
+def _as_frozenset_lower(raw: object) -> FrozenSet[str]:
+    if isinstance(raw, (list, tuple, set, frozenset)):
+        return frozenset(str(item).lower() for item in raw)
+    return frozenset()
 
 
 def get_observe_kit_settings() -> ObserveKitSettings:
@@ -120,6 +148,24 @@ def get_observe_kit_settings() -> ObserveKitSettings:
 
     pii_levels = _get("PII_LEVELS", default=None)
 
+    raw_otel_sample_rate = _get("OTEL_SAMPLE_RATE", default=None)
+    otel_sample_rate: Optional[float]
+    if raw_otel_sample_rate is not None:
+        try:
+            parsed = float(raw_otel_sample_rate)  # type: ignore[arg-type]
+            otel_sample_rate = max(0.0, min(1.0, parsed))
+        except (TypeError, ValueError):
+            otel_sample_rate = None
+    else:
+        otel_sample_rate = None
+
+    raw_trusted = _get("TRUSTED_PROXIES", default=None)
+    trusted_proxies: List[str] = list(raw_trusted) if isinstance(raw_trusted, (list, tuple)) else []
+
+    extra_drop_headers = _as_frozenset_lower(_get("EXTRA_DROP_HEADERS", default=None))
+    extra_mask_fields = _as_frozenset_lower(_get("EXTRA_MASK_FIELDS", default=None))
+    extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
+
     return ObserveKitSettings(
         configured=configured,
         service_name=_get("SERVICE_NAME", "OTEL_SERVICE_NAME") or None,  # type: ignore[arg-type]
@@ -132,6 +178,12 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         sentry_traces_sample_rate=sample_rate,
         enabled=enabled,
         db_tracking=db_tracking,
+        pii_hash_salt=str(_get("PII_HASH_SALT", default="")),
+        extra_drop_headers=extra_drop_headers,
+        extra_mask_fields=extra_mask_fields,
+        extra_hash_fields=extra_hash_fields,
+        trusted_proxies=trusted_proxies,
+        otel_sample_rate=otel_sample_rate,
     )
 
 

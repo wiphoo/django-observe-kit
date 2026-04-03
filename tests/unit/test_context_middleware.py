@@ -71,7 +71,7 @@ def test_process_request_sanitizes_headers(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
     """Test that process_request sanitizes headers."""
-    with patch("observe_kit.context_middleware.sanitize_headers") as mock_sanitize:
+    with patch("observe_kit.context_middleware._sanitize_mapping") as mock_sanitize:
         mock_sanitize.return_value = {"authorization": "[REDACTED]"}
         middleware = RequestContextMiddleware(mock_get_response)
         request = request_factory.get("/test/")
@@ -79,7 +79,7 @@ def test_process_request_sanitizes_headers(
 
         middleware.process_request(request)
 
-        mock_sanitize.assert_called_once()
+        mock_sanitize.assert_called()
         context = get_request_context()
         assert context.headers is not None
 
@@ -88,14 +88,14 @@ def test_process_request_sanitizes_query_params(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
     """Test that process_request sanitizes query params."""
-    with patch("observe_kit.context_middleware.sanitize_query_params") as mock_sanitize:
+    with patch("observe_kit.context_middleware._sanitize_mapping") as mock_sanitize:
         mock_sanitize.return_value = {"ip": "[HASHED]"}
         middleware = RequestContextMiddleware(mock_get_response)
         request = request_factory.get("/test/?ip=1.2.3.4")
 
         middleware.process_request(request)
 
-        mock_sanitize.assert_called_once()
+        mock_sanitize.assert_called()
         context = get_request_context()
         assert context.query_params is not None
 
@@ -366,17 +366,13 @@ def test_detect_framework_wagtail(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
     """Test framework detection for Wagtail admin."""
-    import importlib.util
-
-    with patch.object(importlib.util, "find_spec", return_value=Mock()):
-        # Wagtail is installed
+    with patch("observe_kit.context_middleware._WAGTAIL_INSTALLED", True):
         middleware = RequestContextMiddleware(mock_get_response)
         request = request_factory.get("/admin/")
 
         middleware.process_request(request)
 
         context = get_request_context()
-        # Framework detection may vary, just check it doesn't error
         assert context.framework in ("wagtail_admin", "django_admin", None)
 
 
@@ -384,17 +380,13 @@ def test_detect_framework_django_admin(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
     """Test framework detection for Django admin."""
-    import importlib.util
-
-    with patch.object(importlib.util, "find_spec", return_value=None):
-        # Wagtail not installed
+    with patch("observe_kit.context_middleware._WAGTAIL_INSTALLED", False):
         middleware = RequestContextMiddleware(mock_get_response)
         request = request_factory.get("/admin/")
 
         middleware.process_request(request)
 
         context = get_request_context()
-        # Framework detection may vary, just check it doesn't error
         assert context.framework in ("django_admin", None)
 
 

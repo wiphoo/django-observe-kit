@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from enum import Enum
-from typing import Dict, Mapping, MutableMapping, Optional
+from typing import Any, Dict, FrozenSet, Mapping, MutableMapping, Optional, Set
 
 from .conf import DEFAULT_PII_LEVELS, DROP_HEADERS, HASH_FIELDS, MASK_FIELDS
 
@@ -83,6 +83,9 @@ def set_pii_config(config: PiiConfig) -> None:
     _global_pii_config = config
 
 
+_MASK_LEVELS: frozenset[PiiLevel] = frozenset({PiiLevel.BASIC, PiiLevel.SENSITIVE})
+
+
 def _mask_value(value: str) -> str:
     if not value:
         return value
@@ -92,35 +95,103 @@ def _mask_value(value: str) -> str:
     return value[:2] + "***" if len(value) > 2 else "***"
 
 
-def _hash_value(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+def _hash_value(value: str, salt: str = "") -> str:
+    return hashlib.sha256((salt + value).encode("utf-8")).hexdigest()
 
 
-def sanitize_headers(headers: Mapping[str, str], level: PiiLevel) -> MutableMapping[str, str]:
+def _effective_sets(
+    extra_drop: Optional[FrozenSet[str]] = None,
+    extra_mask: Optional[FrozenSet[str]] = None,
+    extra_hash: Optional[FrozenSet[str]] = None,
+) -> tuple[Set[str], Set[str], Set[str]]:
+    drop = DROP_HEADERS | (extra_drop or frozenset())
+    mask = MASK_FIELDS | (extra_mask or frozenset())
+    hsh = HASH_FIELDS | (extra_hash or frozenset())
+    return drop, mask, hsh
+
+
+def _sanitize_mapping(
+    mapping: Mapping[str, str],
+    level: PiiLevel,
+    drop: Set[str],
+    mask: Set[str],
+    hsh: Set[str],
+    hash_salt: str,
+) -> MutableMapping[str, str]:
     cleaned: MutableMapping[str, str] = {}
-    for key, value in headers.items():
-        key_lower = key.lower()
-        if level != PiiLevel.NONE and key_lower in DROP_HEADERS:
-            continue
-        if level in {PiiLevel.BASIC, PiiLevel.SENSITIVE} and key_lower in MASK_FIELDS:
-            cleaned[key] = _mask_value(str(value))
-        elif level == PiiLevel.SENSITIVE and key_lower in HASH_FIELDS:
-            cleaned[key] = _hash_value(str(value))
-        else:
-            cleaned[key] = value
-    return cleaned
-
-
-def sanitize_query_params(params: Mapping[str, str], level: PiiLevel) -> MutableMapping[str, str]:
-    cleaned: MutableMapping[str, str] = {}
-    for key, value in params.items():
+    for key, value in mapping.items():
         key_lower = str(key).lower()
-        if level != PiiLevel.NONE and key_lower in DROP_HEADERS:
+        if level != PiiLevel.NONE and key_lower in drop:
             continue
-        if level in {PiiLevel.BASIC, PiiLevel.SENSITIVE} and key_lower in MASK_FIELDS:
+        if level in _MASK_LEVELS and key_lower in mask:
             cleaned[key] = _mask_value(str(value))
-        elif level == PiiLevel.SENSITIVE and key_lower in HASH_FIELDS:
-            cleaned[key] = _hash_value(str(value))
+        elif level == PiiLevel.SENSITIVE and key_lower in hsh:
+            cleaned[key] = _hash_value(str(value), hash_salt)
         else:
             cleaned[key] = value
     return cleaned
+
+
+def sanitize_headers(
+    headers: Mapping[str, str],
+    level: PiiLevel,
+    extra_drop: Optional[FrozenSet[str]] = None,
+    extra_mask: Optional[FrozenSet[str]] = None,
+    extra_hash: Optional[FrozenSet[str]] = None,
+    hash_salt: str = "",
+) -> MutableMapping[str, str]:
+    drop, mask, hsh = _effective_sets(extra_drop, extra_mask, extra_hash)
+    return _sanitize_mapping(headers, level, drop, mask, hsh, hash_salt)
+
+
+def sanitize_query_params(
+    params: Mapping[str, str],
+    level: PiiLevel,
+    extra_drop: Optional[FrozenSet[str]] = None,
+    extra_mask: Optional[FrozenSet[str]] = None,
+    extra_hash: Optional[FrozenSet[str]] = None,
+    hash_salt: str = "",
+) -> MutableMapping[str, str]:
+    drop, mask, hsh = _effective_sets(extra_drop, extra_mask, extra_hash)
+    return _sanitize_mapping(params, level, drop, mask, hsh, hash_salt)
+
+
+def sanitize_body(
+    body: Any,
+    level: PiiLevel,
+    extra_drop: Optional[FrozenSet[str]] = None,
+    extra_mask: Optional[FrozenSet[str]] = None,
+    extra_hash: Optional[FrozenSet[str]] = None,
+    hash_salt: str = "",
+) -> Any:
+    """Recursively sanitize a parsed JSON body (dict/list) according to PII rules.
+
+    Operates on the already-parsed Python structure, not raw bytes. Only dicts
+    and lists are traversed; scalar values are returned as-is unless their
+    *parent key* matches a PII field name.
+    """
+    if level == PiiLevel.NONE:
+        return body
+    drop, mask, hsh = _effective_sets(extra_drop, extra_mask, extra_hash)
+    return _sanitize_node(body, level, drop, mask, hsh, hash_salt)
+
+
+def _sanitize_node(
+    node: Any, level: PiiLevel, drop: Set[str], mask: Set[str], hsh: Set[str], hash_salt: str
+) -> Any:
+    if isinstance(node, dict):
+        result: dict[str, Any] = {}
+        for key, value in node.items():
+            key_lower = str(key).lower()
+            if key_lower in drop:
+                continue
+            if level in _MASK_LEVELS and key_lower in mask:
+                result[key] = _mask_value(str(value)) if isinstance(value, str) else "***"
+            elif level == PiiLevel.SENSITIVE and key_lower in hsh:
+                result[key] = _hash_value(str(value), hash_salt)
+            else:
+                result[key] = _sanitize_node(value, level, drop, mask, hsh, hash_salt)
+        return result
+    if isinstance(node, list):
+        return [_sanitize_node(item, level, drop, mask, hsh, hash_salt) for item in node]
+    return node

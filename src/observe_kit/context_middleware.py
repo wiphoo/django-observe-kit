@@ -8,15 +8,19 @@ from django.utils.deprecation import MiddlewareMixin
 if TYPE_CHECKING:
     pass
 
+import importlib.util
+
 from .conf import PII_SINK_LOGS
 from .context import RequestContext, RequestTiming, get_request_context, set_request_context
 from .metrics.db import QueryRecorder, wrap_connections
-from .pii_rules import PiiLevel, get_pii_config, sanitize_headers, sanitize_query_params
+from .pii_rules import PiiLevel, _effective_sets, _sanitize_mapping, get_pii_config
 from .settings import get_observe_kit_settings
 from .tenant import resolve_tenant_id
 from .typing import DjangoRequest, DjangoResponse
 
 logger = logging.getLogger(__name__)
+
+_WAGTAIL_INSTALLED: bool = importlib.util.find_spec("wagtail") is not None
 
 
 class RequestContextMiddleware(MiddlewareMixin):
@@ -40,12 +44,22 @@ class RequestContextMiddleware(MiddlewareMixin):
             # Use logs sink level as default for context storage
             self.pii_level = None
 
+        # Snapshot config at init — static for the process lifetime.
+        cfg = get_observe_kit_settings()
+        self._hash_salt = cfg.pii_hash_salt
+        self._trusted_proxies = cfg.trusted_proxies
+        self._db_tracking = cfg.db_tracking
+        # Pre-compute merged PII sets once so process_request skips set unions per request.
+        self._drop, self._mask, self._hsh = _effective_sets(
+            cfg.extra_drop_headers, cfg.extra_mask_fields, cfg.extra_hash_fields
+        )
+
     def process_request(self, request: DjangoRequest) -> None:
         try:
             context = RequestContext()
             context.method = request.method
             context.path = request.path
-            context.remote_addr = request.META.get("REMOTE_ADDR")
+            context.remote_addr = _resolve_remote_addr(request, self._trusted_proxies)
             context.user_agent = request.META.get("HTTP_USER_AGENT")
 
             # Use per-sink PII config if available, otherwise use instance level
@@ -55,8 +69,22 @@ class RequestContextMiddleware(MiddlewareMixin):
             else:
                 level = self.pii_level
 
-            context.headers = sanitize_headers(getattr(request, "headers", {}), level)
-            context.query_params = sanitize_query_params(getattr(request, "GET", {}), level)
+            context.headers = _sanitize_mapping(
+                getattr(request, "headers", {}),
+                level,
+                self._drop,
+                self._mask,
+                self._hsh,
+                self._hash_salt,
+            )
+            context.query_params = _sanitize_mapping(
+                getattr(request, "GET", {}),
+                level,
+                self._drop,
+                self._mask,
+                self._hsh,
+                self._hash_salt,
+            )
             context.user_id = _safe_str(getattr(getattr(request, "user", None), "id", None))
             context.tenant_id = resolve_tenant_id(request)
 
@@ -67,8 +95,7 @@ class RequestContextMiddleware(MiddlewareMixin):
             set_request_context(context)
             request._observe_kit_timer = RequestTiming()
 
-            # DB tracking is optional and follows the resolved runtime setting.
-            if get_observe_kit_settings().db_tracking:
+            if self._db_tracking:
                 request._observe_kit_queries = QueryRecorder()
                 request._observe_kit_remove_wrappers = wrap_connections(
                     request._observe_kit_queries
@@ -95,6 +122,21 @@ class RequestContextMiddleware(MiddlewareMixin):
             context.route = resolver_match.route
         elif resolver_match and resolver_match.view_name:
             context.route = resolver_match.view_name
+
+    def process_exception(self, request: DjangoRequest, exception: Exception) -> None:
+        """Ensure DB wrappers are removed even when the view raises an exception."""
+        remover = getattr(request, "_observe_kit_remove_wrappers", None)
+        if callable(remover):
+            try:
+                remover()
+            except Exception as e:
+                logger.warning(
+                    "Failed to remove DB wrappers on exception",
+                    extra={"error": str(e)},
+                    exc_info=True,
+                )
+            finally:
+                setattr(request, "_observe_kit_remove_wrappers", None)
 
     def process_response(self, request: DjangoRequest, response: DjangoResponse) -> DjangoResponse:
         try:
@@ -136,6 +178,18 @@ def _safe_str(value: Optional[object]) -> Optional[str]:
     return value_str or None
 
 
+def _resolve_remote_addr(request: DjangoRequest, trusted_proxies: list[str]) -> Optional[str]:
+    """Return the originating client IP, honouring X-Forwarded-For for trusted proxies."""
+    remote_addr: Optional[str] = request.META.get("REMOTE_ADDR") or None
+    if not trusted_proxies:
+        return remote_addr
+    if trusted_proxies == ["*"] or remote_addr in trusted_proxies:
+        xff: Optional[str] = request.META.get("HTTP_X_FORWARDED_FOR") or None
+        if xff:
+            return xff.split(",")[0].strip() or None
+    return remote_addr
+
+
 def _detect_framework(request: DjangoRequest) -> Optional[str]:
     """Detect the framework/interface for the request.
 
@@ -146,10 +200,7 @@ def _detect_framework(request: DjangoRequest) -> Optional[str]:
     """
     path = request.path
 
-    # Check for Wagtail admin
-    import importlib.util
-
-    if importlib.util.find_spec("wagtail"):
+    if _WAGTAIL_INSTALLED:
         # Wagtail admin typically uses /admin/ or /cms-admin/
         if path.startswith("/admin/") or path.startswith("/cms-admin/"):
             # Additional check: verify it's actually Wagtail admin
