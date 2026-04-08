@@ -220,7 +220,10 @@ def test_init_tracing_preserves_explicit_signal_endpoint() -> None:
 
 
 def test_otel_log_record_sanitizer_stringifies_unsupported_extra() -> None:
-    from observe_kit.otel.config import OTelLogRecordSanitizer
+    """_SafeOTelLogHandler coerces unsupported extras on a *copy* of the record."""
+    from unittest.mock import patch
+
+    from observe_kit.otel.config import _SafeOTelLogHandler
 
     record = logging.makeLogRecord(
         {
@@ -230,9 +233,21 @@ def test_otel_log_record_sanitizer_stringifies_unsupported_extra() -> None:
             "request": SimpleNamespace(path="/missing"),
         }
     )
+    original_request = record.request  # keep reference to the original object
 
-    sanitizer = OTelLogRecordSanitizer()
+    handler = _SafeOTelLogHandler.__new__(_SafeOTelLogHandler)
 
-    assert sanitizer.filter(record) is True
-    assert isinstance(record.request, str)
-    assert "path='/missing'" in record.request
+    emitted: list[logging.LogRecord] = []
+
+    with patch.object(
+        _SafeOTelLogHandler.__bases__[0], "emit", side_effect=lambda r: emitted.append(r)
+    ):
+        _SafeOTelLogHandler.emit(handler, record)
+
+    assert len(emitted) == 1
+    emitted_record = emitted[0]
+    # The emitted copy has the value stringified.
+    assert isinstance(emitted_record.request, str)
+    assert "path='/missing'" in emitted_record.request
+    # The original record is NOT mutated.
+    assert record.request is original_request

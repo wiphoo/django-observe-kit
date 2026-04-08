@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import contextvars
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, MutableMapping, Optional
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -69,6 +72,10 @@ def get_request_context(default: Optional[RequestContext] = None) -> RequestCont
     try:
         return _request_context.get()
     except LookupError:
+        _logger.debug(
+            "observe_kit: get_request_context called outside a request context; "
+            "returning a blank RequestContext"
+        )
         if default is None:
             default = RequestContext()
         _request_context.set(default)

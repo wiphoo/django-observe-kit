@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
@@ -98,16 +99,25 @@ def _is_otel_log_attribute_value(value: Any) -> bool:
     return False
 
 
-class OTelLogRecordSanitizer(logging.Filter):
-    """Coerce unsupported Python logging extras into OTEL-safe values."""
+class _SafeOTelLogHandler(LoggingHandler):
+    """LoggingHandler that coerces unsupported extras into OTEL-safe values.
 
-    def filter(self, record: logging.LogRecord) -> bool:
+    Works on a shallow copy of the LogRecord so that other handlers in the
+    logging chain receive the original, unmodified record.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        record = copy.copy(record)
         for key, value in list(vars(record).items()):
             if key.startswith("_") or key in _LOG_RECORD_CORE_FIELDS:
                 continue
             if not _is_otel_log_attribute_value(value):
                 setattr(record, key, repr(value))
-        return True
+        super().emit(record)
+
+
+# Public alias kept for any code that referenced the old filter class.
+OTelLogRecordSanitizer = _SafeOTelLogHandler
 
 
 def _validate_service_name(service_name: str) -> None:
@@ -116,9 +126,9 @@ def _validate_service_name(service_name: str) -> None:
         raise ConfigurationError("service_name must be a non-empty string")
     if len(service_name) > 255:
         raise ConfigurationError("service_name must be 255 characters or less")
-    if not service_name.replace("_", "").replace("-", "").isalnum():
+    if not service_name.replace("_", "").replace("-", "").replace(".", "").isalnum():
         raise ConfigurationError(
-            "service_name must contain only alphanumeric characters, hyphens, and underscores"
+            "service_name must contain only alphanumeric characters, hyphens, underscores, and dots"
         )
 
 
@@ -222,9 +232,8 @@ def _ensure_otel_logging_handler(log_provider: LoggerProvider) -> None:
     if has_handler:
         return
 
-    handler = LoggingHandler(level=logging.NOTSET, logger_provider=log_provider)
+    handler = _SafeOTelLogHandler(level=logging.NOTSET, logger_provider=log_provider)
     setattr(handler, _OTEL_LOG_HANDLER_ATTR, True)
-    handler.addFilter(OTelLogRecordSanitizer())
     root_logger.addHandler(handler)
 
 

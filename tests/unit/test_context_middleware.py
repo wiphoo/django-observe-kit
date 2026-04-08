@@ -71,7 +71,7 @@ def test_process_request_sanitizes_headers(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
     """Test that process_request sanitizes headers."""
-    with patch("observe_kit.context_middleware._sanitize_mapping") as mock_sanitize:
+    with patch("observe_kit.context_middleware.sanitize_mapping") as mock_sanitize:
         mock_sanitize.return_value = {"authorization": "[REDACTED]"}
         middleware = RequestContextMiddleware(mock_get_response)
         request = request_factory.get("/test/")
@@ -88,7 +88,7 @@ def test_process_request_sanitizes_query_params(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
     """Test that process_request sanitizes query params."""
-    with patch("observe_kit.context_middleware._sanitize_mapping") as mock_sanitize:
+    with patch("observe_kit.context_middleware.sanitize_mapping") as mock_sanitize:
         mock_sanitize.return_value = {"ip": "[HASHED]"}
         middleware = RequestContextMiddleware(mock_get_response)
         request = request_factory.get("/test/?ip=1.2.3.4")

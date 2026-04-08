@@ -6,9 +6,10 @@ to avoid circular dependencies during Django setup.
 
 from typing import Any
 
+from .apps import ObserveAuditConfig
 from .utils import audit
 
-__all__ = ["AuditLog", "ObserveAuditConfig", "audit"]
+__all__ = ["AuditLog", "AuditLogImmutableError", "ObserveAuditConfig", "audit"]
 
 
 def __getattr__(name: str) -> Any:
@@ -17,8 +18,8 @@ def __getattr__(name: str) -> Any:
         from .models import AuditLog
 
         return AuditLog
-    if name == "ObserveAuditConfig":
-        from .models import ObserveAuditConfig
+    if name == "AuditLogImmutableError":
+        from .models import AuditLogImmutableError
 
-        return ObserveAuditConfig
+        return AuditLogImmutableError
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

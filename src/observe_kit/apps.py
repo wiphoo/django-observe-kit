@@ -33,6 +33,20 @@ class ObserveKitConfig(AppConfig):
         if not cfg.configured or not cfg.enabled:
             return
 
+        # Warn about insecure configuration choices early so they surface in startup logs.
+        if not cfg.pii_hash_salt:
+            logger.warning(
+                "observe_kit: PII_HASH_SALT is not set. "
+                "Hashed PII values (IP, user-agent) are vulnerable to rainbow-table reversal. "
+                "Set OBSERVE_KIT['PII_HASH_SALT'] to a secret per-environment value."
+            )
+        if cfg.trusted_proxies == ["*"]:
+            logger.warning(
+                "observe_kit: TRUSTED_PROXIES is set to ['*'], which trusts any proxy for "
+                "X-Forwarded-For. This can allow clients to spoof their IP address. "
+                "Consider restricting to explicit proxy IPs in production."
+            )
+
         # Always configure structured JSON logging.
         try:
             from .logging import configure_logging

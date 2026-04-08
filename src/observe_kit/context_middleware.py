@@ -1,19 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from django.utils.deprecation import MiddlewareMixin
-
-if TYPE_CHECKING:
-    pass
-
-import importlib.util
 
 from .conf import PII_SINK_LOGS
 from .context import RequestContext, RequestTiming, get_request_context, set_request_context
 from .metrics.db import QueryRecorder, wrap_connections
-from .pii_rules import PiiLevel, _effective_sets, _sanitize_mapping, get_pii_config
+from .pii_rules import PiiLevel, effective_sets, get_pii_config, sanitize_mapping
 from .settings import get_observe_kit_settings
 from .tenant import resolve_tenant_id
 from .typing import DjangoRequest, DjangoResponse
@@ -50,7 +46,7 @@ class RequestContextMiddleware(MiddlewareMixin):
         self._trusted_proxies = cfg.trusted_proxies
         self._db_tracking = cfg.db_tracking
         # Pre-compute merged PII sets once so process_request skips set unions per request.
-        self._drop, self._mask, self._hsh = _effective_sets(
+        self._drop, self._mask, self._hsh = effective_sets(
             cfg.extra_drop_headers, cfg.extra_mask_fields, cfg.extra_hash_fields
         )
 
@@ -69,7 +65,7 @@ class RequestContextMiddleware(MiddlewareMixin):
             else:
                 level = self.pii_level
 
-            context.headers = _sanitize_mapping(
+            context.headers = sanitize_mapping(
                 getattr(request, "headers", {}),
                 level,
                 self._drop,
@@ -77,7 +73,7 @@ class RequestContextMiddleware(MiddlewareMixin):
                 self._hsh,
                 self._hash_salt,
             )
-            context.query_params = _sanitize_mapping(
+            context.query_params = sanitize_mapping(
                 getattr(request, "GET", {}),
                 level,
                 self._drop,

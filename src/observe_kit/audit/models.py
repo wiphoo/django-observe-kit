@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.apps import AppConfig
 from django.conf import settings
 from django.db import models
+
+
+class AuditLogImmutableError(Exception):
+    """Raised when code attempts to modify or delete an AuditLog record."""
 
 
 class AuditLog(models.Model):
@@ -29,13 +32,8 @@ class AuditLog(models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self.pk is not None:
-            raise PermissionError("AuditLog records are immutable and cannot be modified.")
+            raise AuditLogImmutableError("AuditLog records are immutable and cannot be modified.")
         super().save(*args, **kwargs)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        raise PermissionError("AuditLog records are immutable and cannot be deleted.")
-
-
-class ObserveAuditConfig(AppConfig):
-    name = "observe_kit.audit"
-    verbose_name = "Observe Kit Audit"
+        raise AuditLogImmutableError("AuditLog records are immutable and cannot be deleted.")

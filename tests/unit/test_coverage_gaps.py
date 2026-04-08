@@ -22,12 +22,11 @@ class TestAuditInitLazyImports:
         assert result is not None
         assert result.__name__ == "AuditLog"
 
-    def test_getattr_observe_audit_config_returns_app_config(self) -> None:
-        import observe_kit.audit as audit_module
+    def test_observe_audit_config_is_accessible(self) -> None:
+        from observe_kit.audit import ObserveAuditConfig
 
-        result = audit_module.__getattr__("ObserveAuditConfig")
-        assert result is not None
-        assert result.__name__ == "ObserveAuditConfig"
+        assert ObserveAuditConfig is not None
+        assert ObserveAuditConfig.__name__ == "ObserveAuditConfig"
 
     def test_getattr_unknown_name_raises_attribute_error(self) -> None:
         import observe_kit.audit as audit_module

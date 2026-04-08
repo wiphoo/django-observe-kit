@@ -20,20 +20,20 @@ class TestAuditLogImmutability:
     """AuditLog must never be mutated or deleted after creation."""
 
     def test_save_raises_on_update(self) -> None:
-        from observe_kit.audit.models import AuditLog
+        from observe_kit.audit.models import AuditLog, AuditLogImmutableError
 
         entry = AuditLog()
         entry.pk = 99  # simulate an already-persisted record
         entry.action = "tampered"
-        with pytest.raises(PermissionError, match="immutable"):
+        with pytest.raises(AuditLogImmutableError, match="immutable"):
             entry.save()
 
     def test_delete_raises(self) -> None:
-        from observe_kit.audit.models import AuditLog
+        from observe_kit.audit.models import AuditLog, AuditLogImmutableError
 
         entry = AuditLog()
         entry.pk = 99
-        with pytest.raises(PermissionError, match="immutable"):
+        with pytest.raises(AuditLogImmutableError, match="immutable"):
             entry.delete()
 
     def test_first_save_calls_super(self) -> None:
@@ -41,7 +41,7 @@ class TestAuditLogImmutability:
 
         entry = AuditLog()
         assert entry.pk is None
-        # When pk is None, save() delegates to super().save() — no PermissionError
+        # When pk is None, save() delegates to super().save() — no AuditLogImmutableError
         with patch("django.db.models.Model.save") as mock_super_save:
             entry.save()
             mock_super_save.assert_called_once()

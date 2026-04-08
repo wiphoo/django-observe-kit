@@ -99,7 +99,7 @@ def _hash_value(value: str, salt: str = "") -> str:
     return hashlib.sha256((salt + value).encode("utf-8")).hexdigest()
 
 
-def _effective_sets(
+def effective_sets(
     extra_drop: Optional[FrozenSet[str]] = None,
     extra_mask: Optional[FrozenSet[str]] = None,
     extra_hash: Optional[FrozenSet[str]] = None,
@@ -110,7 +110,11 @@ def _effective_sets(
     return drop, mask, hsh
 
 
-def _sanitize_mapping(
+# Keep private alias for backward compatibility
+_effective_sets = effective_sets
+
+
+def sanitize_mapping(
     mapping: Mapping[str, str],
     level: PiiLevel,
     drop: Set[str],
@@ -132,6 +136,10 @@ def _sanitize_mapping(
     return cleaned
 
 
+# Keep private alias for backward compatibility
+_sanitize_mapping = sanitize_mapping
+
+
 def sanitize_headers(
     headers: Mapping[str, str],
     level: PiiLevel,
@@ -140,8 +148,8 @@ def sanitize_headers(
     extra_hash: Optional[FrozenSet[str]] = None,
     hash_salt: str = "",
 ) -> MutableMapping[str, str]:
-    drop, mask, hsh = _effective_sets(extra_drop, extra_mask, extra_hash)
-    return _sanitize_mapping(headers, level, drop, mask, hsh, hash_salt)
+    drop, mask, hsh = effective_sets(extra_drop, extra_mask, extra_hash)
+    return sanitize_mapping(headers, level, drop, mask, hsh, hash_salt)
 
 
 def sanitize_query_params(
@@ -152,8 +160,8 @@ def sanitize_query_params(
     extra_hash: Optional[FrozenSet[str]] = None,
     hash_salt: str = "",
 ) -> MutableMapping[str, str]:
-    drop, mask, hsh = _effective_sets(extra_drop, extra_mask, extra_hash)
-    return _sanitize_mapping(params, level, drop, mask, hsh, hash_salt)
+    drop, mask, hsh = effective_sets(extra_drop, extra_mask, extra_hash)
+    return sanitize_mapping(params, level, drop, mask, hsh, hash_salt)
 
 
 def sanitize_body(
@@ -172,7 +180,7 @@ def sanitize_body(
     """
     if level == PiiLevel.NONE:
         return body
-    drop, mask, hsh = _effective_sets(extra_drop, extra_mask, extra_hash)
+    drop, mask, hsh = effective_sets(extra_drop, extra_mask, extra_hash)
     return _sanitize_node(body, level, drop, mask, hsh, hash_salt)
 
 
