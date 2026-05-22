@@ -126,6 +126,13 @@ class ObserveKitSettings:
     addresses or CIDR blocks are accepted; malformed entries are ignored.
     """
 
+    validate_middleware_order: bool
+    """Warn at startup when ``django.conf.settings.MIDDLEWARE`` contains
+    observe_kit middlewares in an order that will cause silent data loss
+    (e.g. trace_id missing from logs, duration_ms missing from metrics).
+    Advisory only; never raises.
+    """
+
     @property
     def effective_pii_levels(self) -> Dict[str, str]:
         """Per-sink PII levels, expanding the global level when pii_levels is None."""
@@ -220,6 +227,15 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     else:
         trusted_trace_sources = []
 
+    raw_validate_order = _get(
+        "VALIDATE_MIDDLEWARE_ORDER", "OBSERVE_KIT_VALIDATE_MIDDLEWARE_ORDER", default=True
+    )
+    # Strict bool: recognise "0"/"no"/"off" as False, not True. _as_bool treats
+    # everything except "false" as True, which silently ignores common env-var
+    # conventions; default stays True so unrecognised input doesn't disable the
+    # validator unexpectedly.
+    validate_middleware_order = _as_strict_bool(raw_validate_order, default=True)
+
     extra_drop_headers = _as_frozenset_lower(_get("EXTRA_DROP_HEADERS", default=None))
     extra_mask_fields = _as_frozenset_lower(_get("EXTRA_MASK_FIELDS", default=None))
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
@@ -267,6 +283,7 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         metrics_token=metrics_token,
         trust_incoming_trace_context=trust_incoming_trace_context,
         trusted_trace_sources=trusted_trace_sources,
+        validate_middleware_order=validate_middleware_order,
     )
 
 
@@ -285,8 +302,8 @@ def _as_strict_bool(value: object, default: bool) -> bool:
 
     Unlike :func:`_as_bool` (kept for legacy callers, treats any non-"false"
     string as ``True``), this function recognises only canonical truthy and
-    falsy strings and returns ``default`` for anything else. Use for
-    security-sensitive flags where ambiguity must fail safe.
+    falsy strings and returns ``default`` for anything else. Use for flags
+    where ambiguity must fail safe / fail correct.
     """
     if isinstance(value, bool):
         return value
