@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- `OBSERVE_KIT["METRICS_AUTH"]` setting (`"none"` | `"staff"` | `"token"`) and `OBSERVE_KIT["METRICS_TOKEN"]` to gate the Prometheus `/metrics` endpoint. Token mode uses constant-time comparison. When mode is `"none"` and Django `DEBUG` is `False`, a one-shot `RuntimeWarning` is emitted to flag the unauthenticated endpoint. See [#2](https://github.com/wiphoo/django-observe-kit/issues/2).
 - OTEL tracing with automatic W3C trace-context propagation plus the `X-Trace-Id` header.
 - Per-sink PII configuration (`PiiConfig`) spanning logs, OTEL, Sentry, and audit sinks.
 - DRF integration middleware that detects ViewSet actions and renames spans to `drf.<ViewSet>.<action>` while tagging frameworks.
