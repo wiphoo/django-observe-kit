@@ -27,6 +27,8 @@ _OBSERVE_KIT_SETTINGS_DEFAULTS: dict[str, Any] = {
     "extra_hash_fields": frozenset(),
     "trusted_proxies": [],
     "otel_sample_rate": None,
+    "metrics_auth": "none",
+    "metrics_token": None,
 }
 
 

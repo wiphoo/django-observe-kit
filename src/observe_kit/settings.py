@@ -19,6 +19,7 @@ Sentry is only initialised when SENTRY_DSN is set.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, cast
 
@@ -84,6 +85,23 @@ class ObserveKitSettings:
 
     otel_sample_rate: Optional[float]
     """Trace sampling ratio (0.0–1.0). None means 100% sampling (ALWAYS_ON)."""
+
+    metrics_auth: str
+    """Access-control mode for the Prometheus ``/metrics`` endpoint.
+
+    One of ``"none"`` (allow all, warns when ``DEBUG`` is False), ``"staff"``
+    (require ``request.user.is_staff``), or ``"token"`` (require an
+    ``Authorization: Bearer <token>`` header matching :attr:`metrics_token`).
+    Defaults to ``"none"`` for backwards compatibility; invalid values are
+    coerced to ``"none"``.
+    """
+
+    metrics_token: Optional[str]
+    """Bearer token required when :attr:`metrics_auth` is ``"token"``.
+
+    Compared via :func:`hmac.compare_digest`. An empty or missing token
+    rejects every request, even when the client sends an empty header.
+    """
 
     @property
     def effective_pii_levels(self) -> Dict[str, str]:
@@ -166,6 +184,27 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     extra_mask_fields = _as_frozenset_lower(_get("EXTRA_MASK_FIELDS", default=None))
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
 
+    raw_metrics_auth = _get("METRICS_AUTH", "OBSERVE_KIT_METRICS_AUTH", "none")
+    metrics_auth_input = str(raw_metrics_auth).lower() if raw_metrics_auth is not None else "none"
+    if metrics_auth_input in {"none", "staff", "token"}:
+        metrics_auth = metrics_auth_input
+    else:
+        # Surface misconfiguration immediately rather than waiting for the
+        # one-shot /metrics warning in `metrics/prometheus.py`. Python dedupes
+        # warnings by (message, category, file, line) so this fires once per
+        # distinct invalid value.
+        warnings.warn(
+            f"observe_kit: OBSERVE_KIT['METRICS_AUTH']={raw_metrics_auth!r} is "
+            "invalid (expected one of 'none', 'staff', 'token'); falling back "
+            "to 'none' — /metrics will be exposed without authentication.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        metrics_auth = "none"
+
+    raw_metrics_token = _get("METRICS_TOKEN", "OBSERVE_KIT_METRICS_TOKEN", None)
+    metrics_token = str(raw_metrics_token) if raw_metrics_token else None
+
     return ObserveKitSettings(
         configured=configured,
         service_name=_get("SERVICE_NAME", "OTEL_SERVICE_NAME") or None,  # type: ignore[arg-type]
@@ -184,6 +223,8 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         extra_hash_fields=extra_hash_fields,
         trusted_proxies=trusted_proxies,
         otel_sample_rate=otel_sample_rate,
+        metrics_auth=metrics_auth,
+        metrics_token=metrics_token,
     )
 
 
