@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+- **Breaking:** inbound W3C `traceparent` / `tracestate` headers are no longer extracted by default. Set `OBSERVE_KIT["TRUST_INCOMING_TRACE_CONTEXT"] = True` (mesh-internal services) or list trusted client IP / CIDR blocks in `OBSERVE_KIT["TRUSTED_TRACE_SOURCES"]` to restore propagation. Prevents trace-id poisoning, forced-sample DoS on the trace backend, and `tracestate` injection from untrusted edges. See [#4](https://github.com/wiphoo/django-observe-kit/issues/4).
+
 ### Added
 - `OBSERVE_KIT["METRICS_AUTH"]` setting (`"none"` | `"staff"` | `"token"`) and `OBSERVE_KIT["METRICS_TOKEN"]` to gate the Prometheus `/metrics` endpoint. Token mode uses constant-time comparison. When mode is `"none"` and Django `DEBUG` is `False`, a one-shot `RuntimeWarning` is emitted to flag the unauthenticated endpoint. See [#2](https://github.com/wiphoo/django-observe-kit/issues/2).
 - OTEL tracing with automatic W3C trace-context propagation plus the `X-Trace-Id` header.

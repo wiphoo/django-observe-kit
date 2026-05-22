@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from django.core.exceptions import DisallowedHost
 from django.http import HttpResponse
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from opentelemetry.trace import Status, StatusCode
 
 from observe_kit.context import reset_request_context
@@ -58,10 +58,11 @@ def test_process_request_creates_span(
     assert context.span_id is not None
 
 
+@override_settings(OBSERVE_KIT={"TRUST_INCOMING_TRACE_CONTEXT": True})
 def test_process_request_extracts_trace_context(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
-    """Test that process_request extracts trace context from headers."""
+    """Test that process_request extracts trace context from headers when trust is enabled."""
     middleware = TraceContextMiddleware(mock_get_response)
     request = request_factory.get(
         "/test/", HTTP_TRACEPARENT="00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"
@@ -79,6 +80,7 @@ def test_process_request_extracts_trace_context(
         assert "traceparent" in call_args
 
 
+@override_settings(OBSERVE_KIT={"TRUST_INCOMING_TRACE_CONTEXT": True})
 def test_process_request_handles_exception(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
