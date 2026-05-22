@@ -63,10 +63,14 @@ def test_prometheus_request_middleware_records_metrics(
         assert result == response
 
 
-def test_prometheus_request_middleware_uses_path_when_route_missing(
+def test_prometheus_request_middleware_uses_unknown_when_route_missing(
     request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
 ) -> None:
-    """Test that middleware uses path when route is missing."""
+    """Unresolved requests collapse to a single 'unknown' bucket — see #9.
+
+    Falling back to the raw path used to inflate cardinality on every 404
+    probe (e.g. /.env, /wp-admin), so we intentionally drop that fallback.
+    """
     middleware = PrometheusRequestMiddleware(mock_get_response)
     request = request_factory.get("/test/")
     response = HttpResponse(status=200)
@@ -83,7 +87,7 @@ def test_prometheus_request_middleware_uses_path_when_route_missing(
         middleware.process_response(request, response)
 
         mock_observe.assert_called_once()
-        assert mock_observe.call_args[1]["route"] == "/test/"
+        assert mock_observe.call_args[1]["route"] == "unknown"
 
 
 def test_prometheus_request_middleware_uses_unknown_when_route_and_path_missing(

@@ -133,6 +133,14 @@ class ObserveKitSettings:
     Advisory only; never raises.
     """
 
+    metrics_max_label_cardinality: int
+    """Per-process cap on distinct values for the ``route`` and ``tenant``
+    Prometheus labels. Values beyond the cap collapse to a reserved sentinel
+    to prevent attacker-controlled inputs (raw paths, ``X-Tenant-Id``
+    headers, subdomains) from inflating the time-series count. Set to ``0``
+    to disable the cap. Default ``1000``.
+    """
+
     @property
     def effective_pii_levels(self) -> Dict[str, str]:
         """Per-sink PII levels, expanding the global level when pii_levels is None."""
@@ -236,6 +244,17 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     # validator unexpectedly.
     validate_middleware_order = _as_strict_bool(raw_validate_order, default=True)
 
+    raw_max_cardinality = _get(
+        "METRICS_MAX_LABEL_CARDINALITY", "OBSERVE_KIT_METRICS_MAX_LABEL_CARDINALITY", default=1000
+    )
+    # _get returns `object`; int() accepts str / SupportsInt at runtime.
+    try:
+        parsed_cap: int = int(raw_max_cardinality)  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        metrics_max_label_cardinality = 1000
+    else:
+        metrics_max_label_cardinality = max(0, parsed_cap)
+
     extra_drop_headers = _as_frozenset_lower(_get("EXTRA_DROP_HEADERS", default=None))
     extra_mask_fields = _as_frozenset_lower(_get("EXTRA_MASK_FIELDS", default=None))
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
@@ -284,6 +303,7 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         trust_incoming_trace_context=trust_incoming_trace_context,
         trusted_trace_sources=trusted_trace_sources,
         validate_middleware_order=validate_middleware_order,
+        metrics_max_label_cardinality=metrics_max_label_cardinality,
     )
 
 

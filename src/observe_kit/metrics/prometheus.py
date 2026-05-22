@@ -2,12 +2,103 @@ from __future__ import annotations
 
 import hmac
 import logging
+import threading
 import warnings
 from typing import Any, Callable, Optional
 
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 logger = logging.getLogger(__name__)
+
+# Reserved sentinel used when cardinality is exceeded. Chosen to be highly
+# unlikely to match any legitimate route or tenant value; an attacker sending
+# this exact string is detected explicitly in ``admit()`` so the overflow
+# bucket can never be polluted with attacker-supplied data.
+OVERFLOW_LABEL = "__observe_kit_overflow__"
+
+
+class _BoundedLabelSet:
+    """Tracks seen label values up to ``max_size``; further values map to overflow.
+
+    The cap is per-process (one ``_BoundedLabelSet`` per label name). Designed
+    to keep Prometheus cardinality bounded when an upstream label source is
+    attacker-controlled (raw paths, ``X-Tenant-Id`` headers, subdomains).
+
+    Threadsafe: ``set.add``/``in`` are atomic in CPython, but we still guard
+    the ``len`` check with a lock to avoid two callers each appending past
+    the cap. Once the cap is reached the ``_full`` flag short-circuits the
+    locked path so high-cardinality scans don't serialise on the mutex.
+    """
+
+    def __init__(self, max_size: int) -> None:
+        self._max_size = max(0, max_size)
+        self._seen: set[str] = set()
+        self._full = False
+        self._lock = threading.Lock()
+
+    def admit(self, value: str) -> str:
+        """Return ``value`` if under cap; else :data:`OVERFLOW_LABEL`.
+
+        A request that supplies the sentinel string itself is collapsed too,
+        so the overflow series can never be polluted with attacker-supplied
+        data even if a client guesses the constant.
+        """
+        if self._max_size == 0:
+            # Even with the cap disabled, an attacker submitting the literal
+            # sentinel must not be allowed to forge "overflow" traffic.
+            return OVERFLOW_LABEL if value == OVERFLOW_LABEL else value
+        if value == OVERFLOW_LABEL:
+            return OVERFLOW_LABEL
+        # Fast path: already-known value (no lock; set membership is atomic).
+        if value in self._seen:
+            return value
+        # Fast path: cap reached and value is unseen — no need to lock.
+        if self._full:
+            return OVERFLOW_LABEL
+        with self._lock:
+            if value in self._seen:
+                return value
+            if len(self._seen) >= self._max_size:
+                self._full = True
+                return OVERFLOW_LABEL
+            self._seen.add(value)
+            if len(self._seen) >= self._max_size:
+                self._full = True
+            return value
+
+    def reset(self) -> None:
+        with self._lock:
+            self._seen.clear()
+            self._full = False
+
+
+_ROUTE_GUARD: Optional[_BoundedLabelSet] = None
+_TENANT_GUARD: Optional[_BoundedLabelSet] = None
+_GUARDS_LOCK = threading.Lock()
+
+
+def _get_guards() -> tuple[_BoundedLabelSet, _BoundedLabelSet]:
+    """Return (route_guard, tenant_guard); lazy-init from current settings."""
+    global _ROUTE_GUARD, _TENANT_GUARD
+    if _ROUTE_GUARD is not None and _TENANT_GUARD is not None:
+        return _ROUTE_GUARD, _TENANT_GUARD
+    with _GUARDS_LOCK:
+        if _ROUTE_GUARD is None or _TENANT_GUARD is None:
+            from observe_kit.settings import get_observe_kit_settings
+
+            cap = get_observe_kit_settings().metrics_max_label_cardinality
+            _ROUTE_GUARD = _BoundedLabelSet(cap)
+            _TENANT_GUARD = _BoundedLabelSet(cap)
+    return _ROUTE_GUARD, _TENANT_GUARD
+
+
+def _reset_label_guards_for_tests() -> None:
+    """Drop and re-create the route/tenant guards (test-only helper)."""
+    global _ROUTE_GUARD, _TENANT_GUARD
+    with _GUARDS_LOCK:
+        _ROUTE_GUARD = None
+        _TENANT_GUARD = None
+
 
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total", "Total HTTP requests", ["method", "route", "status", "tenant"]
@@ -52,14 +143,16 @@ def observe_request(
     db_queries: int,
     db_time_seconds: float,
 ) -> None:
-    tenant_label = tenant or "unknown"
+    route_guard, tenant_guard = _get_guards()
+    route_label = route_guard.admit(route)
+    tenant_label = tenant_guard.admit(tenant or "unknown")
     status_label = str(status)
-    HTTP_REQUESTS_TOTAL.labels(method, route, status_label, tenant_label).inc()
-    HTTP_REQUEST_DURATION.labels(method, route, status_label, tenant_label).observe(
+    HTTP_REQUESTS_TOTAL.labels(method, route_label, status_label, tenant_label).inc()
+    HTTP_REQUEST_DURATION.labels(method, route_label, status_label, tenant_label).observe(
         duration_seconds
     )
-    DB_QUERIES_PER_REQUEST.labels(route, tenant_label).observe(db_queries)
-    DB_TIME_PER_REQUEST.labels(route, tenant_label).observe(db_time_seconds)
+    DB_QUERIES_PER_REQUEST.labels(route_label, tenant_label).observe(db_queries)
+    DB_TIME_PER_REQUEST.labels(route_label, tenant_label).observe(db_time_seconds)
 
 
 _UNAUTH_WARNING_EMITTED = False
@@ -101,7 +194,7 @@ def _check_metrics_auth(request: Any) -> Optional[Any]:
     """
     from django.http import HttpResponse
 
-    from ..settings import get_observe_kit_settings
+    from observe_kit.settings import get_observe_kit_settings
 
     cfg = get_observe_kit_settings()
     mode = cfg.metrics_auth
