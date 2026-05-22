@@ -1,20 +1,47 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from django.utils.deprecation import MiddlewareMixin
 from opentelemetry import trace
+from opentelemetry.context import Context
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanContext, SpanKind, Status, StatusCode, TraceFlags
 
 from ..context import get_request_context, reset_request_context, set_request_context
+from ..settings import get_observe_kit_settings
 from .config import SpanNamer, enrich_span
 
 if TYPE_CHECKING:
     from django.http import HttpRequest, HttpResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _client_ip_matches_sources(client_ip: Optional[str], sources: list[str]) -> bool:
+    """Return True when ``client_ip`` is covered by any IP / CIDR in ``sources``.
+
+    Malformed entries are silently skipped — operators should not have a
+    typo in their config break trace ingest.
+    """
+    if not client_ip or not sources:
+        return False
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    for src in sources:
+        try:
+            if "/" in src:
+                if addr in ipaddress.ip_network(src, strict=False):
+                    return True
+            elif addr == ipaddress.ip_address(src):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 class TraceContextMiddleware(MiddlewareMixin):
@@ -83,20 +110,50 @@ class TraceContextMiddleware(MiddlewareMixin):
                 elif key in ("traceparent", "tracestate"):
                     headers[key] = value
 
-            # Extract parent context using the global propagator (W3C TraceContext by default)
-            parent_context = extract(headers)
+            # Decide whether the inbound trace context can be trusted.
+            # By default we ignore traceparent/tracestate from untrusted edges so
+            # attackers can't poison trace storage or force-sample requests.
+            #
+            # Gating model (AND):
+            #   - TRUST_INCOMING_TRACE_CONTEXT=False → never trust (allow-list ignored).
+            #   - TRUST_INCOMING_TRACE_CONTEXT=True + empty allow-list → trust every source.
+            #   - TRUST_INCOMING_TRACE_CONTEXT=True + non-empty allow-list → trust only
+            #     when the resolved client IP matches the allow-list.
+            #
+            # This keeps "global flag False" as a hard "off" — operators who set it
+            # know nothing inbound will be honoured. The allow-list narrows trust
+            # when it is enabled rather than re-enabling it when it is disabled.
+            cfg = get_observe_kit_settings()
+            trust_inbound = False
+            if cfg.trust_incoming_trace_context:
+                if not cfg.trusted_trace_sources:
+                    trust_inbound = True
+                else:
+                    # Resolve the originating client IP using the canonical
+                    # trusted-proxy aware logic so deployments behind a load
+                    # balancer evaluate the real client, not the proxy.
+                    from ..context_middleware import _resolve_remote_addr
 
-            # Handle W3C Trace Context edge case: zero parent_span_id
-            # W3C spec allows zero parent_span_id to mean "no parent span" while continuing
-            # the trace. OpenTelemetry SDK requires non-zero span_id for valid SpanContext,
-            # so the propagator returns empty context. We manually create a valid context
-            # to maintain trace continuity.
-            if "traceparent" in headers:
-                parent_span = trace.get_current_span(parent_context)
-                if not parent_span.get_span_context().is_valid:
-                    parent_context = self._extract_trace_context_with_zero_parent(
-                        headers.get("traceparent", ""), parent_context
-                    )
+                    client_ip = _resolve_remote_addr(request, cfg.trusted_proxies)
+                    trust_inbound = _client_ip_matches_sources(client_ip, cfg.trusted_trace_sources)
+
+            if trust_inbound:
+                parent_context = extract(headers)
+
+                # Handle W3C Trace Context edge case: zero parent_span_id
+                # W3C spec allows zero parent_span_id to mean "no parent span" while continuing
+                # the trace. OpenTelemetry SDK requires non-zero span_id for valid SpanContext,
+                # so the propagator returns empty context. We manually create a valid context
+                # to maintain trace continuity.
+                if "traceparent" in headers:
+                    parent_span = trace.get_current_span(parent_context)
+                    if not parent_span.get_span_context().is_valid:
+                        parent_context = self._extract_trace_context_with_zero_parent(
+                            headers.get("traceparent", ""), parent_context
+                        )
+            else:
+                # Start a fresh root context; any inbound traceparent is dropped.
+                parent_context = Context()
 
             # Create span with parent context using start_as_current_span
             # Per OTel semantic conventions, use "{method} {route}" naming pattern

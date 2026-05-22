@@ -103,6 +103,29 @@ class ObserveKitSettings:
     rejects every request, even when the client sends an empty header.
     """
 
+    trust_incoming_trace_context: bool
+    """Master switch for honouring inbound W3C ``traceparent`` / ``tracestate``.
+
+    Defaults to ``False`` because most Django apps run at the network edge,
+    where any client can forge trace headers and poison trace storage. When
+    ``False``, every inbound trace context is dropped and a fresh root span
+    is started — :attr:`trusted_trace_sources` is ignored. Set to ``True``
+    for mesh-internal services that need end-to-end trace propagation, then
+    optionally restrict to specific IPs via :attr:`trusted_trace_sources`.
+    """
+
+    trusted_trace_sources: List[str]
+    """Optional IP / CIDR allow-list that restricts trust when
+    :attr:`trust_incoming_trace_context` is ``True``.
+
+    Empty list (default) means "trust every inbound trace when the global
+    flag is on". A non-empty list narrows trust to requests whose resolved
+    client IP (proxy-aware via :attr:`trusted_proxies`) matches one of the
+    entries. Ignored entirely when :attr:`trust_incoming_trace_context` is
+    ``False`` — the global flag is a hard off-switch. IPv4 and IPv6
+    addresses or CIDR blocks are accepted; malformed entries are ignored.
+    """
+
     @property
     def effective_pii_levels(self) -> Dict[str, str]:
         """Per-sink PII levels, expanding the global level when pii_levels is None."""
@@ -180,6 +203,23 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     raw_trusted = _get("TRUSTED_PROXIES", default=None)
     trusted_proxies: List[str] = list(raw_trusted) if isinstance(raw_trusted, (list, tuple)) else []
 
+    raw_trust_trace = _get(
+        "TRUST_INCOMING_TRACE_CONTEXT", "OBSERVE_KIT_TRUST_INCOMING_TRACE_CONTEXT", default=False
+    )
+    # Strict bool parsing: only canonical truthy strings enable trust. Refuses
+    # to interpret "0", "no", "off", "" as truthy — security-sensitive flag.
+    trust_incoming_trace_context = _as_strict_bool(raw_trust_trace, default=False)
+
+    raw_trace_sources = _get(
+        "TRUSTED_TRACE_SOURCES", "OBSERVE_KIT_TRUSTED_TRACE_SOURCES", default=None
+    )
+    if isinstance(raw_trace_sources, (list, tuple)):
+        trusted_trace_sources = [str(x) for x in raw_trace_sources]
+    elif isinstance(raw_trace_sources, str) and raw_trace_sources:
+        trusted_trace_sources = [s.strip() for s in raw_trace_sources.split(",") if s.strip()]
+    else:
+        trusted_trace_sources = []
+
     extra_drop_headers = _as_frozenset_lower(_get("EXTRA_DROP_HEADERS", default=None))
     extra_mask_fields = _as_frozenset_lower(_get("EXTRA_MASK_FIELDS", default=None))
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
@@ -225,6 +265,8 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         otel_sample_rate=otel_sample_rate,
         metrics_auth=metrics_auth,
         metrics_token=metrics_token,
+        trust_incoming_trace_context=trust_incoming_trace_context,
+        trusted_trace_sources=trusted_trace_sources,
     )
 
 
@@ -232,3 +274,27 @@ def _as_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).lower() != "false"
+
+
+_STRICT_TRUE_VALUES = frozenset({"true", "1", "yes", "y", "on", "t"})
+_STRICT_FALSE_VALUES = frozenset({"false", "0", "no", "n", "off", "f", ""})
+
+
+def _as_strict_bool(value: object, default: bool) -> bool:
+    """Parse a config value to bool using explicit truthy/falsy strings.
+
+    Unlike :func:`_as_bool` (kept for legacy callers, treats any non-"false"
+    string as ``True``), this function recognises only canonical truthy and
+    falsy strings and returns ``default`` for anything else. Use for
+    security-sensitive flags where ambiguity must fail safe.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in _STRICT_TRUE_VALUES:
+        return True
+    if text in _STRICT_FALSE_VALUES:
+        return False
+    return default

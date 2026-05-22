@@ -29,6 +29,8 @@ _OBSERVE_KIT_SETTINGS_DEFAULTS: dict[str, Any] = {
     "otel_sample_rate": None,
     "metrics_auth": "none",
     "metrics_token": None,
+    "trust_incoming_trace_context": False,
+    "trusted_trace_sources": [],
 }
 
 
