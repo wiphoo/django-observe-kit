@@ -121,9 +121,13 @@ def _check_metrics_auth(request: Any) -> Optional[Any]:
     if mode == "token":
         expected = cfg.metrics_token or ""
         header = request.META.get("HTTP_AUTHORIZATION", "")
+        # HTTP auth schemes are case-insensitive per RFC 7235 §2.1, so accept
+        # "Bearer", "bearer", "BEARER", and any other casing. Use str.split with
+        # maxsplit=1 to tolerate any whitespace run between scheme and token.
         provided = ""
-        if header.startswith("Bearer "):
-            provided = header[len("Bearer ") :]
+        parts = header.split(None, 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            provided = parts[1]
         if expected and provided and hmac.compare_digest(expected, provided):
             return None
         return HttpResponse(status=401)

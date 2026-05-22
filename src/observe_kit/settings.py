@@ -19,6 +19,7 @@ Sentry is only initialised when SENTRY_DSN is set.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, cast
 
@@ -184,8 +185,21 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
 
     raw_metrics_auth = _get("METRICS_AUTH", "OBSERVE_KIT_METRICS_AUTH", "none")
-    metrics_auth = str(raw_metrics_auth).lower() if raw_metrics_auth is not None else "none"
-    if metrics_auth not in {"none", "staff", "token"}:
+    metrics_auth_input = str(raw_metrics_auth).lower() if raw_metrics_auth is not None else "none"
+    if metrics_auth_input in {"none", "staff", "token"}:
+        metrics_auth = metrics_auth_input
+    else:
+        # Surface misconfiguration immediately rather than waiting for the
+        # one-shot /metrics warning in `metrics/prometheus.py`. Python dedupes
+        # warnings by (message, category, file, line) so this fires once per
+        # distinct invalid value.
+        warnings.warn(
+            f"observe_kit: OBSERVE_KIT['METRICS_AUTH']={raw_metrics_auth!r} is "
+            "invalid (expected one of 'none', 'staff', 'token'); falling back "
+            "to 'none' — /metrics will be exposed without authentication.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         metrics_auth = "none"
 
     raw_metrics_token = _get("METRICS_TOKEN", "OBSERVE_KIT_METRICS_TOKEN", None)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from typing import Any, Callable
 
 import pytest
 from django.contrib.auth.models import AnonymousUser, User
@@ -39,8 +40,33 @@ def test_settings_parse_token_mode_uppercase() -> None:
 
 @override_settings(OBSERVE_KIT={"METRICS_AUTH": "garbage"})
 def test_settings_invalid_mode_falls_back_to_none() -> None:
-    cfg = get_observe_kit_settings()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        cfg = get_observe_kit_settings()
     assert cfg.metrics_auth == "none"
+
+
+@override_settings(OBSERVE_KIT={"METRICS_AUTH": "garbage"})
+def test_settings_invalid_mode_emits_runtime_warning() -> None:
+    """Operator-visible warning at parse time when METRICS_AUTH is invalid."""
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        get_observe_kit_settings()
+    runtime = [w for w in captured if issubclass(w.category, RuntimeWarning)]
+    assert runtime, "expected a RuntimeWarning for invalid METRICS_AUTH"
+    msg = str(runtime[0].message)
+    assert "METRICS_AUTH" in msg
+    assert "invalid" in msg
+    assert "garbage" in msg
+
+
+@override_settings(OBSERVE_KIT={"METRICS_AUTH": "none"})
+def test_settings_valid_mode_emits_no_warning() -> None:
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        get_observe_kit_settings()
+    runtime = [w for w in captured if issubclass(w.category, RuntimeWarning)]
+    assert not runtime
 
 
 @override_settings(OBSERVE_KIT={})
@@ -83,79 +109,81 @@ def test_none_mode_emits_runtime_warning_once_in_production(rf: RequestFactory) 
         view(rf.get("/metrics"))
         view(rf.get("/metrics"))
     runtime_warnings = [w for w in captured if issubclass(w.category, RuntimeWarning)]
-    assert len(runtime_warnings) == 1
-    assert "without authentication" in str(runtime_warnings[0].message)
+    # Filter to the "/metrics is exposed" warning (not the settings-parse one).
+    exposure = [w for w in runtime_warnings if "without authentication" in str(w.message)]
+    assert len(exposure) == 1
 
 
 # ---------------------------------------------------------------------------
-# mode: staff
+# mode: staff — parametrized matrix
 # ---------------------------------------------------------------------------
 
 
+def _anonymous_user() -> Any:
+    return AnonymousUser()
+
+
+def _regular_user() -> Any:
+    return User.objects.create_user(username="alice", password="x")
+
+
+def _staff_user() -> Any:
+    return User.objects.create_user(username="root", password="x", is_staff=True)
+
+
+@pytest.mark.parametrize(
+    "user_factory,expected_status",
+    [
+        pytest.param(_anonymous_user, 403, id="anonymous"),
+        pytest.param(_regular_user, 403, id="authenticated-non-staff"),
+        pytest.param(_staff_user, 200, id="staff"),
+    ],
+)
 @override_settings(OBSERVE_KIT={"METRICS_AUTH": "staff"})
-def test_staff_mode_rejects_anonymous(rf: RequestFactory) -> None:
+def test_staff_mode(
+    rf: RequestFactory, user_factory: Callable[[], Any], expected_status: int
+) -> None:
     view = metrics_view.as_view()
     request = rf.get("/metrics")
-    request.user = AnonymousUser()
-    assert view(request).status_code == 403
-
-
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "staff"})
-def test_staff_mode_rejects_non_staff_user(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    request = rf.get("/metrics")
-    request.user = User.objects.create_user(username="alice", password="x")
-    assert view(request).status_code == 403
-
-
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "staff"})
-def test_staff_mode_allows_staff_user(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    request = rf.get("/metrics")
-    request.user = User.objects.create_user(username="root", password="x", is_staff=True)
-    response = view(request)
-    assert response.status_code == 200
-    assert b"http_requests_total" in response.content or response.content == b""
+    request.user = user_factory()
+    assert view(request).status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
-# mode: token
+# mode: token — parametrized matrix
 # ---------------------------------------------------------------------------
 
 
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "token", "METRICS_TOKEN": "right-token"})
-def test_token_mode_missing_header_returns_401(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    assert view(rf.get("/metrics")).status_code == 401
-
-
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "token", "METRICS_TOKEN": "right-token"})
-def test_token_mode_wrong_token_returns_401(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    response = view(rf.get("/metrics", HTTP_AUTHORIZATION="Bearer wrong"))
-    assert response.status_code == 401
-
-
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "token", "METRICS_TOKEN": "right-token"})
-def test_token_mode_correct_token_returns_200(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    response = view(rf.get("/metrics", HTTP_AUTHORIZATION="Bearer right-token"))
-    assert response.status_code == 200
-
-
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "token", "METRICS_TOKEN": ""})
-def test_token_mode_empty_configured_token_rejects_everything(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    assert view(rf.get("/metrics")).status_code == 401
-    response = view(rf.get("/metrics", HTTP_AUTHORIZATION="Bearer "))
-    assert response.status_code == 401
-
-
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "token", "METRICS_TOKEN": "tk"})
-def test_token_mode_non_bearer_scheme_returns_401(rf: RequestFactory) -> None:
-    view = metrics_view.as_view()
-    response = view(rf.get("/metrics", HTTP_AUTHORIZATION="Basic tk"))
-    assert response.status_code == 401
+@pytest.mark.parametrize(
+    "configured_token,auth_header,expected_status",
+    [
+        pytest.param("right-token", None, 401, id="missing-header"),
+        pytest.param("right-token", "Bearer wrong", 401, id="wrong-token"),
+        pytest.param("right-token", "Bearer right-token", 200, id="correct-token"),
+        # RFC 7235 §2.1: auth schemes are case-insensitive.
+        pytest.param("right-token", "bearer right-token", 200, id="lowercase-scheme"),
+        pytest.param("right-token", "BEARER right-token", 200, id="uppercase-scheme"),
+        pytest.param("right-token", "BeArEr right-token", 200, id="mixed-case-scheme"),
+        # Multiple spaces between scheme and token must be tolerated.
+        pytest.param("right-token", "Bearer  right-token", 200, id="extra-whitespace"),
+        # Wrong scheme is rejected even with the right token.
+        pytest.param("tk", "Basic tk", 401, id="non-bearer-scheme"),
+        # Empty configured token must never allow.
+        pytest.param("", None, 401, id="empty-token-missing-header"),
+        pytest.param("", "Bearer ", 401, id="empty-token-empty-header"),
+    ],
+)
+def test_token_mode_matrix(
+    rf: RequestFactory, configured_token: str, auth_header: str | None, expected_status: int
+) -> None:
+    overrides = {"OBSERVE_KIT": {"METRICS_AUTH": "token", "METRICS_TOKEN": configured_token}}
+    with override_settings(**overrides):
+        view = metrics_view.as_view()
+        kwargs: dict[str, Any] = {}
+        if auth_header is not None:
+            kwargs["HTTP_AUTHORIZATION"] = auth_header
+        response = view(rf.get("/metrics", **kwargs))
+    assert response.status_code == expected_status
 
 
 def test_token_mode_uses_constant_time_compare() -> None:
