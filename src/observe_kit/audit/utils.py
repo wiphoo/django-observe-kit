@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from ..conf import PII_SINK_AUDIT
 from ..context import get_request_context
-from ..metrics import AUDIT_EVENTS
+from ..metrics import AUDIT_EVENTS, guard_tenant_label
 from ..pii_rules import PiiLevel, get_pii_config, sanitize_body
 from ..settings import get_observe_kit_settings
+from ..tenant import resolve_tenant_id
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
@@ -46,7 +47,23 @@ def audit(
     from .models import AuditLog
 
     context = get_request_context()
-    tenant_id = context.tenant_id or getattr(getattr(request, "tenant", None), "id", None)
+    # Prefer the request-scoped context (set by RequestContextMiddleware).
+    # When the audit() call passes ``request`` directly (e.g. management
+    # commands, signal handlers), fall back to the canonical resolver so
+    # ``HTTP_X_TENANT_ID`` and subdomain-based tenants are honoured
+    # consistently with the rest of the stack.
+    #
+    # The fallback path is wrapped in try/except because ``resolve_tenant_id``
+    # may call ``request.get_host()``, which raises ``DisallowedHost`` for
+    # invalid Host headers. Losing an audit row over a malformed header would
+    # be a worse regression than missing the tenant tag — degrade to None.
+    tenant_id = context.tenant_id
+    if not tenant_id and request is not None:
+        try:
+            tenant_id = resolve_tenant_id(request)
+        except Exception:  # noqa: BLE001 - audit must never raise on bad input
+            logger.debug("audit: tenant resolution failed; recording row without tenant_id")
+            tenant_id = None
     remote_addr = context.remote_addr or (request.META.get("REMOTE_ADDR") if request else None)
     user_agent = context.user_agent or (request.META.get("HTTP_USER_AGENT") if request else None)
     trace_id = context.trace_id
@@ -81,7 +98,7 @@ def audit(
         user_agent=user_agent,
         extra=sanitised_extra,
     )
-    AUDIT_EVENTS.labels(tenant=str(tenant_id or "unknown")).inc()
+    AUDIT_EVENTS.labels(tenant=guard_tenant_label(str(tenant_id) if tenant_id else None)).inc()
     logger.info(
         "audit_event",
         extra={

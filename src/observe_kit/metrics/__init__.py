@@ -9,6 +9,7 @@ from .prometheus import (
     WAGTAIL_DELETED,
     WAGTAIL_PUBLISHED,
     WAGTAIL_UNPUBLISHED,
+    guard_tenant_label,
     metrics_view,
     observe_request,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "WAGTAIL_UNPUBLISHED",
     "PrometheusRequestMiddleware",
     "QueryRecorder",
+    "guard_tenant_label",
     "metrics_view",
     "observe_request",
     "wrap_connections",
