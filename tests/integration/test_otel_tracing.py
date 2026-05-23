@@ -198,20 +198,46 @@ def test_trace_context_middleware_creates_spans(
 def test_trace_context_propagation_with_incoming_header(
     django_client: Client, test_tracer: trace.Tracer
 ) -> None:
-    """Test that trace context from incoming headers is respected."""
-    # Create a known trace ID
+    """Inbound traceparent is honoured only when trust is explicitly enabled.
+
+    Default behaviour (since PR #6 / issue #4) drops inbound `traceparent` to
+    prevent trace-id poisoning at the edge. Trust must be opted in via
+    ``OBSERVE_KIT['TRUST_INCOMING_TRACE_CONTEXT']`` for propagation to work.
+    """
+    from django.test import override_settings
+
     known_trace_id = "0" * 16 + "a1b2c3d4e5f67890"  # 32 char hex
     known_span_id = "1234567890abcdef"
-
-    # Make request with traceparent header
     traceparent = f"00-{known_trace_id}-{known_span_id}-01"
+
+    with override_settings(OBSERVE_KIT={"TRUST_INCOMING_TRACE_CONTEXT": True}):
+        response = django_client.get("/metrics", HTTP_TRACEPARENT=traceparent)
+        assert response.status_code == 200
+
+        response_trace_id = response.get("X-Trace-Id")
+        assert response_trace_id == known_trace_id, (
+            f"Expected trace ID {known_trace_id} to be propagated, got {response_trace_id}"
+        )
+
+
+def test_trace_context_dropped_when_trust_is_disabled(
+    django_client: Client, test_tracer: trace.Tracer
+) -> None:
+    """Secure-by-default: with TRUST_INCOMING_TRACE_CONTEXT=False (the
+    default) the middleware must NOT honour an attacker-supplied trace ID.
+    """
+    attacker_trace_id = "0" * 16 + "a1b2c3d4e5f67890"
+    attacker_span_id = "1234567890abcdef"
+    traceparent = f"00-{attacker_trace_id}-{attacker_span_id}-01"
+
     response = django_client.get("/metrics", HTTP_TRACEPARENT=traceparent)
     assert response.status_code == 200
 
-    # Response should have the same trace ID (propagated)
     response_trace_id = response.get("X-Trace-Id")
-    assert response_trace_id == known_trace_id, (
-        f"Expected trace ID {known_trace_id} to be propagated, got {response_trace_id}"
+    assert response_trace_id is not None
+    assert len(response_trace_id) == 32
+    assert response_trace_id != attacker_trace_id, (
+        "Inbound traceparent must be dropped by default to prevent trace-id poisoning."
     )
 
 
