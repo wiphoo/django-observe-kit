@@ -32,6 +32,7 @@ _OBSERVE_KIT_SETTINGS_DEFAULTS: dict[str, Any] = {
     "trust_incoming_trace_context": False,
     "trusted_trace_sources": [],
     "validate_middleware_order": True,
+    "metrics_max_label_cardinality": 1000,
 }
 
 

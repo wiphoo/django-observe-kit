@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 - **Breaking:** inbound W3C `traceparent` / `tracestate` headers are no longer extracted by default. Set `OBSERVE_KIT["TRUST_INCOMING_TRACE_CONTEXT"] = True` (mesh-internal services) or list trusted client IP / CIDR blocks in `OBSERVE_KIT["TRUSTED_TRACE_SOURCES"]` to restore propagation. Prevents trace-id poisoning, forced-sample DoS on the trace backend, and `tracestate` injection from untrusted edges. See [#4](https://github.com/wiphoo/django-observe-kit/issues/4).
+- Cap Prometheus `route` / `tenant` label cardinality at `OBSERVE_KIT["METRICS_MAX_LABEL_CARDINALITY"]` distinct values per process (default 1000; `0` disables). Stops attacker-controlled inputs — raw 404 paths, `X-Tenant-Id` headers, subdomain probes — from inflating Prometheus time-series count. See [#9](https://github.com/wiphoo/django-observe-kit/issues/9).
+
+### Fixed
+- **Breaking-ish:** `PrometheusRequestMiddleware` no longer falls back to the raw request path when route resolution fails. Unresolved requests now collapse to `route="unknown"` instead of producing a new label series per probed URL. Dashboards that filtered on specific 404 paths will need to switch to `status="404"`. See [#9](https://github.com/wiphoo/django-observe-kit/issues/9).
 
 ### Added
 - `OBSERVE_KIT["METRICS_AUTH"]` setting (`"none"` | `"staff"` | `"token"`) and `OBSERVE_KIT["METRICS_TOKEN"]` to gate the Prometheus `/metrics` endpoint. Token mode uses constant-time comparison. When mode is `"none"` and Django `DEBUG` is `False`, a one-shot `RuntimeWarning` is emitted to flag the unauthenticated endpoint. See [#2](https://github.com/wiphoo/django-observe-kit/issues/2).
