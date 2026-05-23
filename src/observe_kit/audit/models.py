@@ -7,7 +7,38 @@ from django.db import models
 
 
 class AuditLogImmutableError(Exception):
-    """Raised when code attempts to modify or delete an AuditLog record."""
+    """Raised when code attempts to modify or delete an AuditLog record.
+
+    Enforced at the ORM layer (``Model.save/delete``, ``QuerySet.delete/update``).
+    Direct SQL access or DBA-level operations still bypass these guards — the
+    library cannot prevent that, so production deployments should additionally
+    revoke ``DELETE``/``UPDATE`` privileges on the audit table at the DB level.
+    """
+
+
+class AuditLogQuerySet(models.QuerySet):
+    """QuerySet that refuses bulk delete/update of AuditLog rows.
+
+    Without this guard, ``AuditLog.objects.filter(...).delete()`` would issue
+    a single ``DELETE`` SQL statement that bypasses ``Model.delete()``; the
+    same applies to ``update()``. Both are blocked here so the immutability
+    contract holds at the ORM layer.
+    """
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        raise AuditLogImmutableError(
+            "AuditLog rows are immutable; QuerySet.delete() is not permitted."
+        )
+
+    def update(self, **kwargs: Any) -> int:
+        raise AuditLogImmutableError(
+            "AuditLog rows are immutable; QuerySet.update() is not permitted."
+        )
+
+
+# Build the manager from the queryset so chained calls (e.g.
+# ``AuditLog.objects.filter(...).delete()``) also raise.
+AuditLogManager = models.Manager.from_queryset(AuditLogQuerySet)
 
 
 class AuditLog(models.Model):
@@ -23,6 +54,8 @@ class AuditLog(models.Model):
     remote_addr = models.CharField(max_length=64, null=True, blank=True)
     user_agent = models.CharField(max_length=256, null=True, blank=True)
     extra = models.JSONField(default=dict, blank=True)
+
+    objects = AuditLogManager()
 
     class Meta:
         ordering = ["-timestamp"]

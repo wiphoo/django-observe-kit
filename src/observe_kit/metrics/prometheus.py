@@ -100,6 +100,19 @@ def _reset_label_guards_for_tests() -> None:
         _TENANT_GUARD = None
 
 
+def guard_tenant_label(value: Optional[str]) -> str:
+    """Return a cardinality-bounded ``tenant`` label value.
+
+    Wraps the per-process tenant guard so non-HTTP metric call sites
+    (`AUDIT_EVENTS`, `WAGTAIL_PUBLISHED/UNPUBLISHED/DELETED`) inherit the
+    same protection against attacker-controlled tenant IDs as the HTTP
+    request path. ``None`` and empty values are mapped to ``"unknown"``
+    before guarding.
+    """
+    _, tenant_guard = _get_guards()
+    return tenant_guard.admit(value or "unknown")
+
+
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total", "Total HTTP requests", ["method", "route", "status", "tenant"]
 )
