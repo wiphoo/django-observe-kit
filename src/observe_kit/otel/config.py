@@ -116,8 +116,28 @@ class _SafeOTelLogHandler(LoggingHandler):
         super().emit(record)
 
 
-# Public alias kept for any code that referenced the old filter class.
-OTelLogRecordSanitizer = _SafeOTelLogHandler
+class OTelLogRecordSanitizer(logging.Filter):
+    """Legacy ``logging.Filter`` that coerces unsupported ``extra`` values.
+
+    Pre-PR-#3, this was the public sanitiser attached via
+    ``handler.addFilter(OTelLogRecordSanitizer())``. The new
+    :class:`_SafeOTelLogHandler` is the canonical implementation used by
+    :func:`init_tracing`, but this filter is preserved (no-arg constructor,
+    real ``Filter`` subclass) so downstream code that imported the public
+    name and called the no-arg form keeps working without surprise.
+
+    Coerces non-OTEL-safe attribute values to their ``repr()`` so the
+    OpenTelemetry log exporter never sees a value it can't serialise.
+    Returns ``True`` so the record is always forwarded to the next handler.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        for key, value in list(vars(record).items()):
+            if key.startswith("_") or key in _LOG_RECORD_CORE_FIELDS:
+                continue
+            if not _is_otel_log_attribute_value(value):
+                setattr(record, key, repr(value))
+        return True
 
 
 def _validate_service_name(service_name: str) -> None:
