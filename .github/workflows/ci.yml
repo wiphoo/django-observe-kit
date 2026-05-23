@@ -229,7 +229,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        # Held on v0.35.0 — v0.36.0 added `--filter=blob:none --depth=1` to
+        # its internal `actions/checkout@aquasecurity/trivy` call, which
+        # fails on GitHub Actions runners with "fatal: could not read
+        # Username for 'https://github.com'" because the lazy blob refetch
+        # can't authenticate against the secondary repo. Stay on v0.35.0
+        # until upstream addresses this in a v0.36.x point release.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
