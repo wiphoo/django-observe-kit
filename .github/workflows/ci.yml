@@ -4,7 +4,12 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
+    # Trigger CI on PRs against the long-lived feature branch
+    # (`codex/implement-observability-library-for-django`) as well as the
+    # canonical integration branches. Without `codex/**` in this list, PRs
+    # like #6 / #8 / #10 / #11 did not run CI and stale tests slipped past
+    # review (see #11's integration-test regression).
+    branches: [main, develop, "codex/**"]
   workflow_dispatch:
 
 env:
