@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Observe Kit Wagtail Demo{% endblock %}</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 0;
+        padding: 2rem;
+        background: #f3f6f8;
+        color: #12212b;
+      }
+
+      main {
+        max-width: 48rem;
+        margin: 0 auto;
+        background: #ffffff;
+        padding: 2rem;
+        border-radius: 1rem;
+        box-shadow: 0 18px 50px rgba(18, 33, 43, 0.08);
+      }
+
+      a {
+        color: #0b6e4f;
+      }
+
+      .eyebrow {
+        font-size: 0.875rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #4f6b7a;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

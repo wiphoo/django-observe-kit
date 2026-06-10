@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Core library code lives in `src/observe_kit/`, split by feature area such as `otel/`, `logging/`, `metrics/`, `sentry/`, `drf/`, `audit/`, and `wagtail_integration/`. Tests live under `tests/` with `unit/`, `integration/`, and `e2e/` suites; a few top-level `tests/test_*.py` files cover broader package behavior. Docker assets for integration testing are in `docker/compose/`. Runnable sample apps are in `examples/` (`django_example/`, `drf_example/`, `wagtail_example/`). Treat `docs/internal/` as reference material, not the source of truth for commands.
+Core library code lives in `src/observe_kit/`, split by feature area such as `otel/`, `logging/`, `metrics/`, `sentry/`, `drf/`, `audit/`, and `wagtail_integration/`. Tests live under `tests/` with `unit/`, `integration/`, and `e2e/` suites; a few top-level `tests/test_*.py` files cover broader package behavior. Docker assets for integration testing are in `docker/compose/`. Runnable sample apps are in `examples/` (`django-core/`, `drf-observability/`, `otel-hyperdx/`, `grafana-metrics/`, `metrics-security/`, `sentry/`, `pii-sanitization/`, `audit-logs/`, `tenant-trace-security/`, `wagtail-observability/`). Treat `docs/internal/` as reference material, not the source of truth for commands.
 
 ## Build, Test, and Development Commands
 

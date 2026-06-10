@@ -211,3 +211,22 @@ Thumbs.db
 # Local development
 *.local
 .local/
+
+# Temp / scratch files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Claude Code tool definitions (bundled, not committed)
+.claude/agents/
+.claude/commands/
+.claude/helpers/
+
+# Claude Code local settings (machine-specific, never commit)
+.claude/settings.local.json
+.claude/.session/
+.claude/.swarm/

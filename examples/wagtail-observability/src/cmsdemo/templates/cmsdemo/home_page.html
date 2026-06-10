@@ -1,0 +1,17 @@
+{% extends "cmsdemo/base.html" %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+<p class="eyebrow">Wagtail Admin + Public Flow</p>
+<h1>{{ page.title }}</h1>
+<p>{{ page.intro|linebreaksbr }}</p>
+
+<p>
+  <a href="/admin/">Open Wagtail admin</a>
+  |
+  <a href="/launch-announcement/">View the launch announcement</a>
+  |
+  <a href="/metrics">View Prometheus metrics</a>
+</p>
+{% endblock %}
