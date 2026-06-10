@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "example-django-observe-kit-sentry"
+version = "0.1.0"
+description = "Sentry example for observe_kit"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "Django>=4.2,<5.0",
+    "djangorestframework>=3.14,<4.0",
+    "observe_kit @ git+ssh://git@github.com/wiphoo/Django-Observe_Kit.git@26a42499dc17ec671953f49762b40f21a9553460",
+    "sentry-sdk>=2.0,<3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+pythonpath = ["src"]
+testpaths = ["tests"]

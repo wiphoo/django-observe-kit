@@ -1,6 +1,0 @@
-build:
-  docker:
-    web: examples/wagtail_heroku_example/Dockerfile
-run:
-  web: ./entrypoint.sh
-  release: python manage.py migrate --noinput
