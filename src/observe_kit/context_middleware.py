@@ -52,6 +52,11 @@ class RequestContextMiddleware(MiddlewareMixin):
 
     def process_request(self, request: DjangoRequest) -> None:
         try:
+            # Preserve trace context if already set by TraceContextMiddleware.
+            existing = get_request_context()
+            existing_trace_id = existing.trace_id
+            existing_span_id = existing.span_id
+
             context = RequestContext()
             context.method = request.method
             context.path = request.path
@@ -86,6 +91,12 @@ class RequestContextMiddleware(MiddlewareMixin):
 
             # Detect framework
             context.framework = _detect_framework(request)
+
+            # Carry over trace context from TraceContextMiddleware.
+            if existing_trace_id:
+                context.trace_id = existing_trace_id
+            if existing_span_id:
+                context.span_id = existing_span_id
 
             request._observe_kit_context = context
             set_request_context(context)
