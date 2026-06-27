@@ -1,0 +1,8 @@
+from __future__ import annotations
+
+from django.apps import AppConfig
+
+
+class ObserveAuditConfig(AppConfig):
+    name = "observe_kit.audit"
+    verbose_name = "Observe Kit Audit"

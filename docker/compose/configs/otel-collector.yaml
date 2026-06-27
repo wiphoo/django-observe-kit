@@ -1,0 +1,145 @@
+# OpenTelemetry Collector Configuration
+# 
+# Architecture:
+#   Metrics: App → Prometheus (direct scrape of /metrics endpoint)
+#   Traces:  App → OTEL Collector → ClickHouse (HyperDX)
+#   Logs:    App → OTEL Collector → ClickHouse (HyperDX)
+#
+# Endpoints:
+#   - OTLP gRPC: 0.0.0.0:4317
+#   - OTLP HTTP: 0.0.0.0:4318
+#   - Health Check: 0.0.0.0:13133
+#   - Collector Metrics: 0.0.0.0:8888
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # pprof for Go profiling
+  pprof:
+    endpoint: 0.0.0.0:1777
+  # zpages for live debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+receivers:
+  # OTLP receiver - accepts telemetry from your apps
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://localhost:*"
+            - "http://127.0.0.1:*"
+
+processors:
+  # Memory limiter - prevents OOM by applying backpressure
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  
+  # Resource processor - adds environment info to all telemetry
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${env:TELEMETRY_ENVIRONMENT}
+        action: upsert
+      - key: service.version
+        value: ${env:SERVICE_VERSION}
+        action: upsert
+      - key: collector.name
+        value: observe-kit-collector
+        action: upsert
+  
+  # Attributes processor - add trace/span level attributes
+  attributes:
+    actions:
+      - key: observe_kit.local
+        value: true
+        action: insert
+  
+  # Batch processor - improves performance by batching telemetry
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+exporters:
+  # ClickHouse exporter - for HyperDX (traces, logs, and metrics)
+  # Uses the generic clickhouse exporter from otel-collector-contrib
+  clickhouse:
+    # Endpoint format: tcp://host:port
+    # Using ch-server alias for consistency
+    # Note: ClickHouse exporter may support username/password as separate fields
+    endpoint: tcp://${env:CLICKHOUSE_ENDPOINT}
+    database: default
+    # Note: Using 'default' database as per reference config
+    # Tables are created manually via init-clickhouse service
+    # Try username/password fields if exporter supports them
+    username: ${env:CLICKHOUSE_USER}
+    password: ${env:CLICKHOUSE_PASSWORD}
+    ttl: 720h # 30 days retention
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+  
+  # Prometheus exporter - exposes span metrics for Prometheus scraping
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otel"
+    const_labels:
+      environment: ${env:TELEMETRY_ENVIRONMENT}
+  
+  # Debug exporter for debugging (replaces deprecated logging exporter)
+  debug:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+service:
+  extensions: [health_check, pprof, zpages]
+  
+  pipelines:
+    # Traces pipeline: OTLP → ClickHouse
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, attributes, batch]
+      exporters: [clickhouse, debug]
+    
+    # Metrics pipeline: OTLP → ClickHouse, Prometheus
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [clickhouse, prometheus, debug]
+    
+    # Logs pipeline: OTLP → ClickHouse
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [clickhouse, debug]
+  
+  # Collector's own telemetry
+  telemetry:
+    logs:
+      level: info
+      initial_fields:
+        service: otel-collector
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888

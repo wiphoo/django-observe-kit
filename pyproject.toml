@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "observe_kit"
+version = "0.1.0"
+description = "Drop-in observability toolkit for Django/DRF/Wagtail"
+readme = "README.md"
+authors = [{ name = "Observe Kit" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    # Django 4.2 is the current LTS (security support through April 2026).
+    # Django 3.2 reached EOL April 2024 and is no longer supported upstream.
+    "Django>=4.2",
+    "djangorestframework>=3.15",
+    "prometheus-client>=0.20",
+    "opentelemetry-sdk>=1.38.0",
+    "opentelemetry-exporter-otlp>=1.38.0",
+    # python-json-logger 3.x is the maintained line; 4.x is the current major.
+    "python-json-logger>=3.0",
+    # sentry-sdk 2.x is current; the code already uses the 2.x
+    # isolation-scope API with a runtime feature-detect fallback.
+    "sentry-sdk>=2.0",
+]
+
+[project.optional-dependencies]
+wagtail = ["wagtail>=5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["observe_kit*"]
+
+[tool.setuptools.package-data]
+"observe_kit" = ["py.typed"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+# F401: unused imports (automatically removed by ruff --fix)
+# I: import sorting (automatically sorted by ruff --fix)
+
+[tool.ruff.lint.isort]
+known-first-party = ["observe_kit"]
+split-on-trailing-comma = false
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = true
+line-ending = "lf"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6.4",
+    "uv>=0.4.0",
+    "pytest>=7.4",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.0.0",
+    "coverage>=7.0.0",
+    "mypy>=1.0.0",
+    "hypothesis>=6.0.0",
+    "wagtail>=5",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "django.*",
+    "rest_framework.*",
+    "wagtail.*",
+    "prometheus_client.*",
+    "opentelemetry.*",
+    "sentry_sdk.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests (require docker stack)",
+    "e2e: marks tests as end-to-end tests",
+]

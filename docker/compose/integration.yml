@@ -1,0 +1,378 @@
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: observe_kit-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT:-4318}:4318"  # OTLP HTTP receiver
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT:-4317}:4317"  # OTLP gRPC receiver
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_DEBUG_PORT:-8888}:8888"      # Collector metrics endpoint
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_HEALTH_PORT:-13133}:13133"  # Health check endpoint
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_PPROF_PORT:-1777}:1777"      # pprof endpoint
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_ZPAGES_PORT:-55679}:55679"   # zpages endpoint
+    environment:
+      # ClickHouse connection configuration
+      # Using ch-server alias for consistency with Forma pattern
+      # Note: ClickHouse exporter endpoint format is just host:port
+      # Credentials may need to be configured separately or via endpoint URL
+      - CLICKHOUSE_ENDPOINT=ch-server:9000
+      - CLICKHOUSE_DATABASE=default
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=clickhouse
+      # Telemetry environment configuration
+      - TELEMETRY_ENVIRONMENT=${TELEMETRY_ENVIRONMENT:-integration}
+      - SERVICE_VERSION=${SERVICE_VERSION:-unknown}
+    healthcheck:
+      # OTEL collector image is scratch-based with no shell/wget
+      # Use NONE and rely on the collector's own health extension
+      # The health endpoint is still available at :13133 for external checks
+      disable: true
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    labels:
+      - "observe-kit.service=telemetry"
+      - "observe-kit.purpose=collector"
+    networks:
+      - observe_kit-network
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      init-clickhouse:
+        condition: service_completed_successfully
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: observe_kit-prometheus
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT:-9090}:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    labels:
+      - "observe-kit.service=metrics"
+      - "observe-kit.purpose=scraper"
+    networks:
+      - observe_kit-network
+
+  # Optional: Sentry self-hosted or use Sentry Relay
+  # Uncomment if you want to test Sentry integration
+  # sentry:
+  #   image: getsentry/sentry:latest
+  #   container_name: observe_kit-sentry
+  #   environment:
+  #     - SENTRY_SECRET_KEY=${SENTRY_SECRET_KEY:-secret-key-change-me}
+  #     - SENTRY_POSTGRES_HOST=postgres
+  #     - SENTRY_DB_USER=sentry
+  #     - SENTRY_DB_PASSWORD=sentry
+  #     - SENTRY_REDIS_HOST=redis
+  #   ports:
+  #     - "${SENTRY_PORT:-9000}:9000"
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   networks:
+  #     - observe_kit-network
+
+  # ClickHouse database (used for observability data storage)
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: observe_kit-clickhouse
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT:-28123}:8123"  # HTTP interface (shifted port to avoid conflicts)
+      - "${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT:-29000}:9000"  # Native protocol (shifted port to avoid conflicts)
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./configs/clickhouse-users.xml:/etc/clickhouse-server/users.d/default-password.xml:ro
+    environment:
+      - CLICKHOUSE_DB=hyperdx
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "observe-kit.service=database"
+      - "observe-kit.purpose=storage"
+    networks:
+      observe_kit-network:
+        aliases:
+          - ch-server
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB for HyperDX session storage (required by HyperDX)
+  # Note: ClickHouse is used for observability data storage, MongoDB is only for HyperDX sessions
+  mongodb:
+    image: mongo:7
+    container_name: observe_kit-mongodb
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_MONGODB_PORT:-27017}:27017"
+    volumes:
+      - mongodb-data:/data/db
+      # MongoDB initialization is handled by init-hyperdx service
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+    labels:
+      - "observe-kit.service=database"
+      - "observe-kit.purpose=session-storage"
+    networks:
+      - observe_kit-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # HyperDX for unified observability (logs, traces, metrics visualization)
+  # Uses ClickHouse for data storage and MongoDB for session storage
+  # Based on reference: /home/terng/work/Toffoli/Forma/docker-compose.hyperdx-local.yml
+  hyperdx:
+    image: hyperdx/hyperdx:latest
+    container_name: observe_kit-hyperdx
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_HYPERDX_PORT:-8080}:8080"  # Web UI (exposed to host)
+      # OTLP ports are internal only (not exposed to host to avoid conflicts with OTEL Collector)
+      # HyperDX receives OTLP data from OTEL Collector via Docker network on internal ports
+    environment:
+      # Service URLs
+      - FRONTEND_URL=http://localhost:8080
+      - SERVER_URL=http://127.0.0.1:8000
+      
+      # Ports
+      - HYPERDX_API_PORT=8000
+      - HYPERDX_APP_PORT=8080
+      
+      # Database connections
+      - MONGO_URI=mongodb://mongodb:27017/hyperdx
+      - CLICKHOUSE_ENDPOINT=tcp://default:clickhouse@ch-server:9000?dial_timeout=10s
+      
+      # OTEL (HyperDX's own telemetry - optional)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=hyperdx-app
+      
+      # Logging
+      - HYPERDX_LOG_LEVEL=info
+      
+      # Disable usage stats for local dev
+      - USAGE_STATS_ENABLED=false
+      
+      # Note: Admin user is created by init-hyperdx service via API
+      # These vars are not used by HyperDX directly but kept for reference
+      - HYPERDX_ADMIN_EMAIL=${HYPERDX_ADMIN_EMAIL:-admin@example.com}
+      
+      # ClickHouse data sources configuration
+      # This tells HyperDX where to find traces, logs, and metrics
+      # Note: Using default user with password to prevent auth header conflicts
+      # Using ch-server alias for consistency
+      - DEFAULT_CONNECTIONS=[{"name":"Local ClickHouse","host":"http://ch-server:8123","username":"default","password":"clickhouse"}]
+      - DEFAULT_SOURCES=[{"from":{"databaseName":"default","tableName":"otel_logs"},"kind":"log","timestampValueExpression":"Timestamp","name":"Local Logs","displayedTimestampValueExpression":"Timestamp","implicitColumnExpression":"Body","serviceNameExpression":"ServiceName","bodyExpression":"Body","eventAttributesExpression":"LogAttributes","resourceAttributesExpression":"ResourceAttributes","defaultTableSelectExpression":"Timestamp,ServiceName,SeverityText,Body","severityTextExpression":"SeverityText","traceIdExpression":"TraceId","spanIdExpression":"SpanId","connection":"Local ClickHouse","traceSourceId":"Local Traces","sessionSourceId":"Local Sessions","metricSourceId":"Local Metrics"},{"from":{"databaseName":"default","tableName":"otel_traces"},"kind":"trace","timestampValueExpression":"Timestamp","name":"Local Traces","displayedTimestampValueExpression":"Timestamp","implicitColumnExpression":"SpanName","serviceNameExpression":"ServiceName","bodyExpression":"SpanName","eventAttributesExpression":"SpanAttributes","resourceAttributesExpression":"ResourceAttributes","defaultTableSelectExpression":"Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName","traceIdExpression":"TraceId","spanIdExpression":"SpanId","durationExpression":"Duration","durationPrecision":9,"parentSpanIdExpression":"ParentSpanId","spanNameExpression":"SpanName","spanKindExpression":"SpanKind","statusCodeExpression":"StatusCode","statusMessageExpression":"StatusMessage","connection":"Local ClickHouse","logSourceId":"Local Logs","sessionSourceId":"Local Sessions","metricSourceId":"Local Metrics"}]
+    healthcheck:
+      # Use /api/health endpoint - busybox wget doesn't support --no-verbose/--tries
+      # Use 127.0.0.1 instead of localhost (DNS not available in minimal container)
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        tag: "{{.Name}}"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    labels:
+      - "observe-kit.service=observability"
+      - "observe-kit.purpose=visualization"
+    networks:
+      - observe_kit-network
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      init-clickhouse:
+        condition: service_completed_successfully
+
+  # Initialize ClickHouse tables for OpenTelemetry data
+  # Creates otel_logs, otel_traces, and otel_metrics tables
+  init-clickhouse:
+    image: clickhouse/clickhouse-client:latest
+    container_name: observe_kit-init-clickhouse
+    volumes:
+      - ./scripts/create_clickhouse_tables.sql:/create_tables.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["clickhouse-client --host ch-server --user default --password clickhouse --multiquery < /create_tables.sql"]
+    restart: "no"
+    labels:
+      - "observe-kit.service=init"
+      - "observe-kit.purpose=setup"
+    networks:
+      - observe_kit-network
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  # Initialize HyperDX with MongoDB collections and default admin user
+  # Uses HyperDX's /api/register/password endpoint for proper password hashing
+  init-hyperdx:
+    image: python:3.11-slim
+    container_name: observe_kit-init-hyperdx
+    volumes:
+      - ./scripts/init_hyperdx.py:/app/init_hyperdx.py:ro
+    working_dir: /app
+    command: ["sh", "-c", "pip install --no-cache-dir pymongo && python init_hyperdx.py"]
+    environment:
+      - HYPERDX_URL=http://hyperdx:8080
+      - MONGO_URI=mongodb://mongodb:27017/hyperdx
+      - MONGO_DB=hyperdx
+      - HYPERDX_ADMIN_EMAIL=${HYPERDX_ADMIN_EMAIL:-admin@example.com}
+      # Password must be: 12+ chars, upper+lower case, special char
+      # Note: Use single $ in env var ($$ is only for shell command escaping)
+      - HYPERDX_ADMIN_PASSWORD=${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$}
+    restart: "no"
+    labels:
+      - "observe-kit.service=init"
+      - "observe-kit.purpose=setup"
+    networks:
+      - observe_kit-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      init-clickhouse:
+        condition: service_completed_successfully
+      hyperdx:
+        condition: service_healthy
+
+  # Health check service - displays service URLs when all services are ready
+  healthcheck:
+    image: curlimages/curl:latest
+    container_name: observe_kit-healthcheck
+    depends_on:
+      init-clickhouse:
+        condition: service_completed_successfully
+      init-hyperdx:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started  # OTEL collector health check disabled (scratch image)
+      prometheus:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      hyperdx:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo '✅ All services are healthy!';
+      echo '';
+      echo 'Service URLs:';
+      echo '  - OTEL Collector HTTP: http://localhost:$${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT:-4318}';
+      echo '  - OTEL Collector gRPC: http://localhost:$${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT:-4317}';
+      echo '  - Prometheus: http://localhost:$${OBSERVE_KIT_INTEGRATION_PROMETHEUS_PORT:-9090}';
+      echo '  - HyperDX: http://localhost:$${OBSERVE_KIT_INTEGRATION_HYPERDX_PORT:-8080}';
+      echo '  - ClickHouse HTTP: http://localhost:$${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT:-28123}';
+      echo '  - ClickHouse Native: localhost:$${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT:-29000}';
+      echo '  - MongoDB: localhost:$${OBSERVE_KIT_INTEGRATION_MONGODB_PORT:-27017}';
+      echo '';
+      echo 'HyperDX Login:';
+      echo '  Email: $${HYPERDX_ADMIN_EMAIL:-admin@example.com}';
+      echo '  Password: $${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$$}';
+      "
+    restart: "no"
+    labels:
+      - "observe-kit.service=utility"
+      - "observe-kit.purpose=status"
+    networks:
+      - observe_kit-network
+
+  # ClickHouse client for debugging (dev profile only)
+  clickhouse-client:
+    image: clickhouse/clickhouse-client:latest
+    container_name: observe_kit-clickhouse-client
+    profiles: ["dev"]
+    command: ["clickhouse-client", "--host", "ch-server"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    labels:
+      - "observe-kit.service=utility"
+      - "observe-kit.purpose=debugging"
+    networks:
+      - observe_kit-network
+
+
+volumes:
+  prometheus-data:
+    name: observe_kit-prometheus-data
+  clickhouse-data:
+    name: observe_kit-clickhouse-data
+  mongodb-data:
+    name: observe_kit-mongodb-data
+
+networks:
+  observe_kit-network:
+    driver: bridge
