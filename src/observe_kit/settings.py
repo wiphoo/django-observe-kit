@@ -307,6 +307,14 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     )
 
 
+def env_flag(name: str, default: str = "1") -> bool:
+    """Parse a boolean environment variable.
+
+    An explicitly-empty value (e.g. ``FLAG=``) reads as ``False``.
+    """
+    return os.getenv(name, default).strip().lower() not in {"", "0", "false", "no"}
+
+
 def _as_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
