@@ -106,7 +106,7 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/hyperdx
       - MONGO_DB=hyperdx
       - HYPERDX_ADMIN_EMAIL=${HYPERDX_ADMIN_EMAIL:-admin@example.com}
-      - HYPERDX_ADMIN_PASSWORD=${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$}
+      - HYPERDX_ADMIN_PASSWORD=${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$$}
     networks:
       - demo-observability
     depends_on:
