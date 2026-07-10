@@ -221,12 +221,22 @@ Thumbs.db
 .*.swp
 .*.swo
 
-# Claude Code tool definitions (bundled, not committed)
-.claude/agents/
-.claude/commands/
-.claude/helpers/
+# Claude Code local tooling (machine-specific, never commit)
+.claude/
 
-# Claude Code local settings (machine-specific, never commit)
-.claude/settings.local.json
-.claude/.session/
-.claude/.swarm/
+# AI-tooling local artifacts (never commit)
+.claude-flow/
+.swarm/
+.qodo/
+.agents/
+.cursor/
+.mcp.json
+ruvector.db
+examples/ruvector.db
+*.backup.*
+
+# AI agent instruction files are symlinks to AGENTS.md; keep AGENTS.md only
+CLAUDE.md
+GEMINI.md
+codex.md
+opencode.md

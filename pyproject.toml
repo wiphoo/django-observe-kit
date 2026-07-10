@@ -3,13 +3,44 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "observe_kit"
+name = "django-observe-kit"
 version = "0.1.0"
 description = "Drop-in observability toolkit for Django/DRF/Wagtail"
 readme = "README.md"
-authors = [{ name = "Observe Kit" }]
+authors = [{ name = "Wiphoo (Terng) Methachawalit", email = "wiphoo.m@toffoli.co.th" }]
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
+keywords = [
+    "django",
+    "drf",
+    "wagtail",
+    "observability",
+    "opentelemetry",
+    "prometheus",
+    "sentry",
+    "tracing",
+    "metrics",
+    "logging",
+    "pii",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+    "Topic :: System :: Logging",
+    "Typing :: Typed",
+]
 dependencies = [
     # Django 4.2 is the current LTS (security support through April 2026).
     # Django 3.2 reached EOL April 2024 and is no longer supported upstream.
@@ -27,6 +58,12 @@ dependencies = [
 
 [project.optional-dependencies]
 wagtail = ["wagtail>=7.3.2"]
+
+[project.urls]
+Homepage = "https://github.com/wiphoo/Django-Observe_Kit"
+Repository = "https://github.com/wiphoo/Django-Observe_Kit"
+Issues = "https://github.com/wiphoo/Django-Observe_Kit/issues"
+Changelog = "https://github.com/wiphoo/Django-Observe_Kit/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

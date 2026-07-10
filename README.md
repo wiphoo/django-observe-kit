@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/wiphoo/Django-Observe_Kit/actions/workflows/ci.yml/badge.svg)](https://github.com/wiphoo/Django-Observe_Kit/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Django 3.2+](https://img.shields.io/badge/django-3.2+-green.svg)](https://www.djangoproject.com/)
+[![Django 4.2+](https://img.shields.io/badge/django-4.2+-green.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
@@ -18,7 +18,13 @@ Drop-in observability for Django, DRF, and Wagtail. Observe Kit wires together r
 
 ## Installation
 ```bash
-pip install -e .
+pip install django-observe-kit
+# with optional Wagtail hooks:
+pip install "django-observe-kit[wagtail]"
+```
+
+For local development against a clone:
+```bash
 uv pip install -e .[dev]
 ```
 
@@ -29,7 +35,7 @@ uv pip install -e .[dev]
 4. `make test-unit` — run the fast unit suite.
 5. `make test-int` / `make integration-up` — start Docker services for integration tests (OTEL collector, Prometheus, HyperDX-style tools).
 
-The internal status summary (`docs/internal/status.md`) consolidates the final implementation review, testing coverage, and next steps so you have a single reference.
+See [`docs/`](docs/README.md) for configuration, middleware, PII, and HyperDX guides.
 
 ## Testing
 - `make test-unit`
@@ -44,6 +50,7 @@ The internal status summary (`docs/internal/status.md`) consolidates the final i
 - `make clean` to remove caches and build artifacts.
 
 ## Learn more
-- `docs/internal/status.md` for the consolidated project status, highlights, and testing notes.
-- `CONTRIBUTING.md` for workflow guidance.
-- `CHANGELOG.md` for release notes.
+- [`docs/README.md`](docs/README.md) for configuration, middleware, PII, and HyperDX guides.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow guidance.
+- [`CHANGELOG.md`](CHANGELOG.md) for release notes.
+- [`SECURITY.md`](SECURITY.md) to report a vulnerability.
