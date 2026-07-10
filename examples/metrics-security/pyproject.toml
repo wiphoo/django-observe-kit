@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "Django>=4.2,<5.0",
-    "observe_kit @ git+ssh://git@github.com/wiphoo/Django-Observe_Kit.git@26a42499dc17ec671953f49762b40f21a9553460",
+    "django-observe-kit",
 ]
 
 [dependency-groups]
@@ -29,3 +29,7 @@ where = ["src"]
 DJANGO_SETTINGS_MODULE = "config.settings"
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+# Use the in-repo package so the example always resolves against the current source tree.
+django-observe-kit = { path = "../..", editable = true }

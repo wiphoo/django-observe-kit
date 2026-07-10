@@ -13,16 +13,6 @@ def create_auditlog_table(apps, schema_editor):
     schema_editor.create_model(AuditLog)
 
 
-def drop_auditlog_table(apps, schema_editor):
-    from observe_kit.audit.models import AuditLog
-
-    existing_tables = schema_editor.connection.introspection.table_names()
-    if AuditLog._meta.db_table not in existing_tables:
-        return
-
-    schema_editor.delete_model(AuditLog)
-
-
 class Migration(migrations.Migration):
     initial = True
 
@@ -32,5 +22,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(create_auditlog_table, drop_auditlog_table),
+        # Forward is a defensive no-op in normal use: the observe_kit.audit
+        # dependency already creates the shared AuditLog table. Reverse must
+        # NOT drop it — that table is owned by observe_kit.audit.0001_initial,
+        # which can still be applied after this demo migration is unwound.
+        migrations.RunPython(create_auditlog_table, migrations.RunPython.noop),
     ]

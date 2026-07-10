@@ -7,7 +7,6 @@ metrics, and audit logging utilities so applications can adopt observability
 best practices with minimal configuration.
 """
 
-import logging
 from importlib.metadata import PackageNotFoundError, version
 
 from .context import RequestContext, get_request_context, reset_request_context, set_request_context
@@ -66,11 +65,18 @@ __all__ = [
 ConfigurationError = OtelConfigurationError
 
 try:
-    __version__ = version("observe_kit")
+    # `importlib.metadata.version` resolves the *distribution* name (the PyPI
+    # package), not the import name. The distribution is `django-observe-kit`.
+    __version__ = version("django-observe-kit")
 except PackageNotFoundError:  # pragma: no cover - fallback when metadata missing
     # Use a PEP 440 local segment so code branching on `__version__` can
     # distinguish a fallback from a genuinely-tagged 0.0.0 release.
     __version__ = "0.0.0+unknown"
-    logging.getLogger(__name__).warning(
+    # NB: the module-level name `logging` has been rebound to the
+    # `observe_kit.logging` submodule by the `from .logging import ...` above,
+    # so reach for the stdlib logger explicitly here.
+    import logging as _stdlib_logging
+
+    _stdlib_logging.getLogger(__name__).warning(
         "observe_kit: package metadata not found; __version__ falls back to %s", __version__
     )

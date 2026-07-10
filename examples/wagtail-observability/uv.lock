@@ -124,6 +124,46 @@ wheels = [
 ]
 
 [[package]]
+name = "django-observe-kit"
+version = "0.1.0"
+source = { editable = "../../" }
+dependencies = [
+    { name = "django" },
+    { name = "djangorestframework" },
+    { name = "opentelemetry-exporter-otlp" },
+    { name = "opentelemetry-sdk" },
+    { name = "prometheus-client" },
+    { name = "python-json-logger" },
+    { name = "sentry-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "django", specifier = ">=4.2" },
+    { name = "djangorestframework", specifier = ">=3.15" },
+    { name = "opentelemetry-exporter-otlp", specifier = ">=1.38.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.38.0" },
+    { name = "prometheus-client", specifier = ">=0.20" },
+    { name = "python-json-logger", specifier = ">=3.0" },
+    { name = "sentry-sdk", specifier = ">=2.0" },
+    { name = "wagtail", marker = "extra == 'wagtail'", specifier = ">=7.3.2" },
+]
+provides-extras = ["wagtail"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "coverage", specifier = ">=7.0.0" },
+    { name = "hypothesis", specifier = ">=6.0.0" },
+    { name = "mypy", specifier = ">=1.0.0" },
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "pytest-xdist", specifier = ">=3.0.0" },
+    { name = "ruff", specifier = ">=0.6.4" },
+    { name = "uv", specifier = ">=0.11.15" },
+    { name = "wagtail", specifier = ">=7.3.2" },
+]
+
+[[package]]
 name = "django-permissionedforms"
 version = "0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -222,7 +262,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
-    { name = "observe-kit" },
+    { name = "django-observe-kit" },
     { name = "opentelemetry-sdk" },
     { name = "wagtail" },
 ]
@@ -236,7 +276,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "django", specifier = ">=4.2,<5.0" },
-    { name = "observe-kit", git = "ssh://git@github.com/wiphoo/Django-Observe_Kit.git?rev=26a42499dc17ec671953f49762b40f21a9553460" },
+    { name = "django-observe-kit", editable = "../../" },
     { name = "opentelemetry-sdk", specifier = "==1.40.0" },
     { name = "wagtail", specifier = ">=7.3,<7.4" },
 ]
@@ -342,20 +382,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/85/f0/dbe232366b12ec7da4ac4c14fef94d7c5be51aa6b7eb265d5a6cc93ac036/modelsearch-1.2.tar.gz", hash = "sha256:c150eb8bc0317fd5e656eb54f3b6809da313588a9998796a4e59a1cfed273ee7", size = 90558, upload-time = "2026-02-11T23:20:38.654Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/f9/2940405a785dbccd496bc4c5c21879cb3948efdd6dfdbb31c24fa9101b19/modelsearch-1.2-py3-none-any.whl", hash = "sha256:b4421c134175224e67f1aae9b4f26265347dfa617c2d433520cf379ca37c71f2", size = 111433, upload-time = "2026-02-11T23:20:36.772Z" },
-]
-
-[[package]]
-name = "observe-kit"
-version = "0.1.0"
-source = { git = "ssh://git@github.com/wiphoo/Django-Observe_Kit.git?rev=26a42499dc17ec671953f49762b40f21a9553460#26a42499dc17ec671953f49762b40f21a9553460" }
-dependencies = [
-    { name = "django" },
-    { name = "djangorestframework" },
-    { name = "opentelemetry-exporter-otlp" },
-    { name = "opentelemetry-sdk" },
-    { name = "prometheus-client" },
-    { name = "python-json-logger" },
-    { name = "sentry-sdk" },
 ]
 
 [[package]]

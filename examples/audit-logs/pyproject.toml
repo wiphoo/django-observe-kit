@@ -12,7 +12,7 @@ dependencies = [
     "Django>=4.2,<5.0",
     "djangorestframework>=3.14,<4.0",
     "opentelemetry-sdk==1.40.0",
-    "observe_kit @ git+ssh://git@github.com/wiphoo/Django-Observe_Kit.git@26a42499dc17ec671953f49762b40f21a9553460",
+    "django-observe-kit",
     "psycopg[binary]>=3.2,<4.0",
 ]
 
@@ -21,6 +21,11 @@ dev = [
     "pytest>=8.0",
     "pytest-django>=4.8",
 ]
+
+[tool.uv.sources]
+# Use the in-repo package so the example always resolves against the current
+# source tree (including the observe_kit.audit migration this demo depends on).
+django-observe-kit = { path = "../..", editable = true }
 
 [tool.setuptools]
 package-dir = {"" = "src"}
