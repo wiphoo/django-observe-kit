@@ -17,20 +17,18 @@ def _create_auditlog_if_absent(apps: Any, schema_editor: Any) -> None:
     "table already exists" error. New databases still get the table created
     normally.
 
-    The model isn't in the historical ``apps`` state at this point (the
-    ``CreateModel`` lives in ``state_operations``), so import the concrete
-    model — it matches the state definition exactly for table creation.
+    The model is fetched from the migration's historical state (via ``apps``),
+    not imported from ``observe_kit.audit.models`` — so this stays a faithful
+    snapshot of the 0001 schema even as the live model evolves.
     """
-    from observe_kit.audit.models import AuditLog
-
+    AuditLog = apps.get_model("audit", "AuditLog")
     if AuditLog._meta.db_table in schema_editor.connection.introspection.table_names():
         return
     schema_editor.create_model(AuditLog)
 
 
 def _drop_auditlog_if_present(apps: Any, schema_editor: Any) -> None:
-    from observe_kit.audit.models import AuditLog
-
+    AuditLog = apps.get_model("audit", "AuditLog")
     if AuditLog._meta.db_table not in schema_editor.connection.introspection.table_names():
         return
     schema_editor.delete_model(AuditLog)
@@ -45,10 +43,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Keep the CreateModel in migration *state* (so makemigrations and later
-        # migrations see the correct model), but make the actual *database*
-        # creation idempotent so this first-ever migration can adopt a table
-        # left over from the previous no-migrations version of the app.
+        # Register AuditLog in migration *state* only (no database changes here),
+        # so both makemigrations and the RunPython below see the historical
+        # model without importing the live one.
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.CreateModel(
@@ -71,8 +68,11 @@ class Migration(migrations.Migration):
                     },
                 ),
             ],
-            database_operations=[
-                migrations.RunPython(_create_auditlog_if_absent, _drop_auditlog_if_present),
-            ],
+            database_operations=[],
         ),
+        # Idempotent DB creation: the state already knows AuditLog, so
+        # apps.get_model returns the historical model. Creates the table only
+        # when absent (adopting a table left over from the pre-migration era);
+        # reverse drops it since this app owns the table.
+        migrations.RunPython(_create_auditlog_if_absent, _drop_auditlog_if_present),
     ]

@@ -65,7 +65,14 @@ REST_FRAMEWORK = {
 }
 
 OBSERVE_KIT = {
-    "SERVICE_NAME": os.getenv("OBSERVE_KIT_SERVICE_NAME", DEFAULT_OBSERVE_KIT_SERVICE_NAME),
+    # Only enable OTEL tracing/log export when an OTLP endpoint is configured;
+    # otherwise the exporters fall back to localhost and emit connection-refused
+    # errors. This example does not run a collector by default.
+    "SERVICE_NAME": (
+        os.getenv("OBSERVE_KIT_SERVICE_NAME")
+        or (DEFAULT_OBSERVE_KIT_SERVICE_NAME if os.getenv("OBSERVE_KIT_OTEL_ENDPOINT") else None)
+    ),
+    "OTEL_ENDPOINT": os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"),
     "LOG_LEVEL": "INFO",
     "PII_LEVELS": {
         "logs": "BASIC",
