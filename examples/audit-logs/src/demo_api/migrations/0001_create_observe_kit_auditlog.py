@@ -18,7 +18,9 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("auth", "0012_alter_user_first_name_max_length"),
-        ("observe_kit.audit", "0001_initial"),
+        # The audit app's label is "audit" (last component of
+        # "observe_kit.audit"), which is what the migration graph is keyed on.
+        ("audit", "0001_initial"),
     ]
 
     operations = [
