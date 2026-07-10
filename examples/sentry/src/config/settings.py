@@ -73,7 +73,15 @@ REST_FRAMEWORK = {
 }
 
 OBSERVE_KIT = {
-    "SERVICE_NAME": os.getenv("OBSERVE_KIT_SERVICE_NAME", DEFAULT_OBSERVE_KIT_SERVICE_NAME),
+    # This demo focuses on Sentry, not traces. Only enable OTEL tracing/log
+    # export when an OTLP endpoint is explicitly configured — otherwise the
+    # exporters fall back to localhost and emit connection-refused errors on a
+    # Sentry-only setup. Mirrors the OTEL/HyperDX examples' gating.
+    "SERVICE_NAME": (
+        os.getenv("OBSERVE_KIT_SERVICE_NAME")
+        or (DEFAULT_OBSERVE_KIT_SERVICE_NAME if os.getenv("OBSERVE_KIT_OTEL_ENDPOINT") else None)
+    ),
+    "OTEL_ENDPOINT": os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"),
     "SENTRY_DSN": os.getenv("OBSERVE_KIT_SENTRY_DSN"),
     "SENTRY_ENVIRONMENT": os.getenv("OBSERVE_KIT_SENTRY_ENVIRONMENT", "development"),
     "SENTRY_TRACES_SAMPLE_RATE": os.getenv("OBSERVE_KIT_SENTRY_TRACES_SAMPLE_RATE", "1.0"),
