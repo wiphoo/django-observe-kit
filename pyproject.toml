@@ -75,6 +75,9 @@ include = ["observe_kit*"]
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+# Django-generated migrations are not hand-authored; their long field
+# definitions routinely exceed the line-length limit.
+extend-exclude = ["**/migrations/*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
