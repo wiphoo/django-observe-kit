@@ -26,7 +26,6 @@ updates:
       prefix: "chore(deps)"
     labels:
       - "dependencies"
-      - "examples"
     groups:
       example-deps:
         patterns:
@@ -42,4 +41,3 @@ updates:
       prefix: "chore(ci)"
     labels:
       - "dependencies"
-      - "ci"
