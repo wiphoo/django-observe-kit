@@ -195,9 +195,19 @@ class TraceContextMiddleware(MiddlewareMixin):
             request._observe_kit_span_context_manager = span_context_manager
 
             context = get_request_context()
-            span_context = span.get_span_context()
-            context.trace_id = format(span_context.trace_id, "032x")
-            context.span_id = format(span_context.span_id, "016x")
+            # Only record trace/span IDs from a *valid* span context. Without an
+            # SDK TracerProvider the no-op span has an invalid context whose IDs
+            # format to all-zeroes ("000…0"); persisting those would report a
+            # fake trace in logs, Sentry, audit rows, and the response.
+            if span_context.is_valid:
+                context.trace_id = format(span_context.trace_id, "032x")
+                context.span_id = format(span_context.span_id, "016x")
+                # Also stash on the request so RequestContextMiddleware can carry
+                # the IDs from a strictly request-scoped source rather than the
+                # process-global context var (which can outlive a request and
+                # leak a prior request's trace onto the next one).
+                request._observe_kit_trace_id = context.trace_id
+                request._observe_kit_span_id = context.span_id
             # Update http.route if context has a route (e.g., from DRF detection)
             if context.route and context.route != route:
                 span.set_attribute("http.route", context.route)
@@ -259,10 +269,11 @@ class TraceContextMiddleware(MiddlewareMixin):
 
                 enrich_span(span)
 
-                # Get trace ID from span before ending it
+                # Get trace ID from span before ending it. Skip the header for an
+                # invalid (no-op) span context rather than emitting an all-zero id.
                 span_context = span.get_span_context()
-                trace_id = format(span_context.trace_id, "032x")
-                response["X-Trace-Id"] = trace_id
+                if span_context.is_valid:
+                    response["X-Trace-Id"] = format(span_context.trace_id, "032x")
 
                 # Exit the context manager to properly end the span
                 # This will automatically detach the context set by start_as_current_span

@@ -43,19 +43,10 @@ def pytest_configure(config):
 
         # Run migrations to create database tables
         from django.core.management import call_command
-        from django.db import connection
 
         call_command("migrate", verbosity=0, interactive=False)
 
-        # Create tables for observe_kit.audit (no migrations file)
-        from observe_kit.audit.models import AuditLog
-
-        try:
-            with connection.schema_editor() as schema_editor:
-                schema_editor.create_model(AuditLog)
-        except Exception:
-            # Table might already exist
-            pass
+        # observe_kit.audit tables created via its migration.
 
 
 def pytest_collection_modifyitems(config, items):

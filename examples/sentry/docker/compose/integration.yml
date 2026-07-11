@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: example-observe-kit-glitchtip-postgres
+    environment:
+      - POSTGRES_DB=${GLITCHTIP_POSTGRES_DB:-glitchtip}
+      - POSTGRES_USER=${GLITCHTIP_POSTGRES_USER:-glitchtip}
+      - POSTGRES_PASSWORD=${GLITCHTIP_POSTGRES_PASSWORD:-glitchtip}
+    ports:
+      - "${GLITCHTIP_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - glitchtip-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${GLITCHTIP_POSTGRES_USER:-glitchtip} -d ${GLITCHTIP_POSTGRES_DB:-glitchtip}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: example-observe-kit-glitchtip-redis
+    ports:
+      - "${GLITCHTIP_REDIS_PORT:-6379}:6379"
+    volumes:
+      - glitchtip-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  glitchtip-web:
+    image: glitchtip/glitchtip:latest
+    container_name: example-observe-kit-glitchtip-web
+    environment:
+      - SECRET_KEY=${GLITCHTIP_SECRET_KEY}
+      - DATABASE_URL=postgres://${GLITCHTIP_POSTGRES_USER:-glitchtip}:${GLITCHTIP_POSTGRES_PASSWORD:-glitchtip}@postgres:5432/${GLITCHTIP_POSTGRES_DB:-glitchtip}
+      - REDIS_URL=redis://redis:6379/0
+      - VALKEY_URL=redis://redis:6379/0
+      - EMAIL_URL=${GLITCHTIP_EMAIL_URL:-consolemail://}
+      - DEFAULT_FROM_EMAIL=${GLITCHTIP_DEFAULT_FROM_EMAIL:-glitchtip@example.com}
+      - GLITCHTIP_DOMAIN=${GLITCHTIP_DOMAIN:-http://localhost:8080}
+      - PORT=8000
+      - ENABLE_USER_REGISTRATION=true
+      - ENABLE_ORGANIZATION_CREATION=true
+      - GLITCHTIP_MAX_EVENT_LIFE_DAYS=30
+    ports:
+      - "${GLITCHTIP_PORT:-8080}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["./bin/start.sh"]
+    restart: unless-stopped
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip:latest
+    container_name: example-observe-kit-glitchtip-worker
+    environment:
+      - SECRET_KEY=${GLITCHTIP_SECRET_KEY}
+      - DATABASE_URL=postgres://${GLITCHTIP_POSTGRES_USER:-glitchtip}:${GLITCHTIP_POSTGRES_PASSWORD:-glitchtip}@postgres:5432/${GLITCHTIP_POSTGRES_DB:-glitchtip}
+      - REDIS_URL=redis://redis:6379/0
+      - VALKEY_URL=redis://redis:6379/0
+      - EMAIL_URL=${GLITCHTIP_EMAIL_URL:-consolemail://}
+      - DEFAULT_FROM_EMAIL=${GLITCHTIP_DEFAULT_FROM_EMAIL:-glitchtip@example.com}
+      - GLITCHTIP_DOMAIN=${GLITCHTIP_DOMAIN:-http://localhost:8080}
+      - SERVER_ROLE=worker
+      - GLITCHTIP_MAX_EVENT_LIFE_DAYS=30
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["./bin/start.sh"]
+    restart: unless-stopped
+
+volumes:
+  glitchtip-postgres-data:
+    name: example-observe-kit-glitchtip-postgres-data
+  glitchtip-redis-data:
+    name: example-observe-kit-glitchtip-redis-data

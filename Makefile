@@ -418,23 +418,27 @@ verify-install:
 
 .PHONY: example-django example-drf example-wagtail
 
+# Each example is a standalone uv project under examples/<name>/ with its own
+# lockfile and manage.py at src/manage.py; run it via the example's own uv env.
+
 ## Run Django example
 example-django:
 	@echo "🚀 Starting Django example..."
-	cd examples/django_example && $(RUNNER) python manage.py migrate --run-syncdb
-	cd examples/django_example && $(RUNNER) python manage.py runserver
+	cd examples/django-core && uv sync && uv run python src/manage.py migrate
+	cd examples/django-core && uv run python src/manage.py runserver
 
 ## Run DRF example
 example-drf:
 	@echo "🚀 Starting DRF example..."
-	cd examples/drf_example && $(RUNNER) python manage.py migrate --run-syncdb
-	cd examples/drf_example && $(RUNNER) python manage.py runserver
+	cd examples/drf-observability && uv sync && uv run python src/manage.py migrate
+	cd examples/drf-observability && uv run python src/manage.py runserver
 
 ## Run Wagtail example
 example-wagtail:
 	@echo "🚀 Starting Wagtail example..."
-	cd examples/wagtail_example && $(RUNNER) python manage.py migrate --run-syncdb
-	cd examples/wagtail_example && $(RUNNER) python manage.py runserver
+	cd examples/wagtail-observability && uv sync && uv run python src/manage.py migrate
+	cd examples/wagtail-observability && uv run python src/manage.py bootstrap_wagtail_demo
+	cd examples/wagtail-observability && uv run python src/manage.py runserver
 
 #=============================================================================
 # CI/CD

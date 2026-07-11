@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DEFAULT_OBSERVE_KIT_SERVICE_NAME = "example-pii-sanitization"
+
+SECRET_KEY = "django-insecure-example-observe-kit"
+DEBUG = True
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+
+INSTALLED_APPS = [
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "rest_framework",
+    "observe_kit",
+    "observe_kit.audit",
+    "privacy",
+]
+
+MIDDLEWARE = [
+    "observe_kit.otel.middleware.TraceContextMiddleware",
+    "observe_kit.logging.middleware.RequestLoggingMiddleware",
+    "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
+    "observe_kit.context_middleware.RequestContextMiddleware",
+    "observe_kit.context_middleware.UserLoggingContextMiddleware",
+    "privacy.middleware.TraceContextSyncMiddleware",
+    "observe_kit.drf.integration.DRFIntegrationMiddleware",
+    "observe_kit.sentry.middleware.SentryContextMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+]
+
+ROOT_URLCONF = "config.urls"
+WSGI_APPLICATION = "config.wsgi.application"
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {"context_processors": ["django.template.context_processors.request"]},
+    }
+]
+DATABASES = {
+    "default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}
+}
+LANGUAGE_CODE = "en-us"
+TIME_ZONE = "UTC"
+USE_I18N = True
+USE_TZ = True
+STATIC_URL = "static/"
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+REST_FRAMEWORK = {
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],
+    "EXCEPTION_HANDLER": "observe_kit.drf.observed_exception_handler",
+}
+
+OBSERVE_KIT = {
+    # Only enable OTEL tracing/log export when an OTLP endpoint is configured;
+    # otherwise the exporters fall back to localhost and emit connection-refused
+    # errors. This example does not run a collector by default.
+    "SERVICE_NAME": (
+        os.getenv("OBSERVE_KIT_SERVICE_NAME")
+        or (DEFAULT_OBSERVE_KIT_SERVICE_NAME if os.getenv("OBSERVE_KIT_OTEL_ENDPOINT") else None)
+    ),
+    "OTEL_ENDPOINT": os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"),
+    "LOG_LEVEL": "INFO",
+    "PII_LEVELS": {
+        "logs": "BASIC",
+        "otel": "BASIC",
+        "sentry": "SENSITIVE",
+        "audit": "SENSITIVE",
+    },
+    "PII_HASH_SALT": "example-salt",
+    "EXTRA_MASK_FIELDS": ["ssn"],
+    "EXTRA_HASH_FIELDS": ["session_id"],
+}

@@ -13,7 +13,7 @@ Thanks for helping improve the project! Follow these minimal steps.
    ```bash
    make init
    ```
-3. Keep the internal status summary (`docs/internal/status.md`) handy for what has already shipped and how the test suite is organized.
+3. Browse [`docs/README.md`](docs/README.md) for how the library is structured and how the test suite is organized.
 
 ## Development workflow
 - Create a feature branch (`feature/<short-description>` or `fix/<description>`).

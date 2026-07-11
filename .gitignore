@@ -211,3 +211,32 @@ Thumbs.db
 # Local development
 *.local
 .local/
+
+# Temp / scratch files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Claude Code local tooling (machine-specific, never commit)
+.claude/
+
+# AI-tooling local artifacts (never commit)
+.claude-flow/
+.swarm/
+.qodo/
+.agents/
+.cursor/
+.mcp.json
+ruvector.db
+examples/ruvector.db
+*.backup.*
+
+# AI agent instruction files are symlinks to AGENTS.md; keep AGENTS.md only
+CLAUDE.md
+GEMINI.md
+codex.md
+opencode.md

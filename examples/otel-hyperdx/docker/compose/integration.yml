@@ -1,0 +1,191 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: example-observe-kit-clickhouse
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT:-28123}:8123"
+      - "${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_NATIVE_PORT:-29000}:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./configs/clickhouse-users.xml:/etc/clickhouse-server/users.d/default-password.xml:ro
+    environment:
+      - CLICKHOUSE_DB=hyperdx
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+    networks:
+      demo-observability:
+        aliases:
+          - ch-server
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  init-clickhouse:
+    image: clickhouse/clickhouse-client:24.3
+    container_name: example-observe-kit-init-clickhouse
+    volumes:
+      - ./scripts/create_clickhouse_tables.sql:/create_tables.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      [
+        "clickhouse-client --host ch-server --user default --password clickhouse --multiquery < /create_tables.sql",
+      ]
+    networks:
+      - demo-observability
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: "no"
+
+  mongodb:
+    image: mongo:7.0
+    container_name: example-observe-kit-mongodb
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_MONGODB_PORT:-27017}:27017"
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - demo-observability
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  hyperdx:
+    image: hyperdx/hyperdx:2.0.0
+    container_name: example-observe-kit-hyperdx
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_HYPERDX_PORT:-8080}:8080"
+    environment:
+      - FRONTEND_URL=http://localhost:8080
+      - SERVER_URL=http://127.0.0.1:8000
+      - HYPERDX_API_PORT=8000
+      - HYPERDX_APP_PORT=8080
+      - MONGO_URI=mongodb://mongodb:27017/hyperdx
+      - CLICKHOUSE_ENDPOINT=tcp://default:clickhouse@ch-server:9000?dial_timeout=10s
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_SERVICE_NAME=hyperdx-app
+      - HYPERDX_LOG_LEVEL=info
+      - USAGE_STATS_ENABLED=false
+      - HYPERDX_ADMIN_EMAIL=${HYPERDX_ADMIN_EMAIL:-admin@example.com}
+      - DEFAULT_CONNECTIONS=[{"name":"Local ClickHouse","host":"http://ch-server:8123","username":"default","password":"clickhouse"}]
+      - DEFAULT_SOURCES=[{"from":{"databaseName":"default","tableName":"otel_logs"},"kind":"log","timestampValueExpression":"Timestamp","name":"Local Logs","displayedTimestampValueExpression":"Timestamp","implicitColumnExpression":"Body","serviceNameExpression":"ServiceName","bodyExpression":"Body","eventAttributesExpression":"LogAttributes","resourceAttributesExpression":"ResourceAttributes","defaultTableSelectExpression":"Timestamp,ServiceName,SeverityText,Body","severityTextExpression":"SeverityText","traceIdExpression":"TraceId","spanIdExpression":"SpanId","connection":"Local ClickHouse","traceSourceId":"Local Traces"},{"from":{"databaseName":"default","tableName":"otel_traces"},"kind":"trace","timestampValueExpression":"Timestamp","name":"Local Traces","displayedTimestampValueExpression":"Timestamp","implicitColumnExpression":"SpanName","serviceNameExpression":"ServiceName","bodyExpression":"SpanName","eventAttributesExpression":"SpanAttributes","resourceAttributesExpression":"ResourceAttributes","defaultTableSelectExpression":"Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName","traceIdExpression":"TraceId","spanIdExpression":"SpanId","durationExpression":"Duration","durationPrecision":9,"parentSpanIdExpression":"ParentSpanId","spanNameExpression":"SpanName","spanKindExpression":"SpanKind","statusCodeExpression":"StatusCode","statusMessageExpression":"StatusMessage","connection":"Local ClickHouse","logSourceId":"Local Logs"}]
+    networks:
+      - demo-observability
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      init-clickhouse:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  init-hyperdx:
+    image: python:3.11.11-slim
+    container_name: example-observe-kit-init-hyperdx
+    volumes:
+      - ./scripts/init_hyperdx.py:/app/init_hyperdx.py:ro
+    working_dir: /app
+    command: ["sh", "-c", "pip install --no-cache-dir pymongo && python init_hyperdx.py"]
+    environment:
+      - HYPERDX_URL=http://hyperdx:8080
+      - MONGO_URI=mongodb://mongodb:27017/hyperdx
+      - MONGO_DB=hyperdx
+      - HYPERDX_ADMIN_EMAIL=${HYPERDX_ADMIN_EMAIL:-admin@example.com}
+      - HYPERDX_ADMIN_PASSWORD=${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$$}
+    networks:
+      - demo-observability
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      init-clickhouse:
+        condition: service_completed_successfully
+      hyperdx:
+        condition: service_healthy
+    restart: "no"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: example-observe-kit-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT:-4318}:4318"
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_GRPC_PORT:-4317}:4317"
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_HEALTH_PORT:-13133}:13133"
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_PPROF_PORT:-1777}:1777"
+      - "${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_ZPAGES_PORT:-55679}:55679"
+    environment:
+      - CLICKHOUSE_ENDPOINT=ch-server:9000
+      - CLICKHOUSE_DATABASE=default
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - TELEMETRY_ENVIRONMENT=${TELEMETRY_ENVIRONMENT:-local-demo}
+      - SERVICE_VERSION=${SERVICE_VERSION:-dev}
+    networks:
+      - demo-observability
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      init-clickhouse:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  healthcheck:
+    image: curlimages/curl:8.7.1
+    container_name: example-observe-kit-healthcheck
+    depends_on:
+      init-clickhouse:
+        condition: service_completed_successfully
+      init-hyperdx:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+      clickhouse:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      hyperdx:
+        condition: service_healthy
+    command: >
+      sh -c "
+      echo 'Visual observability demo is ready.';
+      echo '';
+      echo 'HyperDX: http://localhost:$${OBSERVE_KIT_INTEGRATION_HYPERDX_PORT:-8080}';
+      echo 'OTLP HTTP: http://localhost:$${OBSERVE_KIT_INTEGRATION_OTEL_COLLECTOR_OTLP_HTTP_PORT:-4318}';
+      echo 'ClickHouse HTTP: http://localhost:$${OBSERVE_KIT_INTEGRATION_CLICKHOUSE_HTTP_PORT:-28123}';
+      echo '';
+      echo 'HyperDX Login:';
+      echo '  Email: $${HYPERDX_ADMIN_EMAIL:-admin@example.com}';
+      echo '  Password: $${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$$}';
+      "
+    networks:
+      - demo-observability
+    restart: "no"
+
+volumes:
+  clickhouse-data:
+    name: example-observe-kit-clickhouse-data
+  mongodb-data:
+    name: example-observe-kit-mongodb-data
+
+networks:
+  demo-observability:
+    driver: bridge

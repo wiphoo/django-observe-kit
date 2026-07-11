@@ -1,131 +1,123 @@
-# Observe Kit Examples
+# Example Django Observe Kit
 
-This directory contains example projects demonstrating how to use observe_kit with Django, DRF, and Wagtail.
+This repo now ships separate runnable examples so each `observe_kit` use case is easy to read and verify on its own.
 
-## Examples
+## Choose An Example
 
-### 1. Django Example (`django_example/`)
-Basic Django project showing:
-- Middleware configuration
-- Logging setup
-- Basic view integration
-- Health and metrics endpoints
+### OTEL + HyperDX
 
-### 2. DRF Example (`drf_example/`)
-Django REST Framework integration showing:
-- DRF middleware setup
-- ViewSet action detection
-- Exception handling
-- API observability
+Use this when you want to learn request tracing, child spans, and correlated logs with a local OTLP stack.
 
-### 3. Wagtail Example (`wagtail_example/`)
-Wagtail CMS integration showing:
-- Wagtail hooks integration
-- Admin request tagging
-- Page publish/unpublish observability
-
-### 4. Wagtail Heroku Example (`wagtail_heroku_example/`)
-Container-focused Wagtail deployment for Heroku:
-- Dockerfile + `heroku.yml`
-- Neon Postgres via `DATABASE_URL`
-- HyperDX OTLP tracing/logging
-- Sentry integration
-- Prometheus metrics with optional basic auth
-
-## Running the Examples
-
-### Prerequisites
+Path: `examples/otel-hyperdx`
 
 ```bash
-# Install observe_kit in development mode
-cd /path/to/Django-Observe_Kit
-pip install -e .[dev]
-
-# Or install from the examples directory
-pip install -e ../..
+cd examples/otel-hyperdx
+uv sync
 ```
 
-### Django Example
+### Django Core
+
+Use this when you want the smallest plain Django example for request context, trace headers, structured request logs, and `/metrics`.
+
+Path: `examples/django-core`
 
 ```bash
-cd django_example
-python manage.py migrate
-python manage.py runserver
+cd examples/django-core
+uv sync
 ```
 
-Visit:
-- http://localhost:8000/ - Main page
-- http://localhost:8000/healthz - Health check
-- http://localhost:8000/metrics - Prometheus metrics
+### DRF Observability
 
-### DRF Example
+Use this when you want to verify Django REST Framework ViewSet action naming and the observed exception handler.
+
+Path: `examples/drf-observability`
 
 ```bash
-cd drf_example
-python manage.py migrate
-python manage.py runserver
+cd examples/drf-observability
+uv sync
 ```
 
-Visit:
-- http://localhost:8000/api/users/ - User API
-- http://localhost:8000/api/posts/ - Post API
-- Check logs for DRF ViewSet action detection
+### Grafana Metrics
 
-### Wagtail Example
+Use this when you want Prometheus-style Django metrics that Grafana can visualize.
+
+Path: `examples/grafana-metrics`
 
 ```bash
-cd wagtail_example
-python manage.py migrate
-python manage.py createsuperuser
-python manage.py runserver
+cd examples/grafana-metrics
+uv sync
 ```
 
-Visit:
-- http://localhost:8000/admin/ - Wagtail admin
-- http://localhost:8000/ - Public site
-- Check logs for Wagtail admin tagging
+### Metrics Security
 
-### Wagtail Heroku Example
+Use this when you want to verify `/metrics` access control with token and staff-only modes.
+
+Path: `examples/metrics-security`
 
 ```bash
-cd wagtail_heroku_example
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
+cd examples/metrics-security
+uv sync
 ```
 
-Visit:
-- http://localhost:8000/admin/ - Wagtail admin
-- http://localhost:8000/healthz - Health check for Heroku
-- http://localhost:8000/metrics - Prometheus metrics (protect with env var)
+### Sentry
 
-To build the container image that Heroku will run:
+Use this when you want to verify error capture and request context in Sentry.
+
+Path: `examples/sentry`
 
 ```bash
-docker build -t wagtail-heroku-example -f examples/wagtail_heroku_example/Dockerfile .
+cd examples/sentry
+uv sync
 ```
 
-## Configuration
+### PII Sanitization
 
-Each example includes:
-- `settings.py` - Complete middleware and app configuration
-- `urls.py` - URL routing including observe_kit endpoints
-- Example views/models - Demonstrating usage
-- `README.md` - Example-specific instructions
+Use this when you want to verify per-sink PII levels, extra mask/hash fields, and sanitized audit payloads.
 
-## Observability Features Demonstrated
+Path: `examples/pii-sanitization`
 
-- ✅ Request context tracking
-- ✅ JSON structured logging
-- ✅ OTEL tracing (if configured)
-- ✅ Prometheus metrics
-- ✅ Sentry integration (if configured)
-- ✅ Audit logging
-- ✅ PII sanitization
-- ✅ Multi-tenant awareness
-- ✅ DRF ViewSet detection
-- ✅ Wagtail admin tagging
+```bash
+cd examples/pii-sanitization
+uv sync
+```
 
+### Audit Logs
 
+Use this when you want to record and inspect business audit events with trace correlation.
 
+Path: `examples/audit-logs`
 
+```bash
+cd examples/audit-logs
+uv sync
+```
+
+### Tenant + Trace Security
+
+Use this when you want to verify tenant extraction, trusted proxies, inbound trace-context trust, and metrics label cardinality overflow.
+
+Path: `examples/tenant-trace-security`
+
+```bash
+cd examples/tenant-trace-security
+uv sync
+```
+
+### Wagtail Observability
+
+Use this when you want to verify `observe_kit` across a real Wagtail CMS workflow, including admin traffic, public page delivery, metrics, and OTEL traces/logs.
+
+Path: `examples/wagtail-observability`
+
+```bash
+cd examples/wagtail-observability
+uv sync
+```
+
+## Shared Notes
+
+- All examples use Python 3.12 and Django 4.x.
+- The API-focused examples use Django REST Framework.
+- Examples that need local dependency services include a `docker/compose/` directory.
+- Each example has its own `README.md` with focused setup steps and verification points.
+- The quote-based examples use the same request payload so the only thing that changes is the observability behavior you are inspecting.

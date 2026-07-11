@@ -87,6 +87,19 @@ class RequestContextMiddleware(MiddlewareMixin):
             # Detect framework
             context.framework = _detect_framework(request)
 
+            # Carry over trace context recorded by TraceContextMiddleware for
+            # THIS request. Reading the request-scoped attributes (rather than
+            # the process-global context var) means a trace id left behind by a
+            # prior request on a reused worker thread can never leak in. The
+            # attributes are only set from a valid span, so no all-zero guard is
+            # needed.
+            trace_id = getattr(request, "_observe_kit_trace_id", None)
+            span_id = getattr(request, "_observe_kit_span_id", None)
+            if trace_id:
+                context.trace_id = trace_id
+            if span_id:
+                context.span_id = span_id
+
             request._observe_kit_context = context
             set_request_context(context)
             request._observe_kit_timer = RequestTiming()

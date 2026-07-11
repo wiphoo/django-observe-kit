@@ -186,17 +186,18 @@ def login_user(api_url: str, email: str, password: str) -> Optional[str]:
                 cookies: Optional[str] = response.headers.get("Set-Cookie")
                 if cookies:
                     print(f"✅ Successfully logged in as '{email}'")
-                    return cookies
+                    cookie_pair = cookies.split(";", 1)[0].strip()
+                    return f"cookie:{cookie_pair}"
                 try:
                     body = json.loads(response.read().decode("utf-8"))
                     if isinstance(body, dict):
                         token = body.get("token") or body.get("session")
                         if token:
-                            return str(token)
+                            return f"bearer:{token}"
                 except Exception as parse_err:
                     print(f"   ⚠️  Could not parse login response body: {parse_err}")
-                print(f"✅ Successfully logged in as '{email}' (no token extracted)")
-                return "authenticated"
+                print(f"✅ Successfully logged in as '{email}' (no session token extracted)")
+                return None
             else:
                 print(f"⚠️  Unexpected status {response.status} when logging in")
                 return None
@@ -225,8 +226,10 @@ def verify_clickhouse_connection(api_url: str, session_token: Optional[str] = No
     }
 
     if session_token:
-        if session_token.startswith("token="):
-            headers["Cookie"] = session_token
+        if session_token.startswith("cookie:"):
+            headers["Cookie"] = session_token[len("cookie:"):]
+        elif session_token.startswith("bearer:"):
+            headers["Authorization"] = f"Bearer {session_token[len('bearer:'):]}"
         else:
             headers["Authorization"] = f"Bearer {session_token}"
 

@@ -39,7 +39,7 @@ When all services are healthy you'll see:
 ## 2. Install the library
 
 ```bash
-pip install observe_kit
+pip install django-observe-kit
 ```
 
 ---
