@@ -12,7 +12,9 @@ DEFAULT_OBSERVE_KIT_SERVICE_NAME = "example-wagtail-observability"
 
 SECRET_KEY = "django-insecure-example-observe-kit"
 DEBUG = True
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver"]
+# "host.docker.internal" lets the Prometheus container scrape /metrics when the
+# server binds 0.0.0.0:8000 (see README).
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", "testserver", "host.docker.internal"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",

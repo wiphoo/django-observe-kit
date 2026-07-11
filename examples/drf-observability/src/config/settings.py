@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OBSERVE_KIT_SERVICE_NAME = "example-drf-observability"
 
@@ -75,3 +79,42 @@ OBSERVE_KIT = {
     "LOG_LEVEL": "INFO",
     "PII_HASH_SALT": "example-salt",
 }
+
+
+def _env_flag(name: str, default: str = "1") -> bool:
+    # An explicitly-empty value (e.g. ``FLAG=``) reads as "off", not "on".
+    return os.getenv(name, default).strip().lower() not in {"", "0", "false", "no"}
+
+
+def _console_spans_enabled() -> bool:
+    explicit = os.getenv("OBSERVE_KIT_ENABLE_CONSOLE_SPANS")
+    if explicit is not None:
+        return _env_flag("OBSERVE_KIT_ENABLE_CONSOLE_SPANS", explicit)
+    return not bool(os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"))
+
+
+def _enable_console_span_export() -> None:
+    """Install a local SDK tracer provider with a console exporter.
+
+    Without an OTLP endpoint the library skips ``init_tracing``, so requests
+    would carry no trace ID (the core middleware skips invalid no-op span
+    contexts). This example demonstrates DRF ViewSet span naming and the
+    observed exception handler, both of which need real trace IDs — install a
+    local provider (spans go to the console, not OTLP; no collector required).
+    """
+    if not _console_spans_enabled():
+        return
+
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+
+    if getattr(provider, "_example_console_exporter_enabled", False):
+        return
+
+    provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    setattr(provider, "_example_console_exporter_enabled", True)
+
+
+_enable_console_span_export()

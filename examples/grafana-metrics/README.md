@@ -16,7 +16,9 @@ uv sync
 uv run python src/manage.py migrate
 cp docker/compose/.env.example docker/compose/.env
 docker compose -f docker/compose/integration.yml --env-file docker/compose/.env up -d
-uv run python src/manage.py runserver
+# Bind to 0.0.0.0 so the Prometheus container can scrape via host.docker.internal:8000
+# (Django's default 127.0.0.1 is not reachable through the Docker host-gateway).
+uv run python src/manage.py runserver 0.0.0.0:8000
 ```
 
 ## Trigger The Demo

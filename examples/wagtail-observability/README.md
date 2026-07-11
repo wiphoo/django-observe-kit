@@ -27,8 +27,12 @@ OBSERVE_KIT_OTEL_ENDPOINT=http://127.0.0.1:4318 \
 OBSERVE_KIT_SERVICE_NAME=example-wagtail-observability \
 OBSERVE_KIT_OTEL_SAMPLE_RATE=1.0 \
 OBSERVE_KIT_ENABLE_CONSOLE_SPANS=0 \
-uv run python src/manage.py runserver
+uv run python src/manage.py runserver 0.0.0.0:8000
 ```
+
+> The server binds to `0.0.0.0:8000` so the Prometheus container can scrape it via
+> `host.docker.internal:8000` (Django's default `127.0.0.1` isn't reachable through
+> the Docker host-gateway). `host.docker.internal` is already in `ALLOWED_HOSTS`.
 
 ## Trigger The Demo
 
