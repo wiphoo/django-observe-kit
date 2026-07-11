@@ -1,7 +1,9 @@
 version: 2
 updates:
-  # Python dependencies declared in pyproject.toml
-  - package-ecosystem: "pip"
+  # Python dependencies for the library. The repo commits uv.lock and `uv sync`
+  # is the standard install path, so use the `uv` ecosystem (not `pip`) — it is
+  # what refreshes the committed lockfile.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -11,7 +13,26 @@ updates:
     labels:
       - "dependencies"
 
-  # GitHub Actions used in workflows (keeps SHA-pinned actions current)
+  # Each example app under examples/ is its own standalone uv project with its
+  # own uv.lock. Glob is only supported by the `directories` (plural) key.
+  # Group updates per example to keep the PR volume manageable.
+  - package-ecosystem: "uv"
+    directories:
+      - "/examples/*"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "examples"
+    groups:
+      example-deps:
+        patterns:
+          - "*"
+
+  # GitHub Actions used in workflows (keeps SHA-pinned actions current).
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
