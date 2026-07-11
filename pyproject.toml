@@ -57,7 +57,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-wagtail = ["wagtail>=7.3.2"]
+wagtail = ["wagtail>=7.4.2"]
 
 [project.urls]
 Homepage = "https://github.com/wiphoo/Django-Observe_Kit"
@@ -104,7 +104,7 @@ dev = [
     "coverage>=7.0.0",
     "mypy>=1.0.0",
     "hypothesis>=6.0.0",
-    "wagtail>=7.3.2",
+    "wagtail>=7.4.2",
 ]
 
 [tool.mypy]
