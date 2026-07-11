@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OBSERVE_KIT_SERVICE_NAME = "example-tenant-trace-security"
 
@@ -70,3 +74,42 @@ OBSERVE_KIT = {
     "TRUSTED_PROXIES": ["10.0.0.1"],
     "METRICS_MAX_LABEL_CARDINALITY": 1,
 }
+
+
+def _env_flag(name: str, default: str = "1") -> bool:
+    # An explicitly-empty value (e.g. ``FLAG=``) reads as "off", not "on".
+    return os.getenv(name, default).strip().lower() not in {"", "0", "false", "no"}
+
+
+def _console_spans_enabled() -> bool:
+    explicit = os.getenv("OBSERVE_KIT_ENABLE_CONSOLE_SPANS")
+    if explicit is not None:
+        return _env_flag("OBSERVE_KIT_ENABLE_CONSOLE_SPANS", explicit)
+    return not bool(os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"))
+
+
+def _enable_console_span_export() -> None:
+    """Install a local SDK tracer provider with a console exporter.
+
+    This demo showcases trusted inbound ``traceparent`` propagation, which needs
+    a real ``TracerProvider`` to continue the inbound trace. Without an OTLP
+    endpoint the library skips ``init_tracing``, so install a local provider here
+    (spans go to the console, not OTLP) — no collector required, no localhost
+    connection-refused noise, and requests still carry valid trace IDs.
+    """
+    if not _console_spans_enabled():
+        return
+
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+
+    if getattr(provider, "_example_console_exporter_enabled", False):
+        return
+
+    provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    setattr(provider, "_example_console_exporter_enabled", True)
+
+
+_enable_console_span_export()

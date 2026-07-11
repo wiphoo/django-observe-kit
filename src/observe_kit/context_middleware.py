@@ -92,10 +92,12 @@ class RequestContextMiddleware(MiddlewareMixin):
             # Detect framework
             context.framework = _detect_framework(request)
 
-            # Carry over trace context from TraceContextMiddleware.
-            if existing_trace_id:
+            # Carry over trace context from TraceContextMiddleware, ignoring
+            # invalid all-zero IDs (a no-op span context formats to "000…0",
+            # which is truthy but represents "no trace").
+            if existing_trace_id and not _is_all_zero(existing_trace_id):
                 context.trace_id = existing_trace_id
-            if existing_span_id:
+            if existing_span_id and not _is_all_zero(existing_span_id):
                 context.span_id = existing_span_id
 
             request._observe_kit_context = context
@@ -176,6 +178,11 @@ class UserLoggingContextMiddleware(MiddlewareMixin):
     def process_request(self, request: DjangoRequest) -> None:
         if hasattr(request, "_observe_kit_context"):
             set_request_context(request._observe_kit_context)
+
+
+def _is_all_zero(hex_id: str) -> bool:
+    """True for an all-zero trace/span id (an invalid, "no trace" identifier)."""
+    return set(hex_id) == {"0"}
 
 
 def _safe_str(value: Optional[object]) -> Optional[str]:

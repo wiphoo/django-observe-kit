@@ -97,7 +97,14 @@ WAGTAIL_SITE_NAME = "Observe Kit Wagtail Demo"
 WAGTAILADMIN_BASE_URL = os.getenv("WAGTAILADMIN_BASE_URL", "http://127.0.0.1:8000")
 
 OBSERVE_KIT = {
-    "SERVICE_NAME": os.getenv("OBSERVE_KIT_SERVICE_NAME", DEFAULT_OBSERVE_KIT_SERVICE_NAME),
+    # Only enable the library's OTLP tracing/log export when an endpoint is
+    # configured. Otherwise init_tracing() would wire OTLP log export to the
+    # localhost default and emit connection-refused noise. The console span
+    # provider below still gives requests real trace IDs on the no-collector path.
+    "SERVICE_NAME": (
+        os.getenv("OBSERVE_KIT_SERVICE_NAME")
+        or (DEFAULT_OBSERVE_KIT_SERVICE_NAME if os.getenv("OBSERVE_KIT_OTEL_ENDPOINT") else None)
+    ),
     "OTEL_ENDPOINT": os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"),
     "OTEL_SAMPLE_RATE": os.getenv("OBSERVE_KIT_OTEL_SAMPLE_RATE"),
     "LOG_LEVEL": os.getenv("OBSERVE_KIT_LOG_LEVEL", "INFO"),
