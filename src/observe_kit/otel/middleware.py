@@ -202,6 +202,12 @@ class TraceContextMiddleware(MiddlewareMixin):
             if span_context.is_valid:
                 context.trace_id = format(span_context.trace_id, "032x")
                 context.span_id = format(span_context.span_id, "016x")
+                # Also stash on the request so RequestContextMiddleware can carry
+                # the IDs from a strictly request-scoped source rather than the
+                # process-global context var (which can outlive a request and
+                # leak a prior request's trace onto the next one).
+                request._observe_kit_trace_id = context.trace_id
+                request._observe_kit_span_id = context.span_id
             # Update http.route if context has a route (e.g., from DRF detection)
             if context.route and context.route != route:
                 span.set_attribute("http.route", context.route)

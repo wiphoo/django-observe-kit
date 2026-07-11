@@ -23,9 +23,10 @@ pip install django-observe-kit
 pip install "django-observe-kit[wagtail]"
 ```
 
-For local development against a clone:
+For local development against a clone, install the project with its dev tools
+(Ruff, mypy, pytest). The dev tools live in `[dependency-groups]`, not an extra:
 ```bash
-uv pip install -e .[dev]
+uv sync --dev   # or: make init  (also installs pre-commit hooks)
 ```
 
 ## Developer quickstart

@@ -52,11 +52,6 @@ class RequestContextMiddleware(MiddlewareMixin):
 
     def process_request(self, request: DjangoRequest) -> None:
         try:
-            # Preserve trace context if already set by TraceContextMiddleware.
-            existing = get_request_context()
-            existing_trace_id = existing.trace_id
-            existing_span_id = existing.span_id
-
             context = RequestContext()
             context.method = request.method
             context.path = request.path
@@ -92,13 +87,18 @@ class RequestContextMiddleware(MiddlewareMixin):
             # Detect framework
             context.framework = _detect_framework(request)
 
-            # Carry over trace context from TraceContextMiddleware, ignoring
-            # invalid all-zero IDs (a no-op span context formats to "000…0",
-            # which is truthy but represents "no trace").
-            if existing_trace_id and not _is_all_zero(existing_trace_id):
-                context.trace_id = existing_trace_id
-            if existing_span_id and not _is_all_zero(existing_span_id):
-                context.span_id = existing_span_id
+            # Carry over trace context recorded by TraceContextMiddleware for
+            # THIS request. Reading the request-scoped attributes (rather than
+            # the process-global context var) means a trace id left behind by a
+            # prior request on a reused worker thread can never leak in. The
+            # attributes are only set from a valid span, so no all-zero guard is
+            # needed.
+            trace_id = getattr(request, "_observe_kit_trace_id", None)
+            span_id = getattr(request, "_observe_kit_span_id", None)
+            if trace_id:
+                context.trace_id = trace_id
+            if span_id:
+                context.span_id = span_id
 
             request._observe_kit_context = context
             set_request_context(context)
@@ -178,11 +178,6 @@ class UserLoggingContextMiddleware(MiddlewareMixin):
     def process_request(self, request: DjangoRequest) -> None:
         if hasattr(request, "_observe_kit_context"):
             set_request_context(request._observe_kit_context)
-
-
-def _is_all_zero(hex_id: str) -> bool:
-    """True for an all-zero trace/span id (an invalid, "no trace" identifier)."""
-    return set(hex_id) == {"0"}
 
 
 def _safe_str(value: Optional[object]) -> Optional[str]:
