@@ -7,7 +7,7 @@ name = "django-observe-kit"
 version = "0.1.0"
 description = "Drop-in observability toolkit for Django/DRF/Wagtail"
 readme = "README.md"
-authors = [{ name = "Wiphoo (Terng) Methachawalit", email = "wiphoo.m@toffoli.co.th" }]
+authors = [{ name = "Wiphoo (Terng) Methachawalit" }]
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 keywords = [
