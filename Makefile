@@ -437,6 +437,7 @@ example-drf:
 example-wagtail:
 	@echo "🚀 Starting Wagtail example..."
 	cd examples/wagtail-observability && uv sync && uv run python src/manage.py migrate
+	cd examples/wagtail-observability && uv run python src/manage.py bootstrap_wagtail_demo
 	cd examples/wagtail-observability && uv run python src/manage.py runserver
 
 #=============================================================================

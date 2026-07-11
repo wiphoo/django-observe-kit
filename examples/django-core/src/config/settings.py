@@ -3,6 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OBSERVE_KIT_SERVICE_NAME = "example-django-core"
 
@@ -74,3 +78,43 @@ OBSERVE_KIT = {
     "LOG_LEVEL": os.getenv("OBSERVE_KIT_LOG_LEVEL", "INFO"),
     "PII_HASH_SALT": "example-salt",
 }
+
+
+def _env_flag(name: str, default: str = "1") -> bool:
+    # An explicitly-empty value (e.g. ``FLAG=``) reads as "off", not "on".
+    return os.getenv(name, default).strip().lower() not in {"", "0", "false", "no"}
+
+
+def _console_spans_enabled() -> bool:
+    explicit = os.getenv("OBSERVE_KIT_ENABLE_CONSOLE_SPANS")
+    if explicit is not None:
+        return _env_flag("OBSERVE_KIT_ENABLE_CONSOLE_SPANS", explicit)
+    return not bool(os.getenv("OBSERVE_KIT_OTEL_ENDPOINT"))
+
+
+def _enable_console_span_export() -> None:
+    """Install a local SDK tracer provider with a console exporter.
+
+    Without an OTLP endpoint the library skips ``init_tracing``, leaving
+    OpenTelemetry's no-op provider — whose span context is all-zeroes, so
+    ``X-Trace-Id`` would render ``00000000000000000000000000000000``. Setting a
+    real ``TracerProvider`` here gives requests genuine trace IDs (the point of
+    this example) while a ``ConsoleSpanExporter`` keeps spans local — no OTLP
+    connection, no localhost connection-refused noise.
+    """
+    if not _console_spans_enabled():
+        return
+
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+
+    if getattr(provider, "_example_console_exporter_enabled", False):
+        return
+
+    provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    setattr(provider, "_example_console_exporter_enabled", True)
+
+
+_enable_console_span_export()
