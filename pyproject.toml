@@ -103,7 +103,7 @@ dev = [
     "pytest-xdist>=3.0.0",
     "coverage>=7.15.2",
     "mypy>=1.0.0",
-    "hypothesis>=6.0.0",
+    "hypothesis>=6.160.0",
     "wagtail>=7.3.2",
 ]
 
