@@ -53,7 +53,7 @@ dependencies = [
     "python-json-logger>=3.0",
     # sentry-sdk 2.x is current; the code already uses the 2.x
     # isolation-scope API with a runtime feature-detect fallback.
-    "sentry-sdk>=2.66.1",
+    "sentry-sdk>=2.64.0",
 ]
 
 [project.optional-dependencies]
@@ -102,8 +102,8 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.0.0",
     "coverage>=7.15.2",
-    "mypy>=2.3.0",
-    "hypothesis>=6.0.0",
+    "mypy>=1.0.0",
+    "hypothesis>=6.161.2",
     "wagtail>=7.4.2",
 ]
 
