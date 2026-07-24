@@ -1,0 +1,35 @@
+# Normalize line endings and mark binary files.
+# Docs: https://git-scm.com/docs/gitattributes
+
+# Default: auto-detect text, normalize to LF in the index and on checkout.
+* text=auto eol=lf
+
+# Explicit text/LF overrides for cross-platform consistency.
+*.py     text eol=lf
+*.pyi    text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.json   text eol=lf
+*.toml   text eol=lf
+*.md     text eol=lf
+*.cfg    text eol=lf
+*.ini    text eol=lf
+*.sh     text eol=lf
+Makefile text eol=lf
+
+# Lockfiles: text, but collapse in diffs/reviews to reduce noise.
+uv.lock       text eol=lf linguist-generated=true
+*/uv.lock     text eol=lf linguist-generated=true
+
+# Binary files — never normalize or diff.
+*.png  binary
+*.jpg  binary
+*.gz   binary
+*.zip  binary
+*.tar  binary
+*.tgz  binary
+*.whl  binary
+
+# GitHub Linguist: keep example apps and docs from skewing language stats.
+examples/** linguist-documentation
+docs/**     linguist-documentation
