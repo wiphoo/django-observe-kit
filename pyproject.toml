@@ -50,7 +50,7 @@ dependencies = [
     "opentelemetry-sdk>=1.38.0",
     "opentelemetry-exporter-otlp>=1.44.0",
     # python-json-logger 3.x is the maintained line; 4.x is the current major.
-    "python-json-logger>=3.0",
+    "python-json-logger>=4.1.0",
     # sentry-sdk 2.x is current; the code already uses the 2.x
     # isolation-scope API with a runtime feature-detect fallback.
     "sentry-sdk>=2.66.1",
