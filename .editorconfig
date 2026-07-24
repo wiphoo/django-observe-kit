@@ -1,0 +1,30 @@
+# EditorConfig — keep editor formatting consistent across contributors.
+# Docs: https://editorconfig.org
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Python: 4 spaces, 100-column limit (matches Ruff config in pyproject.toml).
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+# YAML / Markdown / JSON / TOML: 2 spaces.
+[*.{yml,yaml,md,json,toml}]
+indent_style = space
+indent_size = 2
+
+# Shell scripts: 2 spaces.
+[*.sh]
+indent_style = space
+indent_size = 2
+
+# Makefiles require literal tabs.
+[Makefile]
+indent_style = tab
