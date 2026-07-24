@@ -114,7 +114,13 @@ branches:
           - "Unit Tests (Python 3.11)"
           - "Unit Tests (Python 3.12)"
           - "Build & Smoke Test"
+          - "Integration Tests"
+          - "E2E Tests"
+          - "Security Scan (Trivy)"
+          - "Analyze (Python)"
         strict: true
+
+      required_conversation_resolution: true
 
       required_pull_request_reviews:
         # SOLO-MAINTAINER NOTE:
