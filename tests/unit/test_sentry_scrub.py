@@ -2661,3 +2661,34 @@ def test_span_tags_honor_field_rules() -> None:
         "spans"
     ][0]["tags"]
     assert "ssn" not in drop_span
+
+
+def test_scrubs_rootless_relative_urls_with_slashes() -> None:
+    # A rootless relative reference can span multiple path segments
+    # (``account/callback?phone=…``) and carry a query or query-like fragment.
+    query = _scrub({"message": "redirect account/callback?phone=0812345678"}, "BASIC")["message"]
+    assert "0812345678" not in query
+
+    frag = _scrub({"message": "redirect account/callback#access_token=supersecret"}, "BASIC")[
+        "message"
+    ]
+    assert "supersecret" not in frag
+
+
+def test_keeps_query_subdelims_inside_embedded_urls() -> None:
+    # ``;`` is a valid URI sub-delimiter inside a query value; a sensitive param
+    # after it (joined by ``&``) must still be scrubbed, while prose after the
+    # URL is preserved.
+    msg = _scrub({"message": "see https://host/p?x=a;b&phone=0812345678 now"}, "BASIC")["message"]
+    assert "0812345678" not in msg
+
+    prose = _scrub({"message": "https://host/p?phone=123; done"}, "BASIC")["message"]
+    assert "; done" in prose
+
+
+def test_scrubs_encoded_rootless_fragments_in_free_text() -> None:
+    # An encoded ``#`` (``%23``) hiding a rootless query-like fragment must be
+    # exposed and its token redacted.
+    msg = _scrub({"message": "redirect callback%23access_token%3Dsupersecret"}, "BASIC")["message"]
+    assert "supersecret" not in msg
+    assert "#[Filtered]" in msg

@@ -95,7 +95,7 @@ _REDACTED = "[Filtered]"
 # sensitive parameter after the comma would be left raw in the message.
 _URL_RE = re.compile(
     r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s,;|)\]}<>\"']+"
-    r"(?:,[^\s&,;|)\]}<>\"']+&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
+    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
     re.IGNORECASE,
 )
 
@@ -107,22 +107,26 @@ _URL_RE = re.compile(
 # path inside one (``…test/p?x=1`` — ``/p`` follows a word char) or the ``:/`` of
 # a scheme. A ``key=value`` after the delimiter is required so ordinary prose like
 # ``and/or?maybe`` / ``see #section`` isn't rewritten. Stops at quote/angle
-# delimiters too, and continues past a comma followed by ``&``-joined query
-# structure (matching ``_URL_RE``).
+# delimiters too, and continues past a comma or semicolon followed by
+# ``&``-joined query structure (matching ``_URL_RE``).
 _REL_URL_RE = re.compile(
     r"(?<![\w:/])/[^\s?#\"'<>]*[?#]"
     r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
-    r"(?:,[^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
+    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
 )
 
 # Matches a *rootless* relative URL token in free text — a word-path with no
 # leading ``/`` that still carries a query or fragment (``callback?phone=…``,
-# ``callback#access_token=…``). ``_REL_URL_RE`` requires a ``/`` start, so a
+# ``callback#access_token=…``, and multi-segment ``account/callback?phone=…``).
+# ``_REL_URL_RE`` requires a ``/`` start, so a
 # valid rootless reference like ``redirect callback?phone=0812345678`` was left
-# raw and its query/fragment PII exposed. Require a ``key=value`` after the
-# delimiter so ordinary prose (``see it? maybe``, ``why #section``) isn't
-# rewritten, and keep the lookbehind so the word-path isn't matched mid-token.
-_ROOTLESS_URL_RE = re.compile(r"(?<![\w/])[\w@.+-]+[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")
+# raw and its query/fragment PII exposed. The first path char deliberately
+# excludes ``/`` so a leading-slash URL (already handled by ``_REL_URL_RE``)
+# isn't double-scrubbed, while later segments may contain ``/``. Require a
+# ``key=value`` after the delimiter so ordinary prose (``see it? maybe``,
+# ``why #section``) isn't rewritten, and keep the lookbehind so the word-path
+# isn't matched mid-token.
+_ROOTLESS_URL_RE = re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")
 
 # Splits URL tokens that are adjacent through common prose separators, e.g.
 # ``https://safe.test,postgres://user:secret@host/db``. Keep separators out of
@@ -152,16 +156,16 @@ _URL_QUERY_DELIM_RE = re.compile(r"%(?:25)*3[Ff]")
 _URL_FRAG_DELIM_RE = re.compile(r"%(?:25)*23")
 
 # Matches a *percent-encoded URL substring* hidden inside free text: it starts at
-# an encoded ``/`` (``%2F``), ``:`` (``%3A``) or ``?`` (``%3F``) — the structural
-# delimiters that mark URL syntax — then runs through URL-ish characters and
-# percent escapes, stopping at whitespace or a prose separator (``, ; | ) ] }``).
-# Anchoring on an encoded delimiter lets the surrounding text (a ``redirect:``
-# prefix, an adjacent ``hello%20world`` / ``progress=100%25``) be preserved so
-# only the hidden URL slice is scrubbed. Ordinary encoded text like ``%20`` / ``%25``
-# never matches the anchor, so a decoded-form ``_value_carries_url`` gate still
-# guards against false positives.
+# an encoded ``/`` (``%2F``), ``:`` (``%3A``), ``?`` (``%3F``) or ``#`` (``%23``) —
+# the structural delimiters that mark URL syntax — then runs through URL-ish
+# characters and percent escapes, stopping at whitespace or a prose separator
+# (``, ; | ) ] }``). Anchoring on an encoded delimiter lets the surrounding text
+# (a ``redirect:`` prefix, an adjacent ``hello%20world`` / ``progress=100%25``) be
+# preserved so only the hidden URL slice is scrubbed. Ordinary encoded text like
+# ``%20`` / ``%25`` never matches the anchor, so a decoded-form
+# ``_value_carries_url`` gate still guards against false positives.
 _HIDDEN_ENCODED_URL_RE = re.compile(
-    r"%(?:25)*(?:2[Ff]|3[AaFf])"
+    r"%(?:25)*(?:2[Ff]|3[AaFf]|23)"
     r"(?:[\w.~!$'*+@:/?#=&\-]|%[0-9A-Fa-f]{2})*"
 )
 
