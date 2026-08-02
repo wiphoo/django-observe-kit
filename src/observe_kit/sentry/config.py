@@ -308,6 +308,17 @@ def _check_field_rule(key: str, opts: _PiiOpts) -> Optional[str]:
         return "mask"
     if opts.level == PiiLevel.SENSITIVE and key in hsh:
         return "hash"
+    # A serialized byte key (``"b'phone'"``) coexisting with its plain form is
+    # kept distinct by ``_normalize_bytes_leaves`` (no clobber); still match its
+    # *unwrapped* name so the field rule applies to the repr-keyed value too.
+    stripped = _strip_bytes_repr_key(key)
+    if stripped != key:
+        if stripped in drop:
+            return "drop"
+        if stripped in mask:
+            return "mask"
+        if opts.level == PiiLevel.SENSITIVE and stripped in hsh:
+            return "hash"
     return None
 
 
@@ -315,7 +326,10 @@ def _field_has_mask_rule(key_lower: str, opts: _PiiOpts) -> bool:
     if opts.level not in {PiiLevel.BASIC, PiiLevel.SENSITIVE}:
         return False
     _, mask, _ = opts.rule_sets
-    return key_lower in mask
+    if key_lower in mask:
+        return True
+    stripped = _strip_bytes_repr_key(key_lower)
+    return stripped != key_lower and stripped in mask
 
 
 def _check_value_rule(key: str, value: str, opts: _PiiOpts) -> Tuple[Optional[str], Any]:
@@ -1058,9 +1072,17 @@ def _scrub_free_text_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> 
     """
     if _is_statement_key(key_lower):
         return _REDACTED
-    rule = _WALK_RULES.get(key_lower)
+    rule, dispatch_key = _walk_rule(key_lower)
     if isinstance(value, str) and rule is not None and not rule.subtree:
-        return rule.handler(key_lower, value, opts)
+        return rule.handler(dispatch_key, value, opts)
+    if _strip_bytes_repr_key(key_lower) != key_lower:
+        # A colliding bytes-repr key the subtree body pass couldn't match: apply
+        # the operator field rule via the unwrapped name, or the value leaks.
+        field_rule = _check_field_rule(key_lower, opts)
+        if field_rule == "hash":
+            return _hash_value(str(value), opts.hash_salt)
+        if field_rule in {"drop", "mask"}:
+            return _REDACTED
     return _scrub_all_text(value, opts)
 
 
@@ -1205,9 +1227,15 @@ def _is_statement_key(key_lower: str) -> bool:
     Statement literals can't be parsed out, so the whole value is redacted
     (matching the db/cache span-*description* treatment). Covers the exact
     ``_STATEMENT_VALUE_KEYS`` plus the ``db.query.parameter.<name>`` bound-param
-    prefix.
+    prefix. A serialized byte key (``"b'db.statement'"``) is matched by its
+    unwrapped name too.
     """
-    return key_lower in _STATEMENT_VALUE_KEYS or key_lower.startswith(_STATEMENT_KEY_PREFIXES)
+    if key_lower in _STATEMENT_VALUE_KEYS or key_lower.startswith(_STATEMENT_KEY_PREFIXES):
+        return True
+    stripped = _strip_bytes_repr_key(key_lower)
+    return stripped != key_lower and (
+        stripped in _STATEMENT_VALUE_KEYS or stripped.startswith(_STATEMENT_KEY_PREFIXES)
+    )
 
 
 @dataclass(frozen=True)
@@ -1252,6 +1280,27 @@ _WALK_RULES.update(
 _WALK_MANAGED_KEYS = frozenset(_WALK_RULES)
 
 
+def _walk_rule(key_lower: str) -> Tuple[Optional[_KeyRule], str]:
+    """Look up a walk-managed rule, falling back to a key's unwrapped bytes name.
+
+    A serialized byte key (``"b'url'"``) coexisting with its plain form is kept
+    distinct by ``_normalize_bytes_leaves`` (no clobber); still route its value
+    through the unwrapped key's registry handler. Returns ``(rule, key)`` where
+    ``key`` is the name the registry matched on — the handler must dispatch on
+    it (e.g. ``_scrub_url_or_query`` checks ``_URL_VALUE_KEYS`` membership), not
+    the possibly-repr'd ``key_lower``.
+    """
+    rule = _WALK_RULES.get(key_lower)
+    if rule is not None:
+        return rule, key_lower
+    stripped = _strip_bytes_repr_key(key_lower)
+    if stripped != key_lower:
+        unwrapped = _WALK_RULES.get(stripped)
+        if unwrapped is not None:
+            return unwrapped, stripped
+    return None, key_lower
+
+
 def _walk_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> Any:
     """Apply the whole-event walk's keyed rules to one ``(key, value)`` entry.
 
@@ -1271,7 +1320,7 @@ def _walk_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> Any:
       must not fall through to recursion and never be redacted);
     - anything else → the container is normalised and recursively walked.
     """
-    rule = _WALK_RULES.get(key_lower)
+    rule, dispatch_key = _walk_rule(key_lower)
     if rule is not None and rule.subtree:
         # An explicit operator rule for the whole subtree field (e.g.
         # EXTRA_DROP_HEADERS={"params"}) wins over pattern-scrubbing its leaves —
@@ -1291,7 +1340,16 @@ def _walk_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> Any:
         return _REDACTED
     if isinstance(value, str):
         if rule is not None:
-            return cast(str, rule.handler(key_lower, value, opts))
+            return cast(str, rule.handler(dispatch_key, value, opts))
+        if _strip_bytes_repr_key(key_lower) != key_lower:
+            # A colliding bytes-repr key (``b'phone'`` beside ``phone``) the body
+            # pass couldn't match: apply the operator field rule via the
+            # unwrapped name here, or the value would reach Sentry raw.
+            field_rule = _check_field_rule(key_lower, opts)
+            if field_rule == "hash":
+                return _hash_value(value, opts.hash_salt)
+            if field_rule in {"drop", "mask"}:
+                return _REDACTED
         # A string under a non-walk-managed key: the URL/query backstop for a
         # value that carries a nested URL (``next=/search?…``), then the email
         # backstop for an email under a non-sensitive key.

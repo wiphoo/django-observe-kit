@@ -2604,10 +2604,32 @@ def test_unwraps_serialized_byte_keys() -> None:
     assert "phone" in extra
 
     # When a plain key already exists alongside the repr, both entries are kept
-    # distinct rather than silently clobbering one another.
+    # distinct rather than silently clobbering one another — and the repr key's
+    # value is still field-ruled via its unwrapped name.
     both = _scrub({"extra": {"phone": "0812345678", "b'phone'": "0999999999"}}, "BASIC")["extra"]
     assert "0812345678" not in str(both)
+    assert "0999999999" not in str(both)  # masked, not leaked
     assert "phone" in both and "b'phone'" in both
+
+
+def test_field_rules_apply_to_colliding_bytes_repr_keys() -> None:
+    # A serialized byte key kept distinct from its plain form must still match
+    # the operator field rules and the walk-managed keys by its unwrapped name —
+    # otherwise ``extra={"authorization": …, "b'authorization'": "Bearer x"}``
+    # drops only the plain key and ships the credential raw.
+    drop = _scrub(
+        {"extra": {"authorization": "safe", "b'authorization'": "Bearer supersecret"}}, "BASIC"
+    )["extra"]
+    assert "Bearer supersecret" not in str(drop)
+    assert "safe" not in str(drop)
+
+    walk_url = _scrub({"extra": {"url": "/safe", "b'url'": "/search?phone=0812345678"}}, "BASIC")[
+        "extra"
+    ]
+    assert "0812345678" not in str(walk_url)
+
+    statement = _scrub({"extra": {"b'db.statement'": "SELECT phone FROM users"}}, "BASIC")["extra"]
+    assert "SELECT" not in str(statement)
 
 
 def test_preserves_benign_encoded_urls_in_free_text() -> None:
