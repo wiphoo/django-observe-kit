@@ -47,8 +47,10 @@ _MAX_ENCODING_DEPTH = 6
 # `[Filtered]` but keeps the literal `https://<username>` prefix, so the username
 # survives. That deep-encoded-authority gap is tracked for the URL-parsing
 # rewrite (#98) to close; here we assert the guarantee that holds today —
-# wholesale userinfo removal for delimiter encoding *up to* the cap (= this
-# bound, cross-checked at runtime).
+# wholesale userinfo removal for delimiter encoding *up to* the cap. This bound
+# must equal the decode cap (asserted ``==`` at runtime, not ``<=``): if the cap
+# is ever raised, the mismatch fails the test loudly so this literal is bumped
+# too, rather than silently omitting the newly within-cap depths.
 _MAX_AUTHORITY_ENCODING_DEPTH = 5
 
 # High-entropy, metachar-free secret. Length >= 8 guarantees that a masked form
@@ -166,7 +168,7 @@ def test_url_userinfo_credential_never_survives(
     """
     from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
 
-    assert _MAX_AUTHORITY_ENCODING_DEPTH <= MAX_DECODE_PASSES, "authority depth must stay <= cap"
+    assert _MAX_AUTHORITY_ENCODING_DEPTH == MAX_DECODE_PASSES, "authority depth must equal the cap"
     colon, at = _encode(":", depth), _encode("@", depth)
     url = f"https://{user}{colon}{password}{at}internal.test/dashboard"
     event: dict[str, Any]
