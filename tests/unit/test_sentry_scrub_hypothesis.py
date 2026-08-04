@@ -33,7 +33,13 @@ from hypothesis import strategies as st
 pytestmark = pytest.mark.skipif(
     not __import__("importlib.util").util.find_spec("django"), reason="django not installed"
 )
-_HYP = settings(deadline=timedelta(milliseconds=1000), max_examples=150)
+# The finite dimensions (depth / whole / placement) are ``@pytest.mark
+# .parametrize``-d below so every combination is guaranteed to run; Hypothesis
+# then only draws the sentinel(s) per cell, so a modest per-cell example count
+# keeps the total bounded while still fuzzing each cell. A generous finite
+# deadline keeps the per-example runtime guardrail without flaking on the cold
+# first example (import warmup).
+_HYP_CELL = settings(deadline=timedelta(milliseconds=1000), max_examples=25)
 
 # Upper bound for the email-encoding depth strategy. Must stay > the scrubber's
 # decode cap so the exhaustion→redact path is exercised; kept as a literal (not a
@@ -111,20 +117,17 @@ def _assert_absent(sentinel: str, event: Any) -> None:
     assert sentinel not in _deep_unquote(blob), f"secret survived encoded: {blob!r}"
 
 
-@_HYP
-@given(
-    sentinel=_SENTINEL,
-    # Cover depths at and *beyond* the decode cap: within the cap the value is
-    # decoded and masked, at/over the cap the exhaustion path must redact it
-    # wholesale — either way the secret must not survive.
-    depth=st.integers(min_value=0, max_value=_MAX_ENCODING_DEPTH),
-    # Also exercise the case where the local part itself is percent-encoded
-    # (``%61%6c…%40…``), not only the separators.
-    whole=st.booleans(),
-    placement=st.sampled_from(["message", "extra", "query", "url_query"]),
-)
+# Finite matrix parametrized so every cell runs; Hypothesis fuzzes the sentinel.
+# ``depth`` covers 0..cap+1 (within-cap decode-and-mask *and* over-cap
+# exhaustion→redact); ``whole`` also encodes the local part itself (``%61%6c…``),
+# not only the separators.
+@pytest.mark.parametrize("placement", ["message", "extra", "query", "url_query"])
+@pytest.mark.parametrize("whole", [False, True])
+@pytest.mark.parametrize("depth", range(_MAX_ENCODING_DEPTH + 1))
+@_HYP_CELL
+@given(sentinel=_SENTINEL)
 def test_email_secret_never_survives_any_depth(
-    sentinel: str, depth: int, whole: bool, placement: str
+    depth: int, whole: bool, placement: str, sentinel: str
 ) -> None:
     """An email's local part never survives, at any placement or encoding depth."""
     # Lazy import (Django-dependent) — keeps the Sentry package out of module
@@ -145,19 +148,17 @@ def test_email_secret_never_survives_any_depth(
     _assert_absent(sentinel, _scrub(event))
 
 
-@_HYP
-@given(
-    user=_SENTINEL,
-    password=_SENTINEL,
-    # Vary how deeply the authority delimiters (`:`/`@`) are encoded: depth 0 is
-    # a plain authority, depth >= 1 hides them (`user%3Apassword%40host`,
-    # `…%253A…%2540…`), exercising the hidden-authority and exhaustion paths —
-    # up to the decode cap (see _MAX_AUTHORITY_ENCODING_DEPTH).
-    depth=st.integers(min_value=0, max_value=_MAX_AUTHORITY_ENCODING_DEPTH),
-    placement=st.sampled_from(["url", "message", "query", "referer_header"]),
-)
+# Vary how deeply the authority delimiters (`:`/`@`) are encoded: depth 0 is a
+# plain authority, depth >= 1 hides them (`user%3Apassword%40host`,
+# `…%253A…%2540…`), exercising the hidden-authority and exhaustion paths — up to
+# the decode cap (see _MAX_AUTHORITY_ENCODING_DEPTH). Finite dims parametrized so
+# every cell runs; Hypothesis fuzzes the two credential sentinels.
+@pytest.mark.parametrize("placement", ["url", "message", "query", "referer_header"])
+@pytest.mark.parametrize("depth", range(_MAX_AUTHORITY_ENCODING_DEPTH + 1))
+@_HYP_CELL
+@given(user=_SENTINEL, password=_SENTINEL)
 def test_url_userinfo_credential_never_survives(
-    user: str, password: str, depth: int, placement: str
+    depth: int, placement: str, user: str, password: str
 ) -> None:
     """The *entire* ``user:password@`` userinfo is removed, wherever the URL sits.
 
