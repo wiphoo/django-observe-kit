@@ -250,6 +250,40 @@ def test_conversational_prose_not_parsed_as_url() -> None:
     assert "0812345678" not in note("callback?phone=0812345678")
 
 
+def test_free_text_url_nested_hash_field_scrubbed_once_and_consistent() -> None:
+    # A visible URL in free text with a nested redirect carrying an EXTRA_HASH
+    # field must hash that value exactly once — the hidden-encoded-URL pass must
+    # not re-scrub the URL pass's already-scrubbed, re-encoded output, or the
+    # message copy would desync from the request.url copy of the same value.
+    event = {
+        "request": {"url": "https://h/p?next=/a?token=supersecret"},
+        "message": "go https://h/p?next=/a?token=supersecret now",
+    }
+    out = _scrub(event, "SENSITIVE", extra_hash=frozenset({"token"}))
+    assert "supersecret" not in out["message"] and "supersecret" not in out["request"]["url"]
+    # Same value → same single hash in both places.
+    url_token = out["request"]["url"].split("token%3D", 1)[1]
+    assert f"token%3D{url_token}" in out["message"]
+
+
+def test_free_text_deep_encoded_authority_redacted_wholesale() -> None:
+    # A visible-scheme URL whose authority delimiters are encoded beyond the
+    # decode cap must be redacted as a unit, not fragmented into a surviving
+    # ``https://<username>`` prefix (issue #98).
+    from urllib.parse import quote
+
+    colon = at = ""
+    depth = 6
+    c, a = ":", "@"
+    for _ in range(depth):
+        c, a = quote(c, safe=""), quote(a, safe="")
+    colon, at = c, a
+    url = f"https://alicesecret{colon}pw{at}internal.test/dashboard"
+    msg = _scrub({"message": f"redirecting to {url} now"}, "SENSITIVE")["message"]
+    assert "alicesecret" not in msg
+    assert msg == "redirecting to [Filtered] now"
+
+
 def test_scrubs_scheme_relative_nested_redirect_credentials() -> None:
     # A scheme-relative //user:secret@host redirect value carries no http scheme
     # and no ?key=value, so it must still be routed through _scrub_url (which

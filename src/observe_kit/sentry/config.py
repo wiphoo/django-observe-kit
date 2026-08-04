@@ -1459,6 +1459,18 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
         return text
 
     def _repl(match: "re.Match[str]") -> str:
+        # If this encoded slice sits inside a *visible* ``scheme://`` URL token,
+        # leave it for the ``_URL_RE`` pass, which scrubs the whole URL as a unit
+        # — redacting a deeply-encoded authority (``https://user%253A…%2540host``)
+        # wholesale instead of letting this pass fragment it into a surviving
+        # ``https://<username>`` prefix, and avoiding re-scrubbing a value that
+        # ``_scrub_url`` has already scrubbed and re-encoded (which would e.g.
+        # hash a nested ``EXTRA_HASH_FIELDS`` token twice). A slice with no visible
+        # ``//`` before it in its token (``%252Fsearch%253Fphone%253D…``) is still
+        # handled here.
+        token_prefix = _WS_SPLIT_RE.split(match.string[: match.start()])[-1]
+        if "://" in token_prefix:
+            return match.group(0)
         candidate = match.group(0)
         decoded = candidate
         for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
@@ -1494,15 +1506,8 @@ def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     :func:`_mask_emails`. Other patterns (phone/SSN) are too false-positive-prone
     to detect in bare prose and are left alone, mirroring the key-based model.
     """
-    # Scrub *visible*-scheme URLs (``https://…``) first, wholesale, so a URL
-    # whose authority delimiters are deeply encoded (``https://user%253A…%2540host``)
-    # is redacted as a unit by ``_scrub_url`` (which redacts on decode-budget
-    # exhaustion) instead of being fragmented — the hidden-encoded pass would
-    # otherwise redact only the encoded tail and leave the ``https://<username>``
-    # prefix. ``_scrub_hidden_encoded_urls`` then handles URLs with *no* visible
-    # ``//`` (``%252Fsearch%253Fphone%253D…``) in the remaining text.
-    text = _URL_RE.sub(lambda m: _scrub_url_token(m.group(0), opts, depth), text)
     text = _scrub_hidden_encoded_urls(text, opts, depth)
+    text = _URL_RE.sub(lambda m: _scrub_url_token(m.group(0), opts, depth), text)
     text = _REL_URL_RE.sub(lambda m: _scrub_url(m.group(0), opts, depth), text)
     text = _ROOTLESS_URL_RE.sub(lambda m: _scrub_url(m.group(0), opts, depth), text)
     return cast(str, _mask_emails(text))
