@@ -3,7 +3,7 @@
 Emails are the one unambiguous PII pattern masked wherever they appear — under
 any key, in free text, in a query value, or hidden behind percent-encoding
 (``alice%40example.com`` and nested ``%2540`` forms). This seam owns that
-masking: :func:`mask_emails` for a single value, :func:`mask_emails_in_leaves`
+masking: :func:`_mask_emails` for a single value, :func:`_mask_emails_in_leaves`
 for every string leaf/key of a container. All percent-decoding goes through the
 single :mod:`.decode` seam.
 """
@@ -89,7 +89,7 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
                 unquote(decoded_token)
                 if decoded_token != token and "%" in decoded_token
                 else decoded_token
-            )  # noqa: E501
+            )
             has_new_email = (
                 (_EMAIL_RE.search(decoded_token) and not _EMAIL_RE.search(token))
                 or (_ENCODED_EMAIL_RE.search(decoded_token) and not _ENCODED_EMAIL_RE.search(token))
