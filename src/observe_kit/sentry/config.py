@@ -1494,8 +1494,15 @@ def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     :func:`_mask_emails`. Other patterns (phone/SSN) are too false-positive-prone
     to detect in bare prose and are left alone, mirroring the key-based model.
     """
-    text = _scrub_hidden_encoded_urls(text, opts, depth)
+    # Scrub *visible*-scheme URLs (``https://…``) first, wholesale, so a URL
+    # whose authority delimiters are deeply encoded (``https://user%253A…%2540host``)
+    # is redacted as a unit by ``_scrub_url`` (which redacts on decode-budget
+    # exhaustion) instead of being fragmented — the hidden-encoded pass would
+    # otherwise redact only the encoded tail and leave the ``https://<username>``
+    # prefix. ``_scrub_hidden_encoded_urls`` then handles URLs with *no* visible
+    # ``//`` (``%252Fsearch%253Fphone%253D…``) in the remaining text.
     text = _URL_RE.sub(lambda m: _scrub_url_token(m.group(0), opts, depth), text)
+    text = _scrub_hidden_encoded_urls(text, opts, depth)
     text = _REL_URL_RE.sub(lambda m: _scrub_url(m.group(0), opts, depth), text)
     text = _ROOTLESS_URL_RE.sub(lambda m: _scrub_url(m.group(0), opts, depth), text)
     return cast(str, _mask_emails(text))
