@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import string
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -23,16 +24,23 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
+
+# Mirror the sibling `test_sentry_scrub.py` guard so the two Sentry-scrub
+# modules collect identically. A generous finite deadline keeps Hypothesis'
+# per-example runtime guardrail (catching a pathological slow example) without
+# flaking on the cold first example (Django + module import warmup).
 pytestmark = pytest.mark.skipif(
     not __import__("importlib.util").util.find_spec("django"), reason="django not installed"
 )
+_HYP = settings(deadline=timedelta(milliseconds=1000), max_examples=150)
 
 # High-entropy, metachar-free secret. Length >= 8 guarantees that a masked form
 # (first char + "***") cannot contain the whole sentinel.
 _SENTINEL = st.text(alphabet=string.ascii_lowercase + string.digits, min_size=8, max_size=16)
 
 
-def _scrub(event: dict, level: str = "SENSITIVE") -> dict:
+def _scrub(event: dict[str, Any], level: str = "SENSITIVE") -> dict[str, Any]:
     from observe_kit.pii_rules import PiiLevel
     from observe_kit.sentry.config import scrub_event
 
@@ -67,10 +75,13 @@ def _assert_absent(sentinel: str, event: Any) -> None:
     assert sentinel not in _deep_unquote(blob), f"secret survived encoded: {blob!r}"
 
 
-@settings(deadline=None, max_examples=150)
+@_HYP
 @given(
     sentinel=_SENTINEL,
-    depth=st.integers(min_value=0, max_value=3),
+    # Cover depths at and *beyond* the decode cap: within the cap the value is
+    # decoded and masked, at/over the cap the exhaustion path must redact it
+    # wholesale — either way the secret must not survive.
+    depth=st.integers(min_value=0, max_value=MAX_DECODE_PASSES + 1),
     placement=st.sampled_from(["message", "extra", "query", "url_query"]),
 )
 def test_email_secret_never_survives_any_depth(sentinel: str, depth: int, placement: str) -> None:
@@ -88,14 +99,21 @@ def test_email_secret_never_survives_any_depth(sentinel: str, depth: int, placem
     _assert_absent(sentinel, _scrub(event))
 
 
-@settings(deadline=None, max_examples=100)
+@_HYP
 @given(
-    sentinel=_SENTINEL,
+    user=_SENTINEL,
+    password=_SENTINEL,
     placement=st.sampled_from(["url", "message", "query", "referer_header"]),
 )
-def test_url_userinfo_credential_never_survives(sentinel: str, placement: str) -> None:
-    """A ``user:password@`` credential in a URL is always redacted, wherever the URL sits."""
-    url = f"https://admin:{sentinel}@internal.test/dashboard"
+def test_url_userinfo_credential_never_survives(user: str, password: str, placement: str) -> None:
+    """The *entire* ``user:password@`` userinfo is removed, wherever the URL sits.
+
+    Both halves are high-entropy sentinels: since ``password@host`` is itself a
+    valid email, asserting only the password would pass even if the email
+    backstop masked just that and left ``user:`` behind. Requiring *both* to be
+    absent proves wholesale userinfo removal, not incidental email masking.
+    """
+    url = f"https://{user}:{password}@internal.test/dashboard"
     event: dict[str, Any]
     if placement == "url":
         event = {"request": {"url": url}}
@@ -105,4 +123,6 @@ def test_url_userinfo_credential_never_survives(sentinel: str, placement: str) -
         event = {"request": {"query_string": f"next={url}"}}
     else:
         event = {"request": {"headers": {"Referer": url}}}
-    _assert_absent(sentinel, _scrub(event))
+    scrubbed = _scrub(event)
+    _assert_absent(user, scrubbed)
+    _assert_absent(password, scrubbed)
