@@ -38,12 +38,16 @@ def bounded_unquote(value: str) -> Tuple[str, bool]:
 def decode_until(value: str, predicate: Callable[[str], bool]) -> Tuple[str, bool]:
     """Decode one level at a time until ``predicate`` holds or the cap is hit.
 
-    Returns ``(decoded, matched)``: the value decoded to the first level where
-    ``predicate`` is true (``matched=True``), or the fully-decoded value if the
-    predicate never held within the cap (``matched=False``). Shares the same
-    :data:`MAX_DECODE_PASSES` budget as :func:`bounded_unquote`.
+    Returns ``(decoded, matched)``: the value at the first level where
+    ``predicate`` is true (``matched=True``) — including the *original* value,
+    tested before any decoding, so a predicate that already holds returns the
+    input unchanged — or the fully-decoded value if the predicate never held
+    within the cap (``matched=False``). Shares the same :data:`MAX_DECODE_PASSES`
+    budget as :func:`bounded_unquote`.
     """
     decoded = value
+    if predicate(decoded):
+        return decoded, True
     for _ in range(MAX_DECODE_PASSES):
         nxt = unquote(decoded)
         if nxt == decoded:
