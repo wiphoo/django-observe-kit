@@ -97,10 +97,14 @@ def _encode(value: str, depth: int, whole: bool = False) -> str:
 
 
 def _deep_unquote(value: str) -> str:
-    for _ in range(8):
+    # Decode until the value stabilises (a fixed point), not a magic count, so
+    # the leak check keeps up if the decode cap / encoding depths ever grow. Each
+    # decoding pass that changes the string strictly shrinks it (``%XX`` -> one
+    # char), so this always terminates; ``len(value)`` is a defensive upper bound.
+    for _ in range(len(value) + 1):
         nxt = unquote(value)
         if nxt == value:
-            return value
+            break
         value = nxt
     return value
 
