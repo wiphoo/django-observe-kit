@@ -266,6 +266,18 @@ def test_free_text_url_nested_hash_field_scrubbed_once_and_consistent() -> None:
     assert f"token%3D{url_token}" in out["message"]
 
 
+def test_free_text_outer_url_stays_valid_when_nested_redirect_encoded() -> None:
+    # A visible URL with an already-percent-encoded nested redirect must stay a
+    # structurally valid outer URL after scrubbing — the hidden-encoded pass must
+    # not decode the nested `next` value inside the recognized URL token and
+    # splice literal `?`/`&` back into the outer query.
+    msg = "GET https://app.test/login?next=%2Fsearch%3Fphone%3D0812345678"
+    out = _scrub({"message": msg}, "SENSITIVE")["message"]
+    assert "0812345678" not in out
+    # Outer URL preserved; nested redirect stays percent-encoded in the query.
+    assert out.startswith("GET https://app.test/login?next=%2Fsearch%3Fphone%3D")
+
+
 def test_free_text_deep_encoded_authority_redacted_wholesale() -> None:
     # A visible-scheme URL whose authority delimiters are encoded beyond the
     # decode cap must be redacted as a unit, not fragmented into a surviving
