@@ -213,6 +213,19 @@ def test_scrubs_encoded_redirect_hidden_behind_visible_url_in_free_text() -> Non
     assert "https://" + "safe.test" in note  # the visible URL is preserved (no creds to strip)
 
 
+def test_scrubs_encoded_redirect_after_visible_url_and_prose_punctuation() -> None:
+    # An encoded redirect that follows a visible URL after prose punctuation (a
+    # comma) sits *outside* the visible URL — `_URL_RE` stops at the comma — so the
+    # hidden-encoded pass must still scrub it. Bounding the pass's exemption to the
+    # actual `_URL_RE` match span (not merely an earlier `://` in the whitespace
+    # token) keeps the encoded phone from reaching Sentry (PR #106 P1 review).
+    note = _scrub(
+        {"extra": {"note": "https://safe.test,%252Fsearch%253Fphone%253D0812345678"}}, "BASIC"
+    )["extra"]["note"]
+    assert "0812345678" not in note
+    assert "https://" + "safe.test" in note  # the visible URL is preserved
+
+
 def test_redacts_nested_redirect_when_decode_limit_exhausted() -> None:
     from urllib.parse import quote
 
@@ -276,6 +289,19 @@ def test_free_text_outer_url_stays_valid_when_nested_redirect_encoded() -> None:
     assert "0812345678" not in out
     # Outer URL preserved; nested redirect stays percent-encoded in the query.
     assert out.startswith("GET https://app.test/login?next=%2Fsearch%3Fphone%3D")
+
+
+def test_free_text_scheme_relative_outer_url_stays_valid_when_nested_encoded() -> None:
+    # The exemption that leaves visible URLs to the `_URL_RE` pass must recognize
+    # *all* forms `_URL_RE` accepts, including scheme-relative `//host/...` URLs
+    # (which have `//` but no `://`). Bounding the exemption to `_URL_RE`'s match
+    # span covers the scheme-relative form, so the hidden pass doesn't independently
+    # decode the nested redirect: the outer URL stays structurally valid and the
+    # nested phone is masked exactly once (PR #106 P2 review).
+    msg = "GET //app.test/login?next=%2Fsearch%3Fphone%3D0812345678"
+    out = _scrub({"message": msg}, "SENSITIVE")["message"]
+    assert "0812345678" not in out
+    assert out.startswith("GET //app.test/login?next=%2Fsearch%3Fphone%3D")
 
 
 def test_free_text_deep_encoded_authority_redacted_wholesale() -> None:
