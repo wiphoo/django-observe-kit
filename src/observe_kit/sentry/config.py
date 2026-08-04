@@ -37,6 +37,9 @@ from ..pii_rules import (
     sanitize_query_params,
 )
 from ..pii_rules import _is_pair_list as _pii_is_pair_list
+from .scrub.decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
+from .scrub.decode import bounded_unquote as _bounded_unquote
+from .scrub.decode import decode_until as _decode_until
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +136,6 @@ _ROOTLESS_URL_RE = re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s
 # each URL parse so every authority gets scrubbed independently.
 _URL_TOKEN_SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
 _URL_TOKEN_NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@)")
-_MAX_NESTED_URL_DECODE_PASSES = 5
 
 # A URL whose query holds another URL (``next=/p?next=/p?…``) re-enters the URL
 # scrubber once per level. An attacker can nest hundreds of levels to blow the
@@ -355,22 +357,6 @@ def _scrub_masked_field_result(key_lower: str, original: Any, scrubbed: Any, opt
     return _scrub_text(scrubbed, opts) if isinstance(scrubbed, str) else scrubbed
 
 
-def _bounded_unquote(value: str) -> Tuple[str, bool]:
-    """Percent-decode up to the configured cap.
-
-    Returns the decoded value plus whether the cap was reached while the value
-    was still changing, which callers can treat as a conservative redaction
-    signal for security-sensitive fragments.
-    """
-    decoded = value
-    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-        next_decoded = unquote(decoded)
-        if next_decoded == decoded:
-            return decoded, False
-        decoded = next_decoded
-    return decoded, unquote(decoded) != decoded
-
-
 def _fragment_carries_pii(fragment: str) -> bool:
     decoded, exhausted = _bounded_unquote(fragment)
     return exhausted or "=" in decoded or "@" in decoded
@@ -579,15 +565,14 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
                 if _ENCODED_EMAIL_RE.search(token):
                     parts[i] = _ENCODED_EMAIL_RE.sub(_decode_mask, token)
                 else:
-                    decoded = token
-                    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-                        next_decoded = unquote(decoded)
-                        if next_decoded == decoded:
-                            break
-                        decoded = next_decoded
-                        if _ENCODED_EMAIL_RE.search(decoded):
-                            decoded = _ENCODED_EMAIL_RE.sub(_decode_mask, decoded)
-                            break
+                    # Decode one level at a time until an encoded email surfaces,
+                    # then mask it; if none surfaces within the cap, keep the
+                    # fully-decoded token. Shares the single bounded-decode seam.
+                    decoded, matched = _decode_until(
+                        token, lambda d: bool(_ENCODED_EMAIL_RE.search(d))
+                    )
+                    if matched:
+                        decoded = _ENCODED_EMAIL_RE.sub(_decode_mask, decoded)
                     parts[i] = decoded
                 masked = True
                 changed = True
