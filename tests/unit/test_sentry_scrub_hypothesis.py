@@ -41,6 +41,16 @@ _HYP = settings(deadline=timedelta(milliseconds=1000), max_examples=150)
 # time, and cross-checked against the real cap at runtime in the test body.
 _MAX_ENCODING_DEPTH = 6
 
+# The userinfo property only encodes the authority *delimiters* (`:`/`@`). When
+# those are encoded *beyond* the decode cap, the current scrubber can't decode
+# far enough to see the authority: it redacts the still-encoded tail to
+# `[Filtered]` but keeps the literal `https://<username>` prefix, so the username
+# survives. That deep-encoded-authority gap is tracked for the URL-parsing
+# rewrite (#98) to close; here we assert the guarantee that holds today —
+# wholesale userinfo removal for delimiter encoding *up to* the cap (= this
+# bound, cross-checked at runtime).
+_MAX_AUTHORITY_ENCODING_DEPTH = 5
+
 # High-entropy, metachar-free secret. Length >= 8 guarantees that a masked form
 # (first char + "***") cannot contain the whole sentinel.
 _SENTINEL = st.text(alphabet=string.ascii_lowercase + string.digits, min_size=8, max_size=16)
@@ -53,8 +63,26 @@ def _scrub(event: dict[str, Any], level: str = "SENSITIVE") -> dict[str, Any]:
     return scrub_event(event, None, getattr(PiiLevel, level), hash_salt="pepper")
 
 
-def _encode(value: str, depth: int) -> str:
-    """Percent-encode ``value`` ``depth`` times (``@`` -> ``%40`` -> ``%2540`` ...)."""
+def _percent_encode_all(value: str) -> str:
+    """Percent-encode *every* byte, including ASCII letters/digits.
+
+    ``quote`` never escapes alnum even with ``safe=""``, so a plain ``_encode``
+    leaves the sentinel literal and only nests escapes for separators like ``@``.
+    This forces the *whole* token (local part included) into ``%XX`` form —
+    exercising the encoded-local-part decode path (``%61%6c%69%63%65%40…``).
+    """
+    return "".join(f"%{b:02X}" for b in value.encode())
+
+
+def _encode(value: str, depth: int, whole: bool = False) -> str:
+    """Percent-encode ``value``.
+
+    With ``whole=True`` the token is first fully ``%XX``-encoded (sentinel bytes
+    included); then ``depth`` ordinary ``quote`` layers are nested on top
+    (``@`` -> ``%40`` -> ``%2540`` …), so depth still drives nesting past the cap.
+    """
+    if whole:
+        value = _percent_encode_all(value)
     for _ in range(depth):
         value = quote(value, safe="")
     return value
@@ -88,16 +116,21 @@ def _assert_absent(sentinel: str, event: Any) -> None:
     # decoded and masked, at/over the cap the exhaustion path must redact it
     # wholesale — either way the secret must not survive.
     depth=st.integers(min_value=0, max_value=_MAX_ENCODING_DEPTH),
+    # Also exercise the case where the local part itself is percent-encoded
+    # (``%61%6c…%40…``), not only the separators.
+    whole=st.booleans(),
     placement=st.sampled_from(["message", "extra", "query", "url_query"]),
 )
-def test_email_secret_never_survives_any_depth(sentinel: str, depth: int, placement: str) -> None:
+def test_email_secret_never_survives_any_depth(
+    sentinel: str, depth: int, whole: bool, placement: str
+) -> None:
     """An email's local part never survives, at any placement or encoding depth."""
     # Lazy import (Django-dependent) — keeps the Sentry package out of module
     # collection. Cross-check that the strategy bound still exceeds the cap.
     from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
 
     assert _MAX_ENCODING_DEPTH > MAX_DECODE_PASSES, "depth bound must exceed the decode cap"
-    token = _encode(f"{sentinel}@example.com", depth)
+    token = _encode(f"{sentinel}@example.com", depth, whole=whole)
     event: dict[str, Any]
     if placement == "message":
         event = {"message": f"user {token} signed in"}
@@ -114,9 +147,16 @@ def test_email_secret_never_survives_any_depth(sentinel: str, depth: int, placem
 @given(
     user=_SENTINEL,
     password=_SENTINEL,
+    # Vary how deeply the authority delimiters (`:`/`@`) are encoded: depth 0 is
+    # a plain authority, depth >= 1 hides them (`user%3Apassword%40host`,
+    # `…%253A…%2540…`), exercising the hidden-authority and exhaustion paths —
+    # up to the decode cap (see _MAX_AUTHORITY_ENCODING_DEPTH).
+    depth=st.integers(min_value=0, max_value=_MAX_AUTHORITY_ENCODING_DEPTH),
     placement=st.sampled_from(["url", "message", "query", "referer_header"]),
 )
-def test_url_userinfo_credential_never_survives(user: str, password: str, placement: str) -> None:
+def test_url_userinfo_credential_never_survives(
+    user: str, password: str, depth: int, placement: str
+) -> None:
     """The *entire* ``user:password@`` userinfo is removed, wherever the URL sits.
 
     Both halves are high-entropy sentinels: since ``password@host`` is itself a
@@ -124,7 +164,11 @@ def test_url_userinfo_credential_never_survives(user: str, password: str, placem
     backstop masked just that and left ``user:`` behind. Requiring *both* to be
     absent proves wholesale userinfo removal, not incidental email masking.
     """
-    url = f"https://{user}:{password}@internal.test/dashboard"
+    from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
+
+    assert _MAX_AUTHORITY_ENCODING_DEPTH <= MAX_DECODE_PASSES, "authority depth must stay <= cap"
+    colon, at = _encode(":", depth), _encode("@", depth)
+    url = f"https://{user}{colon}{password}{at}internal.test/dashboard"
     event: dict[str, Any]
     if placement == "url":
         event = {"request": {"url": url}}
