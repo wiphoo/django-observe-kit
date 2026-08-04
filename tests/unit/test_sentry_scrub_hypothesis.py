@@ -24,16 +24,22 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
-
-# Mirror the sibling `test_sentry_scrub.py` guard so the two Sentry-scrub
-# modules collect identically. A generous finite deadline keeps Hypothesis'
-# per-example runtime guardrail (catching a pathological slow example) without
-# flaking on the cold first example (Django + module import warmup).
+# Mirror the sibling `test_sentry_scrub.py` guard so the two Sentry-scrub modules
+# collect identically: nothing under ``observe_kit.sentry`` (which requires
+# Django) is imported at module top level — the Sentry imports are lazy, inside
+# the helpers/tests, so collection succeeds and the skip applies when Django is
+# absent. A generous finite deadline keeps Hypothesis' per-example runtime
+# guardrail without flaking on the cold first example (import warmup).
 pytestmark = pytest.mark.skipif(
     not __import__("importlib.util").util.find_spec("django"), reason="django not installed"
 )
 _HYP = settings(deadline=timedelta(milliseconds=1000), max_examples=150)
+
+# Upper bound for the email-encoding depth strategy. Must stay > the scrubber's
+# decode cap so the exhaustion→redact path is exercised; kept as a literal (not a
+# top-level import from the Sentry package) to avoid loading Django at collection
+# time, and cross-checked against the real cap at runtime in the test body.
+_MAX_ENCODING_DEPTH = 6
 
 # High-entropy, metachar-free secret. Length >= 8 guarantees that a masked form
 # (first char + "***") cannot contain the whole sentinel.
@@ -81,11 +87,16 @@ def _assert_absent(sentinel: str, event: Any) -> None:
     # Cover depths at and *beyond* the decode cap: within the cap the value is
     # decoded and masked, at/over the cap the exhaustion path must redact it
     # wholesale — either way the secret must not survive.
-    depth=st.integers(min_value=0, max_value=MAX_DECODE_PASSES + 1),
+    depth=st.integers(min_value=0, max_value=_MAX_ENCODING_DEPTH),
     placement=st.sampled_from(["message", "extra", "query", "url_query"]),
 )
 def test_email_secret_never_survives_any_depth(sentinel: str, depth: int, placement: str) -> None:
     """An email's local part never survives, at any placement or encoding depth."""
+    # Lazy import (Django-dependent) — keeps the Sentry package out of module
+    # collection. Cross-check that the strategy bound still exceeds the cap.
+    from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
+
+    assert _MAX_ENCODING_DEPTH > MAX_DECODE_PASSES, "depth bound must exceed the decode cap"
     token = _encode(f"{sentinel}@example.com", depth)
     event: dict[str, Any]
     if placement == "message":
