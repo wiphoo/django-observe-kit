@@ -35,7 +35,7 @@ from ..pii_rules import (
     sanitize_query_params,
 )
 from ..pii_rules import _is_pair_list as _pii_is_pair_list
-from .scrub.constants import REDACTED, WS_SPLIT_RE
+from .scrub.constants import REDACTED
 from .scrub.decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
 from .scrub.decode import bounded_unquote as _bounded_unquote
 from .scrub.emails import _dedupe_masked_key, _mask_email_key, _mask_emails, _mask_emails_in_leaves
@@ -144,11 +144,6 @@ _URL_TOKEN_NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@
 # cycle and the value is redacted once it is exhausted. Legitimate nested
 # redirects are only a level or two deep.
 _MAX_URL_NESTING = 20
-
-# Splits a value into whitespace-delimited tokens while keeping the separators
-# (capturing group), so newlines/tabs aren't collapsed when re-joining. Runs in
-# the ``before_send`` hot path, so keep it as a module constant.
-_WS_SPLIT_RE = WS_SPLIT_RE
 
 # Match a percent-encoded URL query (``%3F`` → ``?``) or fragment (``%23`` → ``#``)
 # delimiter at any nesting depth (``%253F``/``%2523`` …). Used to expose *only*
@@ -412,6 +407,17 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
         orig_parts = urlsplit(value)
         dec_parts = urlsplit(decoded)
     except ValueError:
+        # ``urlsplit`` can't parse the URL (e.g. an unclosed IPv6 bracket ``[``
+        # that ``_URL_RE`` still matched: ``https://safe.test[%252Fsearch%253F…``).
+        # If bounded-decoding exposed a *literal* query/fragment delimiter the raw
+        # value hid behind percent-encoding, hand back the decoded form so
+        # ``_scrub_url``'s own ``ValueError`` fallback can redact the now-visible
+        # query/fragment; otherwise keep the original (that fallback already
+        # handles a raw ``http://[/p?…``).
+        if decoded != value and (
+            ("?" in decoded and "?" not in value) or ("#" in decoded and "#" not in value)
+        ):
+            return decoded
         return value
     # An encoded query/fragment delimiter hidden in the *path* is structure even
     # when the URL already carries a visible outer query — e.g.
@@ -419,13 +425,29 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
     # ``dec_parts.query and not orig_parts.query`` would wrongly skip it. Detect
     # the encoded delimiter in the path directly.
     authority_revealed = "@" in dec_parts.netloc and "@" not in orig_parts.netloc
+    # A query/fragment delimiter can hide in the *authority* too: when the path
+    # separator ``/`` is itself encoded (``https://host!%252Fsearch%253Fphone%253D…``),
+    # ``urlsplit`` sees the whole ``host!%2Fsearch%3Fphone%3D…`` as the netloc, so
+    # the path-based detection below misses it and ``_scrub_url`` can't reach the
+    # buried query. ``_URL_RE`` happily matches such a token (``! ( : =`` aren't
+    # host-invalid to it), so without this the encoded query would be exempted
+    # from the hidden-URL pass yet never scrubbed — a leak.
+    netloc_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.netloc)) or bool(
+        _URL_FRAG_DELIM_RE.search(orig_parts.netloc)
+    )
     reveals_structure = (
         bool(_URL_QUERY_DELIM_RE.search(orig_parts.path))
         or bool(_URL_FRAG_DELIM_RE.search(orig_parts.path))
         or authority_revealed
+        or netloc_hides_structure
     )
     if not reveals_structure:
         return value  # only ordinary escapes decoded — keep the original form
+    if netloc_hides_structure and not authority_revealed:
+        # The path boundary was encoded, so the query/fragment is buried in what
+        # urlsplit parsed as the authority. Hand ``_scrub_url`` the decoded form
+        # to reparse and scrub the exposed query/fragment.
+        return decoded
     if authority_revealed:
         # The authority was opaque-encoded. When the *whole* structure was encoded
         # (a fully double-encoded ``https%253A%252F%252Falice%253Asecret%2540host``),
@@ -684,7 +706,16 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
                     # otherwise mask any embedded email.
                     scrubbed_url = _scrub_url_if_carries(v, opts, depth)
                     v = scrubbed_url if scrubbed_url is not None else _mask_emails(v)
-            scrubbed.append((cast(str, _mask_emails(k)), v))
+            # A parameter *name* can itself be a nested (percent-encoded) redirect
+            # when the whole URL is used as a bare query key
+            # (``?%252Fsearch%253Ftoken%253D…`` → ``parse_qsl`` yields it as an
+            # empty-valued key). Give the key the same URL/nested-query scrub as a
+            # value so its inner ``token=…`` isn't re-emitted decodable; otherwise
+            # just mask any embedded email.
+            scrubbed_key = _scrub_url_if_carries(k, opts, depth)
+            if scrubbed_key is None:
+                scrubbed_key = cast(str, _mask_emails(k))
+            scrubbed.append((scrubbed_key, v))
     return urlencode(scrubbed)
 
 
@@ -1458,7 +1489,29 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     if "%" not in text:
         return text
 
+    # Spans of every *visible* URL ``_URL_RE`` recognizes in this text (both
+    # ``scheme://…`` and scheme-relative ``//…`` forms). An encoded slice that
+    # falls inside one of these belongs to the ``_URL_RE`` pass, which scrubs the
+    # whole URL as a unit; anything outside is a genuinely hidden slice we own.
+    url_spans = [match.span() for match in _URL_RE.finditer(text)]
+
     def _repl(match: "re.Match[str]") -> str:
+        # If this encoded slice sits inside a *visible* URL token, leave it for the
+        # ``_URL_RE`` pass, which scrubs the whole URL as a unit — redacting a
+        # deeply-encoded authority (``https://user%253A…%2540host``) wholesale
+        # instead of letting this pass fragment it into a surviving
+        # ``https://<username>`` prefix, and avoiding re-scrubbing a value that
+        # ``_scrub_url`` has already scrubbed and re-encoded (which would e.g. hash
+        # a nested ``EXTRA_HASH_FIELDS`` token twice). Bound the exemption to the
+        # actual ``_URL_RE`` match span rather than any earlier ``://`` in the
+        # whitespace token: an encoded slice that follows a visible URL after prose
+        # punctuation (``https://safe.test,%252Fsearch%253Fphone%253D…``) sits
+        # *outside* the URL — ``_URL_RE`` stops at the comma — so it must be scrubbed
+        # here, while a scheme-relative URL (``//h/p?next=%2Fa%3Ftoken%3D…``) is
+        # correctly recognized and left for the single ``_URL_RE`` scrub.
+        start = match.start()
+        if any(url_start <= start < url_end for url_start, url_end in url_spans):
+            return match.group(0)
         candidate = match.group(0)
         decoded = candidate
         for _ in range(_MAX_NESTED_URL_DECODE_PASSES):

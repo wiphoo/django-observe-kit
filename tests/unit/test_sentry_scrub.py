@@ -213,6 +213,64 @@ def test_scrubs_encoded_redirect_hidden_behind_visible_url_in_free_text() -> Non
     assert "https://" + "safe.test" in note  # the visible URL is preserved (no creds to strip)
 
 
+def test_scrubs_encoded_redirect_after_visible_url_and_prose_punctuation() -> None:
+    # An encoded redirect that follows a visible URL after prose punctuation (a
+    # comma) sits *outside* the visible URL — `_URL_RE` stops at the comma — so the
+    # hidden-encoded pass must still scrub it. Bounding the pass's exemption to the
+    # actual `_URL_RE` match span (not merely an earlier `://` in the whitespace
+    # token) keeps the encoded phone from reaching Sentry (PR #106 P1 review).
+    note = _scrub(
+        {"extra": {"note": "https://safe.test,%252Fsearch%253Fphone%253D0812345678"}}, "BASIC"
+    )["extra"]["note"]
+    assert "0812345678" not in note
+    assert "https://" + "safe.test" in note  # the visible URL is preserved
+
+
+@pytest.mark.parametrize("sep", ["!", "(", ":", "=", "*", "~"])
+def test_scrubs_encoded_redirect_after_url_host_invalid_suffix(sep: str) -> None:
+    # When prose punctuation `_URL_RE` does NOT exclude (`!`, `(`, `:`, `=`, …)
+    # sits between the host and an encoded redirect, `_URL_RE` swallows the whole
+    # token, so the encoded slice is inside the visible-URL span and exempted from
+    # the hidden pass. `_scrub_url` must still reach the query buried in the netloc
+    # (the path-separating `/` is encoded), not leak it (PR #106 P1 review).
+    msg = _scrub(
+        {"message": f"https://safe.test{sep}%252Fsearch%253Fphone%253D0812345678"}, "SENSITIVE"
+    )["message"]
+    assert "0812345678" not in msg
+
+
+def test_scrubs_encoded_redirect_after_url_ipv6_bracket() -> None:
+    # A `[` before the encoded redirect makes urlsplit raise (invalid IPv6), but
+    # `_URL_RE` still matches the token, so the encoded slice is exempt from the
+    # hidden pass. `_url_form_to_scrub` must hand `_scrub_url` the decoded form so
+    # its ValueError fallback sees the now-literal `?` and redacts the query
+    # instead of leaking it (PR #106 P1 review).
+    for suffix in ["", "]"]:
+        msg = _scrub(
+            {"message": f"https://safe.test[%252Fsearch%253Fphone%253D0812345678{suffix}"},
+            "SENSITIVE",
+        )["message"]
+        assert "0812345678" not in msg
+
+
+def test_scrubs_nested_redirect_used_as_query_key() -> None:
+    # A whole (percent-encoded) redirect used as a bare query *key*
+    # (``?%252Fsearch%253Fphone%253D…`` → parse_qsl yields it as an empty-valued
+    # key) must be recursively scrubbed like a value, so its inner params get the
+    # field rules instead of being re-emitted decodable (PR #106 P1 review).
+    msg = _scrub(
+        {"message": "https://safe.test?%252Fsearch%253Fphone%253D0812345678"}, "SENSITIVE"
+    )["message"]
+    assert "0812345678" not in msg
+    # An operator-configured sensitive key nested in the redirect key is masked too.
+    msg2 = _scrub(
+        {"message": "https://safe.test?%252Fsearch%253Ftoken%253Dsupersecret"},
+        "SENSITIVE",
+        extra_mask=frozenset({"token"}),
+    )["message"]
+    assert "supersecret" not in msg2
+
+
 def test_redacts_nested_redirect_when_decode_limit_exhausted() -> None:
     from urllib.parse import quote
 
@@ -248,6 +306,65 @@ def test_conversational_prose_not_parsed_as_url() -> None:
     assert note("prefix# section=one") == "prefix# section=one"
     # genuine rootless query with PII is still scrubbed
     assert "0812345678" not in note("callback?phone=0812345678")
+
+
+def test_free_text_url_nested_hash_field_scrubbed_once_and_consistent() -> None:
+    # A visible URL in free text with a nested redirect carrying an EXTRA_HASH
+    # field must hash that value exactly once — the hidden-encoded-URL pass must
+    # not re-scrub the URL pass's already-scrubbed, re-encoded output, or the
+    # message copy would desync from the request.url copy of the same value.
+    event = {
+        "request": {"url": "https://h/p?next=/a?token=supersecret"},
+        "message": "go https://h/p?next=/a?token=supersecret now",
+    }
+    out = _scrub(event, "SENSITIVE", extra_hash=frozenset({"token"}))
+    assert "supersecret" not in out["message"] and "supersecret" not in out["request"]["url"]
+    # Same value → same single hash in both places.
+    url_token = out["request"]["url"].split("token%3D", 1)[1]
+    assert f"token%3D{url_token}" in out["message"]
+
+
+def test_free_text_outer_url_stays_valid_when_nested_redirect_encoded() -> None:
+    # A visible URL with an already-percent-encoded nested redirect must stay a
+    # structurally valid outer URL after scrubbing — the hidden-encoded pass must
+    # not decode the nested `next` value inside the recognized URL token and
+    # splice literal `?`/`&` back into the outer query.
+    msg = "GET https://app.test/login?next=%2Fsearch%3Fphone%3D0812345678"
+    out = _scrub({"message": msg}, "SENSITIVE")["message"]
+    assert "0812345678" not in out
+    # Outer URL preserved; nested redirect stays percent-encoded in the query.
+    assert out.startswith("GET https://app.test/login?next=%2Fsearch%3Fphone%3D")
+
+
+def test_free_text_scheme_relative_outer_url_stays_valid_when_nested_encoded() -> None:
+    # The exemption that leaves visible URLs to the `_URL_RE` pass must recognize
+    # *all* forms `_URL_RE` accepts, including scheme-relative `//host/...` URLs
+    # (which have `//` but no `://`). Bounding the exemption to `_URL_RE`'s match
+    # span covers the scheme-relative form, so the hidden pass doesn't independently
+    # decode the nested redirect: the outer URL stays structurally valid and the
+    # nested phone is masked exactly once (PR #106 P2 review).
+    msg = "GET //app.test/login?next=%2Fsearch%3Fphone%3D0812345678"
+    out = _scrub({"message": msg}, "SENSITIVE")["message"]
+    assert "0812345678" not in out
+    assert out.startswith("GET //app.test/login?next=%2Fsearch%3Fphone%3D")
+
+
+def test_free_text_deep_encoded_authority_redacted_wholesale() -> None:
+    # A visible-scheme URL whose authority delimiters are encoded beyond the
+    # decode cap must be redacted as a unit, not fragmented into a surviving
+    # ``https://<username>`` prefix (issue #98).
+    from urllib.parse import quote
+
+    colon = at = ""
+    depth = 6
+    c, a = ":", "@"
+    for _ in range(depth):
+        c, a = quote(c, safe=""), quote(a, safe="")
+    colon, at = c, a
+    url = f"https://alicesecret{colon}pw{at}internal.test/dashboard"
+    msg = _scrub({"message": f"redirecting to {url} now"}, "SENSITIVE")["message"]
+    assert "alicesecret" not in msg
+    assert msg == "redirecting to [Filtered] now"
 
 
 def test_scrubs_scheme_relative_nested_redirect_credentials() -> None:
