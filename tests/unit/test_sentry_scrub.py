@@ -239,6 +239,20 @@ def test_scrubs_encoded_redirect_after_url_host_invalid_suffix(sep: str) -> None
     assert "0812345678" not in msg
 
 
+def test_scrubs_encoded_redirect_after_url_ipv6_bracket() -> None:
+    # A `[` before the encoded redirect makes urlsplit raise (invalid IPv6), but
+    # `_URL_RE` still matches the token, so the encoded slice is exempt from the
+    # hidden pass. `_url_form_to_scrub` must hand `_scrub_url` the decoded form so
+    # its ValueError fallback sees the now-literal `?` and redacts the query
+    # instead of leaking it (PR #106 P1 review).
+    for suffix in ["", "]"]:
+        msg = _scrub(
+            {"message": f"https://safe.test[%252Fsearch%253Fphone%253D0812345678{suffix}"},
+            "SENSITIVE",
+        )["message"]
+        assert "0812345678" not in msg
+
+
 def test_scrubs_nested_redirect_used_as_query_key() -> None:
     # A whole (percent-encoded) redirect used as a bare query *key*
     # (``?%252Fsearch%253Fphone%253D…`` → parse_qsl yields it as an empty-valued

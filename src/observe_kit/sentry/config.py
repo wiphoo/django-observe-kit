@@ -407,6 +407,17 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
         orig_parts = urlsplit(value)
         dec_parts = urlsplit(decoded)
     except ValueError:
+        # ``urlsplit`` can't parse the URL (e.g. an unclosed IPv6 bracket ``[``
+        # that ``_URL_RE`` still matched: ``https://safe.test[%252Fsearch%253F…``).
+        # If bounded-decoding exposed a *literal* query/fragment delimiter the raw
+        # value hid behind percent-encoding, hand back the decoded form so
+        # ``_scrub_url``'s own ``ValueError`` fallback can redact the now-visible
+        # query/fragment; otherwise keep the original (that fallback already
+        # handles a raw ``http://[/p?…``).
+        if decoded != value and (
+            ("?" in decoded and "?" not in value) or ("#" in decoded and "#" not in value)
+        ):
+            return decoded
         return value
     # An encoded query/fragment delimiter hidden in the *path* is structure even
     # when the URL already carries a visible outer query — e.g.
