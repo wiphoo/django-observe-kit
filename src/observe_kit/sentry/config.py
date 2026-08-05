@@ -91,13 +91,14 @@ _REDACTED = REDACTED
 # (``, ; | ) ] }`` and quote/angle delimiters ``" ' < >``) — the same set
 # ``_REL_URL_RE`` / ``_URL_TOKEN_SEPARATOR_RE`` use — so comma-delimited prose
 # after a visible URL (``…?phone=…,progress=100%25``) isn't swallowed into the
-# URL and masked away. A comma *inside* a query is still valid URI syntax, so a
-# URL token is allowed to continue past a comma when the comma is followed by
-# more query structure joined with ``&`` (``?x=a,b&phone=…``): without that, a
-# sensitive parameter after the comma would be left raw in the message.
+# URL and masked away. A comma, semicolon or closing paren *inside* a query is
+# still valid URI syntax (``, ; ) `` are RFC 3986 sub-delims), so a URL token is
+# allowed to continue past one when it is followed by more query structure joined
+# with ``&`` (``?x=a,b&phone=…``, ``?x=f(a)&phone=…``): without that, a sensitive
+# parameter after the delimiter would be left raw in the message.
 _URL_RE = re.compile(
     r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s,;|)\]}<>\"']+"
-    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
+    r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
     re.IGNORECASE,
 )
 
@@ -490,8 +491,20 @@ def _value_carries_url(value: str) -> bool:
         or value.startswith("//")
         or _URL_RE.search(value) is not None  # embedded scheme-relative URL in free text
         or "://" in value  # any URI scheme: postgres://, redis://, ftp://, …
-        or ("?" in value and "=" in value.partition("?")[2])
-        or ("#" in value and "=" in value.partition("#")[2])  # query-like fragment
+        # A relative (``/search?phone=…``) or rootless (``callback?phone=…``)
+        # URL token carrying a query/fragment. These require the ``?key=value`` to
+        # be *contiguous* with a path token, so conversational prose with a stray
+        # ``?``/``#`` and a later ``=`` (``Are you sure? answer=yes``,
+        # ``prefix# section=one``) is not misclassified as a URL and mangled by
+        # the structural parser — such a leaf is left to the email backstop.
+        or _REL_URL_RE.search(value) is not None
+        or _ROOTLESS_URL_RE.search(value) is not None
+        # A *bare* query/fragment token that leads the value (``#access_token=…``
+        # exposed from an encoded ``%23``, ``?key=value``) — no path prefix for the
+        # regexes above to anchor on. Require no whitespace so it stays a URL-ish
+        # token and prose (which carries its ``?``/``#`` mid-sentence, or contains
+        # spaces) is still excluded.
+        or (value[:1] in "?#" and "=" in value and not any(c.isspace() for c in value))
     )
 
 

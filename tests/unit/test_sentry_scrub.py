@@ -224,6 +224,32 @@ def test_redacts_nested_redirect_when_decode_limit_exhausted() -> None:
     assert qs == "next=%5BFiltered%5D"
 
 
+def test_url_continues_through_paren_subdelim_to_later_query_param() -> None:
+    # ``)`` is a valid URI query sub-delimiter; a URL token must continue through
+    # it when followed by more ``&``-joined query so a later sensitive param is
+    # scrubbed, not left raw (P1 leak).
+    msg = _scrub({"message": "see https://host/p?x=f(a)&phone=0812345678 now"}, "SENSITIVE")[
+        "message"
+    ]
+    assert "0812345678" not in msg
+    # A prose paren with no following ``&query`` must NOT be swallowed into a URL.
+    prose = _scrub({"message": "visit (https://host/p?x=1) today"}, "SENSITIVE")["message"]
+    assert prose == "visit (https://host/p?x=1) today"
+
+
+def test_conversational_prose_not_parsed_as_url() -> None:
+    # A generic leaf with a stray ``?``/``#`` and a later ``=`` in prose must not
+    # be structurally parsed as a URL (which would mangle it), while a genuine
+    # bare/rootless query token is still scrubbed.
+    def note(v: str) -> str:
+        return _scrub({"extra": {"note": v}}, "SENSITIVE")["extra"]["note"]
+
+    assert note("Are you sure? answer=yes") == "Are you sure? answer=yes"
+    assert note("prefix# section=one") == "prefix# section=one"
+    # genuine rootless query with PII is still scrubbed
+    assert "0812345678" not in note("callback?phone=0812345678")
+
+
 def test_scrubs_scheme_relative_nested_redirect_credentials() -> None:
     # A scheme-relative //user:secret@host redirect value carries no http scheme
     # and no ?key=value, so it must still be routed through _scrub_url (which
