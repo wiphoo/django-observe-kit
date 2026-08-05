@@ -414,13 +414,29 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
     # ``dec_parts.query and not orig_parts.query`` would wrongly skip it. Detect
     # the encoded delimiter in the path directly.
     authority_revealed = "@" in dec_parts.netloc and "@" not in orig_parts.netloc
+    # A query/fragment delimiter can hide in the *authority* too: when the path
+    # separator ``/`` is itself encoded (``https://host!%252Fsearch%253Fphone%253D…``),
+    # ``urlsplit`` sees the whole ``host!%2Fsearch%3Fphone%3D…`` as the netloc, so
+    # the path-based detection below misses it and ``_scrub_url`` can't reach the
+    # buried query. ``_URL_RE`` happily matches such a token (``! ( : =`` aren't
+    # host-invalid to it), so without this the encoded query would be exempted
+    # from the hidden-URL pass yet never scrubbed — a leak.
+    netloc_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.netloc)) or bool(
+        _URL_FRAG_DELIM_RE.search(orig_parts.netloc)
+    )
     reveals_structure = (
         bool(_URL_QUERY_DELIM_RE.search(orig_parts.path))
         or bool(_URL_FRAG_DELIM_RE.search(orig_parts.path))
         or authority_revealed
+        or netloc_hides_structure
     )
     if not reveals_structure:
         return value  # only ordinary escapes decoded — keep the original form
+    if netloc_hides_structure and not authority_revealed:
+        # The path boundary was encoded, so the query/fragment is buried in what
+        # urlsplit parsed as the authority. Hand ``_scrub_url`` the decoded form
+        # to reparse and scrub the exposed query/fragment.
+        return decoded
     if authority_revealed:
         # The authority was opaque-encoded. When the *whole* structure was encoded
         # (a fully double-encoded ``https%253A%252F%252Falice%253Asecret%2540host``),

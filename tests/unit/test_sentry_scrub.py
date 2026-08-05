@@ -226,6 +226,19 @@ def test_scrubs_encoded_redirect_after_visible_url_and_prose_punctuation() -> No
     assert "https://" + "safe.test" in note  # the visible URL is preserved
 
 
+@pytest.mark.parametrize("sep", ["!", "(", ":", "=", "*", "~"])
+def test_scrubs_encoded_redirect_after_url_host_invalid_suffix(sep: str) -> None:
+    # When prose punctuation `_URL_RE` does NOT exclude (`!`, `(`, `:`, `=`, …)
+    # sits between the host and an encoded redirect, `_URL_RE` swallows the whole
+    # token, so the encoded slice is inside the visible-URL span and exempted from
+    # the hidden pass. `_scrub_url` must still reach the query buried in the netloc
+    # (the path-separating `/` is encoded), not leak it (PR #106 P1 review).
+    msg = _scrub(
+        {"message": f"https://safe.test{sep}%252Fsearch%253Fphone%253D0812345678"}, "SENSITIVE"
+    )["message"]
+    assert "0812345678" not in msg
+
+
 def test_redacts_nested_redirect_when_decode_limit_exhausted() -> None:
     from urllib.parse import quote
 
