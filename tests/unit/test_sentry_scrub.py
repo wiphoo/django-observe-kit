@@ -239,6 +239,24 @@ def test_scrubs_encoded_redirect_after_url_host_invalid_suffix(sep: str) -> None
     assert "0812345678" not in msg
 
 
+def test_scrubs_nested_redirect_used_as_query_key() -> None:
+    # A whole (percent-encoded) redirect used as a bare query *key*
+    # (``?%252Fsearch%253Fphone%253D…`` → parse_qsl yields it as an empty-valued
+    # key) must be recursively scrubbed like a value, so its inner params get the
+    # field rules instead of being re-emitted decodable (PR #106 P1 review).
+    msg = _scrub(
+        {"message": "https://safe.test?%252Fsearch%253Fphone%253D0812345678"}, "SENSITIVE"
+    )["message"]
+    assert "0812345678" not in msg
+    # An operator-configured sensitive key nested in the redirect key is masked too.
+    msg2 = _scrub(
+        {"message": "https://safe.test?%252Fsearch%253Ftoken%253Dsupersecret"},
+        "SENSITIVE",
+        extra_mask=frozenset({"token"}),
+    )["message"]
+    assert "supersecret" not in msg2
+
+
 def test_redacts_nested_redirect_when_decode_limit_exhausted() -> None:
     from urllib.parse import quote
 

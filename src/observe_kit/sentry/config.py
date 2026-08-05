@@ -695,7 +695,16 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
                     # otherwise mask any embedded email.
                     scrubbed_url = _scrub_url_if_carries(v, opts, depth)
                     v = scrubbed_url if scrubbed_url is not None else _mask_emails(v)
-            scrubbed.append((cast(str, _mask_emails(k)), v))
+            # A parameter *name* can itself be a nested (percent-encoded) redirect
+            # when the whole URL is used as a bare query key
+            # (``?%252Fsearch%253Ftoken%253D…`` → ``parse_qsl`` yields it as an
+            # empty-valued key). Give the key the same URL/nested-query scrub as a
+            # value so its inner ``token=…`` isn't re-emitted decodable; otherwise
+            # just mask any embedded email.
+            scrubbed_key = _scrub_url_if_carries(k, opts, depth)
+            if scrubbed_key is None:
+                scrubbed_key = cast(str, _mask_emails(k))
+            scrubbed.append((scrubbed_key, v))
     return urlencode(scrubbed)
 
 
