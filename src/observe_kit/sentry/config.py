@@ -435,12 +435,10 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
     netloc_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.netloc)) or bool(
         _URL_FRAG_DELIM_RE.search(orig_parts.netloc)
     )
-    reveals_structure = (
-        bool(_URL_QUERY_DELIM_RE.search(orig_parts.path))
-        or bool(_URL_FRAG_DELIM_RE.search(orig_parts.path))
-        or authority_revealed
-        or netloc_hides_structure
+    path_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.path)) or bool(
+        _URL_FRAG_DELIM_RE.search(orig_parts.path)
     )
+    reveals_structure = path_hides_structure or authority_revealed or netloc_hides_structure
     if not reveals_structure:
         return value  # only ordinary escapes decoded — keep the original form
     if netloc_hides_structure and not authority_revealed:
@@ -448,7 +446,7 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
         # urlsplit parsed as the authority. Hand ``_scrub_url`` the decoded form
         # to reparse and scrub the exposed query/fragment.
         return decoded
-    if authority_revealed:
+    if authority_revealed and not path_hides_structure:
         # The authority was opaque-encoded. When the *whole* structure was encoded
         # (a fully double-encoded ``https%253A%252F%252Falice%253Asecret%2540host``),
         # ``urlsplit(value)`` sees no scheme/authority and the encoded-path branch

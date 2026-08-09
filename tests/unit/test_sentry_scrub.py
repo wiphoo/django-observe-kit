@@ -367,6 +367,17 @@ def test_free_text_deep_encoded_authority_redacted_wholesale() -> None:
     assert msg == "redirecting to [Filtered] now"
 
 
+def test_scrubs_path_query_after_encoded_authority() -> None:
+    # Revealing an encoded authority must not bypass a query hidden in the path.
+    # Both structures need to reach `_scrub_url`: credentials are redacted and
+    # the path-carried query is parsed so its sensitive value is masked.
+    msg = "GET https://user%40host/search%3Fphone%3D0812345678"
+    out = _scrub({"message": msg}, "SENSITIVE")["message"]
+    assert "user" not in out
+    assert "0812345678" not in out
+    assert out == "GET https://[Filtered]@host/search?phone=08%2A%2A%2A"
+
+
 def test_scrubs_scheme_relative_nested_redirect_credentials() -> None:
     # A scheme-relative //user:secret@host redirect value carries no http scheme
     # and no ?key=value, so it must still be routed through _scrub_url (which
