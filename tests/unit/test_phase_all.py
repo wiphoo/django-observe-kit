@@ -403,6 +403,21 @@ class TestSanitizeBody:
         result = sanitize_body(body, PiiLevel.BASIC)
         assert all("***" in item["email"] for item in result)
 
+    def test_tuple_and_set_databags_normalized(self) -> None:
+        # Loggers / Sentry can attach tuple/set/frozenset databags; they must be
+        # normalized to lists and their nested dicts sanitized like a plain list.
+        from observe_kit.pii_rules import PiiLevel, sanitize_body
+
+        tup = sanitize_body({"items": ({"email": "a@b.com"},)}, PiiLevel.BASIC)
+        assert isinstance(tup["items"], list)
+        assert "***" in tup["items"][0]["email"]
+
+        st = sanitize_body({"emails": {"a@b.com"}}, PiiLevel.BASIC)
+        assert isinstance(st["emails"], list)  # set -> list
+
+        fs = sanitize_body({"phones": frozenset({"0812345678"})}, PiiLevel.BASIC)
+        assert isinstance(fs["phones"], list)
+
     def test_extra_drop_in_body(self) -> None:
         from observe_kit.pii_rules import PiiLevel, sanitize_body
 

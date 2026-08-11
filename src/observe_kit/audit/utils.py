@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from ..conf import PII_SINK_AUDIT
 from ..context import get_request_context
 from ..metrics import AUDIT_EVENTS, guard_tenant_label
-from ..pii_rules import PiiLevel, get_pii_config, sanitize_body
+from ..pii_rules import PiiLevel, get_pii_config, sanitize_body, sanitize_query_params
 from ..settings import get_observe_kit_settings
 from ..tenant import resolve_tenant_id
 
@@ -80,6 +80,37 @@ def audit(
             extra_hash=cfg.extra_hash_fields,
             hash_salt=cfg.pii_hash_salt,
         )
+
+    # ``remote_addr`` / ``user_agent`` are stored as dedicated ``AuditLog``
+    # columns, so they bypass the ``extra``/``before``/``after`` body
+    # sanitisation above. Apply the field rules to them so at SENSITIVE they're
+    # hashed with ``PII_HASH_SALT`` — and any operator ``EXTRA_*`` rule is
+    # honoured — instead of stored raw. The mapping is keyed by the column name
+    # with the semantic alias (``ip`` / ``user-agent``) attached, so a rule
+    # keyed by *either* the DB column (``remote_addr`` / ``user_agent``) or the
+    # alias matches; the alias also drives the default IP / user-agent hashing.
+    field_scrub: Dict[str, str] = {}
+    aliases: Dict[str, str] = {}
+    if remote_addr:
+        field_scrub["remote_addr"] = str(remote_addr)
+        aliases["remote_addr"] = "ip"
+    if user_agent:
+        field_scrub["user_agent"] = str(user_agent)
+        aliases["user_agent"] = "user-agent"
+    if field_scrub:
+        scrubbed = sanitize_query_params(
+            field_scrub,
+            pii_level,
+            extra_drop=cfg.extra_drop_headers,
+            extra_mask=cfg.extra_mask_fields,
+            extra_hash=cfg.extra_hash_fields,
+            hash_salt=cfg.pii_hash_salt,
+            aliases=aliases,
+        )
+        if remote_addr:
+            remote_addr = scrubbed.get("remote_addr")  # None if operator-dropped
+        if user_agent:
+            user_agent = scrubbed.get("user_agent")
 
     sanitised_extra: Dict[str, Any] = dict(_sanitize(extra or {}))
     if before is not None:
