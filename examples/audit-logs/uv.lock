@@ -91,7 +91,7 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.20" },
     { name = "python-json-logger", specifier = ">=3.0" },
     { name = "sentry-sdk", specifier = ">=2.0" },
-    { name = "wagtail", marker = "extra == 'wagtail'", specifier = ">=7.3.2" },
+    { name = "wagtail", marker = "extra == 'wagtail'", specifier = ">=7.4.2" },
 ]
 provides-extras = ["wagtail"]
 
@@ -105,7 +105,7 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.0.0" },
     { name = "ruff", specifier = ">=0.6.4" },
     { name = "uv", specifier = ">=0.11.15" },
-    { name = "wagtail", specifier = ">=7.3.2" },
+    { name = "wagtail", specifier = ">=7.4.2" },
 ]
 
 [[package]]
