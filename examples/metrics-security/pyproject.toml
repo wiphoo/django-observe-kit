@@ -9,7 +9,7 @@ description = "Metrics endpoint security example for observe_kit"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "Django>=4.2,<5.0",
+    "Django>=5.2",
     "django-observe-kit",
 ]
 
