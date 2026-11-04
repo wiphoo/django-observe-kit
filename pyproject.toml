@@ -46,7 +46,7 @@ dependencies = [
     # Django 3.2 reached EOL April 2024 and is no longer supported upstream.
     "Django>=4.2",
     "djangorestframework>=3.15",
-    "prometheus-client>=0.20",
+    "prometheus-client>=0.26.0",
     "opentelemetry-sdk>=1.38.0",
     "opentelemetry-exporter-otlp>=1.44.0",
     # python-json-logger 3.x is the maintained line; 4.x is the current major.
@@ -96,14 +96,14 @@ line-ending = "lf"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.6.4",
+    "ruff>=0.16.1",
     "uv>=0.11.15",
-    "pytest>=9.0.3",
+    "pytest>=9.1.1",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.0.0",
-    "coverage>=7.15.2",
-    "mypy>=1.0.0",
-    "hypothesis>=6.0.0",
+    "coverage>=7.15.3",
+    "mypy>=2.3.0",
+    "hypothesis>=6.165.3",
     "wagtail>=7.4.2",
 ]
 
