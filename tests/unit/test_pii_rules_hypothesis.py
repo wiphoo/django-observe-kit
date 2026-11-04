@@ -51,8 +51,10 @@ def test_sanitize_headers_masks_email_consistently(email: str, level: PiiLevel) 
 @given(
     params=st.dictionaries(
         keys=st.text(min_size=1, max_size=30).filter(
-            lambda k: k.lower()
-            not in {"authorization", "cookie", "x-api-key", "x-access-token", "set-cookie"}
+            lambda k: (
+                k.lower()
+                not in {"authorization", "cookie", "x-api-key", "x-access-token", "set-cookie"}
+            )
         ),
         values=st.one_of(
             st.text(min_size=0, max_size=100),
