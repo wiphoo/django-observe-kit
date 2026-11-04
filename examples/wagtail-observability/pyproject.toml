@@ -9,8 +9,8 @@ description = "Wagtail observability example for observe_kit"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "Django>=4.2,<5.0",
-    "opentelemetry-sdk==1.40.0",
+    "Django>=5.2",
+    "opentelemetry-sdk==1.44.0",
     "django-observe-kit",
     "wagtail>=7.3.2,<7.4",
 ]
