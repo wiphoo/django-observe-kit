@@ -96,14 +96,14 @@ line-ending = "lf"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.0",
+    "ruff>=0.16.1",
     "uv>=0.11.15",
     "pytest>=9.1.1",
     "pytest-cov>=4.1.0",
     "pytest-xdist>=3.0.0",
     "coverage>=7.15.3",
     "mypy>=2.3.0",
-    "hypothesis>=6.161.2",
+    "hypothesis>=6.165.3",
     "wagtail>=7.4.2",
 ]
 
