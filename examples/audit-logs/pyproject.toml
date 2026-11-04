@@ -9,9 +9,9 @@ description = "Audit log example for observe_kit"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "Django>=4.2,<5.0",
+    "Django>=5.2",
     "djangorestframework>=3.14,<4.0",
-    "opentelemetry-sdk==1.40.0",
+    "opentelemetry-sdk==1.44.0",
     "django-observe-kit",
     "psycopg[binary]>=3.2,<4.0",
 ]

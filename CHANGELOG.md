@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - Health checks, validation helpers, and documentation that explain advanced usage and observability guardrails.
 
 ### Changed
+- **Breaking:** supported Django range is now 5.2 LTS, 6.0 and 6.1 (`Django>=5.2`, `djangorestframework>=3.16`). Django 4.2 (EOL April 2026), 5.0 and 5.1 are dropped, matching DRF 3.18. Classifiers updated, and CI now runs the unit suite against Django 5.2 and 6.1. The example projects now require `Django>=5.2` and `opentelemetry-sdk==1.44.0` with refreshed lockfiles.
 - `configure_logging`, `init_tracing`, and `init_sentry` now validate inputs, honor per-sink PII, and document the new defaults.
 - Middlewares gain graceful error handling, framework detection, and tighter span naming for DRF routes.
 - Metrics, health checks, and Wagtail hooks now surface tenant/trace metadata consistently.
