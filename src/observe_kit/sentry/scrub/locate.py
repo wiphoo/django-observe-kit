@@ -61,6 +61,10 @@ def find_url_spans(text: str, kinds: Tuple[UrlKind, ...] = ALL_KINDS) -> List[Ur
 
     ``kinds`` limits which kinds are considered; priority between the kinds that
     are considered is absolute > relative > rootless.
+
+    Production code calls this with a single kind per call (the legacy passes must
+    each see the text rewritten by the previous pass), so the cross-kind priority
+    resolution is only used when several kinds are requested together.
     """
     accepted: List[UrlSpan] = []
     starts: List[int] = []

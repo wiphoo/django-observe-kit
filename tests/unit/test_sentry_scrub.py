@@ -215,9 +215,9 @@ def test_scrubs_encoded_redirect_hidden_behind_visible_url_in_free_text() -> Non
 
 def test_scrubs_encoded_redirect_after_visible_url_and_prose_punctuation() -> None:
     # An encoded redirect that follows a visible URL after prose punctuation (a
-    # comma) sits *outside* the visible URL — `_URL_RE` stops at the comma — so the
+    # comma) sits *outside* the visible URL — the located URL span ends at the comma — so the
     # hidden-encoded pass must still scrub it. Bounding the pass's exemption to the
-    # actual `_URL_RE` match span (not merely an earlier `://` in the whitespace
+    # actual absolute-URL locator span (not merely an earlier `://` in the whitespace
     # token) keeps the encoded phone from reaching Sentry (PR #106 P1 review).
     note = _scrub(
         {"extra": {"note": "https://safe.test,%252Fsearch%253Fphone%253D0812345678"}}, "BASIC"
@@ -228,8 +228,8 @@ def test_scrubs_encoded_redirect_after_visible_url_and_prose_punctuation() -> No
 
 @pytest.mark.parametrize("sep", ["!", "(", ":", "=", "*", "~"])
 def test_scrubs_encoded_redirect_after_url_host_invalid_suffix(sep: str) -> None:
-    # When prose punctuation `_URL_RE` does NOT exclude (`!`, `(`, `:`, `=`, …)
-    # sits between the host and an encoded redirect, `_URL_RE` swallows the whole
+    # When prose punctuation the URL locator does NOT exclude (`!`, `(`, `:`, `=`, …)
+    # sits between the host and an encoded redirect, the locator swallows the whole
     # token, so the encoded slice is inside the visible-URL span and exempted from
     # the hidden pass. `_scrub_url` must still reach the query buried in the netloc
     # (the path-separating `/` is encoded), not leak it (PR #106 P1 review).
@@ -241,7 +241,7 @@ def test_scrubs_encoded_redirect_after_url_host_invalid_suffix(sep: str) -> None
 
 def test_scrubs_encoded_redirect_after_url_ipv6_bracket() -> None:
     # A `[` before the encoded redirect makes urlsplit raise (invalid IPv6), but
-    # `_URL_RE` still matches the token, so the encoded slice is exempt from the
+    # the absolute-URL locator still matches the token, so the encoded slice is exempt from the
     # hidden pass. `_url_form_to_scrub` must hand `_scrub_url` the decoded form so
     # its ValueError fallback sees the now-literal `?` and redacts the query
     # instead of leaking it (PR #106 P1 review).
@@ -337,9 +337,9 @@ def test_free_text_outer_url_stays_valid_when_nested_redirect_encoded() -> None:
 
 
 def test_free_text_scheme_relative_outer_url_stays_valid_when_nested_encoded() -> None:
-    # The exemption that leaves visible URLs to the `_URL_RE` pass must recognize
-    # *all* forms `_URL_RE` accepts, including scheme-relative `//host/...` URLs
-    # (which have `//` but no `://`). Bounding the exemption to `_URL_RE`'s match
+    # The exemption that leaves visible URLs to the absolute-URL scrub must recognize
+    # *all* forms the absolute-URL locator accepts, including scheme-relative `//host/...` URLs
+    # (which have `//` but no `://`). Bounding the exemption to the located
     # span covers the scheme-relative form, so the hidden pass doesn't independently
     # decode the nested redirect: the outer URL stays structurally valid and the
     # nested phone is masked exactly once (PR #106 P2 review).

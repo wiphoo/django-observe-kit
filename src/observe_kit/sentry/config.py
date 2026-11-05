@@ -85,59 +85,6 @@ def _validate_traces_sample_rate(traces_sample_rate: float) -> None:
 # guarantee no raw cookie leaks. Matches Sentry's own "[Filtered]" convention.
 _REDACTED = REDACTED
 
-# Matches an absolute or scheme-relative URL token embedded in free text (e.g. a
-# span description). Case-insensitive, and intentionally scheme-generic so DSNs
-# like ``postgres://user:secret@host/db`` are routed through ``_scrub_url``
-# and have authority credentials redacted too. The body stops at prose separators
-# (``, ; | ) ] }`` and quote/angle delimiters ``" ' < >``) — the same set
-# ``_REL_URL_RE`` / ``_URL_TOKEN_SEPARATOR_RE`` use — so comma-delimited prose
-# after a visible URL (``…?phone=…,progress=100%25``) isn't swallowed into the
-# URL and masked away. A comma, semicolon or closing paren *inside* a query is
-# still valid URI syntax (``, ; ) `` are RFC 3986 sub-delims), so a URL token is
-# allowed to continue past one when it is followed by more query structure joined
-# with ``&`` (``?x=a,b&phone=…``, ``?x=f(a)&phone=…``): without that, a sensitive
-# parameter after the delimiter would be left raw in the message.
-_URL_RE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s,;|)\]}<>\"']+"
-    r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
-    re.IGNORECASE,
-)
-
-# Matches a *relative* URL token carrying a ``key=value`` query *or* fragment in
-# free text — a path starting with ``/`` followed by ``?key=value``
-# (``GET /search?phone=…``) or a query-like ``#key=value`` fragment
-# (``/callback#access_token=…``, an OAuth implicit-flow redirect). Absolute URLs
-# are handled by ``_URL_RE`` above; the lookbehind keeps this from re-matching the
-# path inside one (``…test/p?x=1`` — ``/p`` follows a word char) or the ``:/`` of
-# a scheme. A ``key=value`` after the delimiter is required so ordinary prose like
-# ``and/or?maybe`` / ``see #section`` isn't rewritten. Stops at quote/angle
-# delimiters too, and continues past a comma or semicolon followed by
-# ``&``-joined query structure (matching ``_URL_RE``).
-_REL_URL_RE = re.compile(
-    r"(?<![\w:/])/[^\s?#\"'<>]*[?#]"
-    r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
-    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
-)
-
-# Matches a *rootless* relative URL token in free text — a word-path with no
-# leading ``/`` that still carries a query or fragment (``callback?phone=…``,
-# ``callback#access_token=…``, and multi-segment ``account/callback?phone=…``).
-# ``_REL_URL_RE`` requires a ``/`` start, so a
-# valid rootless reference like ``redirect callback?phone=0812345678`` was left
-# raw and its query/fragment PII exposed. The first path char deliberately
-# excludes ``/`` so a leading-slash URL (already handled by ``_REL_URL_RE``)
-# isn't double-scrubbed, while later segments may contain ``/``. Require a
-# ``key=value`` after the delimiter so ordinary prose (``see it? maybe``,
-# ``why #section``) isn't rewritten, and keep the lookbehind so the word-path
-# isn't matched mid-token.
-_ROOTLESS_URL_RE = re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")
-
-# Splits URL tokens that are adjacent through common prose separators, e.g.
-# ``https://safe.test,postgres://user:secret@host/db``. Keep separators out of
-# each URL parse so every authority gets scrubbed independently.
-_URL_TOKEN_SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
-_URL_TOKEN_NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@)")
-
 # A URL whose query holds another URL (``next=/p?next=/p?…``) re-enters the URL
 # scrubber once per level. An attacker can nest hundreds of levels to blow the
 # Python stack inside ``before_send`` (dropping the event) and balloon the
@@ -1491,18 +1438,18 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
 
     def _repl(match: "re.Match[str]") -> str:
         # If this encoded slice sits inside a *visible* URL token, leave it for the
-        # URL locator's absolute-URL pass, which scrubs the whole URL as a unit — redacting a
+        # absolute-URL scrub, which scrubs the whole URL as a unit — redacting a
         # deeply-encoded authority (``https://user%253A…%2540host``) wholesale
         # instead of letting this pass fragment it into a surviving
         # ``https://<username>`` prefix, and avoiding re-scrubbing a value that
         # ``_scrub_url`` has already scrubbed and re-encoded (which would e.g. hash
         # a nested ``EXTRA_HASH_FIELDS`` token twice). Bound the exemption to the
-        # actual URL locator span rather than any earlier ``://`` in the
+        # located absolute-URL span rather than any earlier ``://`` in the
         # whitespace token: an encoded slice that follows a visible URL after prose
         # punctuation (``https://safe.test,%252Fsearch%253Fphone%253D…``) sits
-        # *outside* the URL — the URL locator stops at the comma — so it must be scrubbed
-        # here, while a scheme-relative URL (``//h/p?next=%2Fa%3Ftoken%3D…``) is
-        # correctly recognized and left for the single absolute-URL scrub.
+        # *outside* the located span — it ends at the comma — so it must be
+        # scrubbed here, while a scheme-relative URL (``//h/p?next=%2Fa%3Ftoken%3D…``)
+        # is correctly recognized and left for the single absolute-URL scrub.
         start = match.start()
         if any(url_start <= start < url_end for url_start, url_end in url_spans):
             return match.group(0)
