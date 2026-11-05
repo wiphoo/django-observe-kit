@@ -27,7 +27,6 @@ _ROOTLESS_RE = re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s,;|)
 
 # Adjacent URLs joined by prose separators (``https://safe.test,postgres://u:p@h``).
 _SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
-_NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@)")
 
 # Priority order: an earlier kind wins any overlap with a later one.
 UrlKind = Literal["absolute", "relative", "rootless"]
@@ -135,6 +134,25 @@ def find_url_spans(text: str, kinds: Tuple[UrlKind, ...] = ALL_KINDS) -> List[Ur
     return accepted
 
 
+_NEXT_SCHEME_CHAR_RE = re.compile(r"[A-Za-z0-9+.-]")
+_NEXT_SCHEME_FIRST_RE = re.compile(r"[A-Za-z]")
+_USERINFO_SLASHES_RE = re.compile(r"//(?=[^/?#\s]*@)")
+
+
+def _next_url_starts(text: str) -> Iterator[int]:
+    pos = 0
+    while True:
+        slashes = text.find("//", pos)
+        if slashes < 0:
+            return
+        start = _scheme_start(text, slashes, pos, _NEXT_SCHEME_CHAR_RE, _NEXT_SCHEME_FIRST_RE)
+        if start != slashes or _USERINFO_SLASHES_RE.match(text, slashes):
+            yield start
+            pos = slashes + 2
+        else:
+            pos = slashes + 1
+
+
 def split_url_token(token: str) -> List[Tuple[str, bool]]:
     """Split one absolute-URL token into ``(piece, is_url)`` pieces.
 
@@ -149,10 +167,10 @@ def split_url_token(token: str) -> List[Tuple[str, bool]]:
             pieces.append((part, False))
             continue
         start = 0
-        for match in _NEXT_URL_RE.finditer(part):
-            if match.start() == 0:
+        for next_start in _next_url_starts(part):
+            if next_start == 0:
                 continue
-            pieces.append((part[start : match.start()], True))
-            start = match.start()
+            pieces.append((part[start:next_start], True))
+            start = next_start
         pieces.append((part[start:], True))
     return pieces
