@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import pytest
 from hypothesis import given, settings
@@ -19,7 +20,7 @@ from hypothesis import strategies as st
 
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry import config
-from observe_kit.sentry.scrub.locate import find_url_spans, split_url_token
+from observe_kit.sentry.scrub.locate import _KIND_PATTERNS, UrlSpan, find_url_spans, split_url_token
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "url_locate_golden.json"
 
@@ -123,6 +124,36 @@ def test_spans_are_ordered_disjoint_and_in_bounds(text: str) -> None:
 @given(text=st.text(alphabet=_ALPHABET, max_size=60))
 def test_split_url_token_round_trips(text: str) -> None:
     assert "".join(piece for piece, _ in split_url_token(text)) == text
+
+
+def _naive_find_url_spans(text: str, kinds: Tuple[str, ...]) -> List[UrlSpan]:
+    spans: List[UrlSpan] = []
+    for kind, pattern in _KIND_PATTERNS:
+        if kind not in kinds:
+            continue
+        for match in pattern.finditer(text):
+            start, end = match.span()
+            if any(start < other.end and other.start < end for other in spans):
+                continue
+            spans.append(UrlSpan(start, end, kind))
+    spans.sort()
+    return spans
+
+
+@_HYP
+@given(text=st.text(alphabet=_ALPHABET, max_size=60))
+def test_find_url_spans_matches_naive_reference(text: str) -> None:
+    for kinds in (("absolute", "relative", "rootless"), ("absolute", "relative")):
+        assert find_url_spans(text, kinds=kinds) == _naive_find_url_spans(text, kinds)
+
+
+def test_find_url_spans_scales_linearly() -> None:
+    text = "see https://a.test/p?x=1 and /b?phone=1 and cb?token=z " * 3000
+    started = time.perf_counter()
+    spans = find_url_spans(text)
+    elapsed = time.perf_counter() - started
+    assert len(spans) == 9000
+    assert elapsed < 1.0
 
 
 if __name__ == "__main__":
