@@ -280,7 +280,7 @@ _SCALE_CASES = {
     "slash-letters-query": (lambda n: "/" + "a" * n + "?", 30_000),
     "dotted": (lambda n: "a." * (n // 2), 30_000),
     "dashes": (lambda n: "a-" * (n // 2), 30_000),
-    "scheme-path": (lambda n: "https://h/" + "a" * n, 30_000),
+    "scheme-path": (lambda n: "https://h/" + "a" * n, 100_000),
     "relative-run": (lambda n: "/a?" * (n // 3), 100_000),
     "digits": (lambda n: "1" * n, 30_000),
     "colons": (lambda n: "a:" * (n // 2), 30_000),
