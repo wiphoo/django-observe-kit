@@ -370,7 +370,7 @@ integration-prometheus-open:
 ## Build distribution package
 build:
 	@echo "📦 Building distribution package..."
-	$(RUNNER) build
+	$(UV) build
 	@echo "✅ Build complete! Check dist/ directory."
 
 ## Publish package to PyPI (interactive)
