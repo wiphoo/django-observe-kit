@@ -9,13 +9,17 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry import config
+from observe_kit.sentry.scrub.locate import find_url_spans, split_url_token
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "url_locate_golden.json"
 
@@ -77,6 +81,48 @@ def build_golden() -> Dict[str, Dict[str, str]]:
 def test_scrub_output_matches_golden(name: str, level: PiiLevel, salt: str, text: str) -> None:
     golden = json.loads(GOLDEN_PATH.read_text())
     assert scrub_case(level, salt, text) == golden[f"{name}|{text}"]
+
+
+_HYP = settings(deadline=timedelta(milliseconds=1000), max_examples=50)
+_ALPHABET = "abc:/?#=&@.,;|)]}%25F3 \"'<>-_~+[]"
+
+
+def test_find_url_spans_kinds() -> None:
+    text = "see https://a.test/p?x=1 and /b?phone=1 and cb?token=z"
+    assert [(s.kind, text[s.start : s.end]) for s in find_url_spans(text)] == [
+        ("absolute", "https://a.test/p?x=1"),
+        ("relative", "/b?phone=1"),
+        ("rootless", "cb?token=z"),
+    ]
+
+
+def test_find_url_spans_kinds_filter() -> None:
+    text = "https://a.test/p?x=1 /b?phone=1"
+    assert [s.kind for s in find_url_spans(text, kinds=("absolute",))] == ["absolute"]
+
+
+def test_split_url_token_splits_adjacent_urls() -> None:
+    assert split_url_token("https://safe.test,postgres://u:p@h/db") == [
+        ("https://safe.test", True),
+        (",", True),
+        ("postgres://u:p@h/db", True),
+    ]
+
+
+@_HYP
+@given(text=st.text(alphabet=_ALPHABET, max_size=60))
+def test_spans_are_ordered_disjoint_and_in_bounds(text: str) -> None:
+    spans = find_url_spans(text)
+    previous_end = 0
+    for span in spans:
+        assert previous_end <= span.start < span.end <= len(text)
+        previous_end = span.end
+
+
+@_HYP
+@given(text=st.text(alphabet=_ALPHABET, max_size=60))
+def test_split_url_token_round_trips(text: str) -> None:
+    assert "".join(piece for piece, _ in split_url_token(text)) == text
 
 
 if __name__ == "__main__":
