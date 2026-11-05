@@ -39,6 +39,7 @@ from .scrub.constants import REDACTED
 from .scrub.decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
 from .scrub.decode import bounded_unquote as _bounded_unquote
 from .scrub.emails import _dedupe_masked_key, _mask_email_key, _mask_emails, _mask_emails_in_leaves
+from .scrub.locate import ALL_KINDS, UrlSpan, find_url_spans, split_url_token
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +409,7 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
         dec_parts = urlsplit(decoded)
     except ValueError:
         # ``urlsplit`` can't parse the URL (e.g. an unclosed IPv6 bracket ``[``
-        # that ``_URL_RE`` still matched: ``https://safe.test[%252Fsearch%253F…``).
+        # that the URL locator still matched: ``https://safe.test[%252Fsearch%253F…``).
         # If bounded-decoding exposed a *literal* query/fragment delimiter the raw
         # value hid behind percent-encoding, hand back the decoded form so
         # ``_scrub_url``'s own ``ValueError`` fallback can redact the now-visible
@@ -429,7 +430,7 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
     # separator ``/`` is itself encoded (``https://host!%252Fsearch%253Fphone%253D…``),
     # ``urlsplit`` sees the whole ``host!%2Fsearch%3Fphone%3D…`` as the netloc, so
     # the path-based detection below misses it and ``_scrub_url`` can't reach the
-    # buried query. ``_URL_RE`` happily matches such a token (``! ( : =`` aren't
+    # buried query. The URL locator happily matches such a token (``! ( : =`` aren't
     # host-invalid to it), so without this the encoded query would be exempted
     # from the hidden-URL pass yet never scrubbed — a leak.
     netloc_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.netloc)) or bool(
@@ -509,7 +510,8 @@ def _value_carries_url(value: str) -> bool:
     return (
         value[:8].lower().startswith(("http://", "https://"))
         or value.startswith("//")
-        or _URL_RE.search(value) is not None  # embedded scheme-relative URL in free text
+        # embedded scheme-relative URL in free text
+        or bool(find_url_spans(value, kinds=("absolute",)))
         or "://" in value  # any URI scheme: postgres://, redis://, ftp://, …
         # A relative (``/search?phone=…``) or rootless (``callback?phone=…``)
         # URL token carrying a query/fragment. These require the ``?key=value`` to
@@ -517,11 +519,10 @@ def _value_carries_url(value: str) -> bool:
         # ``?``/``#`` and a later ``=`` (``Are you sure? answer=yes``,
         # ``prefix# section=one``) is not misclassified as a URL and mangled by
         # the structural parser — such a leaf is left to the email backstop.
-        or _REL_URL_RE.search(value) is not None
-        or _ROOTLESS_URL_RE.search(value) is not None
+        or bool(find_url_spans(value, kinds=("relative", "rootless")))
         # A *bare* query/fragment token that leads the value (``#access_token=…``
         # exposed from an encoded ``%23``, ``?key=value``) — no path prefix for the
-        # regexes above to anchor on. Require no whitespace so it stays a URL-ish
+        # URL locator to anchor on. Require no whitespace so it stays a URL-ish
         # token and prose (which carries its ``?``/``#`` mid-sentence, or contains
         # spaces) is still excluded.
         or (value[:1] in "?#" and "=" in value and not any(c.isspace() for c in value))
@@ -529,31 +530,23 @@ def _value_carries_url(value: str) -> bool:
 
 
 def _scrub_url_token(token: str, opts: _PiiOpts, depth: int = 0) -> str:
-    """Scrub one URL regex token, splitting adjacent URLs before each URL start."""
-    parts = _URL_TOKEN_SEPARATOR_RE.split(token)
-    scrubbed: List[str] = []
-    for part in parts:
-        if not part or _URL_TOKEN_SEPARATOR_RE.fullmatch(part):
-            scrubbed.append(part)
-            continue
-
-        start = 0
-        for match in _URL_TOKEN_NEXT_URL_RE.finditer(part):
-            if match.start() == 0:
-                continue
-            scrubbed.append(_scrub_url(part[start : match.start()], opts, depth))
-            start = match.start()
-        scrubbed.append(_scrub_url(part[start:], opts, depth))
-    return "".join(scrubbed)
+    """Scrub one absolute-URL token, scrubbing each adjacent URL independently."""
+    return "".join(
+        _scrub_url(piece, opts, depth) if is_url else piece
+        for piece, is_url in split_url_token(token)
+    )
 
 
 def _scrub_urlish_value(value: str, opts: _PiiOpts, depth: int = 0) -> str:
     """Scrub a URL-like value, treating mixed prose as free text."""
-    matches = [m for m in (_URL_RE.search(value), _REL_URL_RE.search(value)) if m is not None]
-    if not matches:
+    # Locate absolute and relative URLs *independently* (not in one combined
+    # call): a relative match that starts earlier must win even when it overlaps
+    # an absolute one, which a combined call would drop by priority.
+    spans = _absolute_and_relative_spans(value)
+    if not spans:
         return _scrub_url(value, opts, depth)
-    first = min(matches, key=lambda m: m.start())
-    if first.start() == 0 and first.end() == len(value):
+    first = min(spans, key=lambda s: s.start)
+    if first.start == 0 and first.end == len(value):
         if "%" in value:
             decoded = value
             for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
@@ -561,18 +554,20 @@ def _scrub_urlish_value(value: str, opts: _PiiOpts, depth: int = 0) -> str:
                 if next_decoded == decoded:
                     break
                 decoded = next_decoded
-                for m in (_URL_RE.finditer(decoded), _REL_URL_RE.finditer(decoded)):
-                    for submatch in m:
-                        # Any interior match (something precedes it) means the
-                        # token is mixed content — route it through the free-text
-                        # scrubber. An end-aligned match (``submatch.end() ==
-                        # len(decoded)``) counts too: a visible URL followed by an
-                        # encoded one leaks if the encoded suffix is treated as a
-                        # plain path by the visible-URL parser.
-                        if submatch.start() > 0:
-                            return _scrub_text(value, opts, depth)
+                # Any interior match (something precedes it) means the token is
+                # mixed content — route it through the free-text scrubber. An
+                # end-aligned match counts too: a visible URL followed by an
+                # encoded one leaks if the encoded suffix is treated as a plain
+                # path by the visible-URL parser.
+                if any(s.start > 0 for s in _absolute_and_relative_spans(decoded)):
+                    return _scrub_text(value, opts, depth)
         return _scrub_url_token(value, opts, depth)
     return _scrub_text(value, opts, depth)
+
+
+def _absolute_and_relative_spans(value: str) -> List[UrlSpan]:
+    """Absolute spans, then relative spans, each kind located on its own."""
+    return find_url_spans(value, kinds=("absolute",)) + find_url_spans(value, kinds=("relative",))
 
 
 def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optional[str]:
@@ -584,7 +579,7 @@ def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optiona
     decoded form. ``None`` lets the caller fall back to :func:`_mask_emails`.
 
     A value that carries a URL in free text (``"connect https://user:secret@host/db"``)
-    is sent through :func:`_scrub_text`, which uses ``_URL_RE`` to find individual
+    is sent through :func:`_scrub_text`, which uses the URL locator to find individual
     URL tokens so ``urlsplit`` receives a clean URL and can strip ``user:pass@``
     credentials from the netloc.
     """
@@ -1473,7 +1468,7 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     A *visible* URL in a leaf must not shadow an *encoded* redirect elsewhere in
     the same text (``https://safe.test then %252Fsearch%253Fphone%253D…``) — the
     visible-URL path sends mixed prose here via :func:`_scrub_text`, and the plain
-    ``_URL_RE`` / ``_REL_URL_RE`` passes only see already-decoded structure, so the
+    URL locator passes only see already-decoded structure, so the
     encoded portion would reach Sentry unchanged.
 
     Only the encoded-URL *substring* (``_HIDDEN_ENCODED_URL_RE``, anchored on an
@@ -1487,26 +1482,27 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     if "%" not in text:
         return text
 
-    # Spans of every *visible* URL ``_URL_RE`` recognizes in this text (both
-    # ``scheme://…`` and scheme-relative ``//…`` forms). An encoded slice that
-    # falls inside one of these belongs to the ``_URL_RE`` pass, which scrubs the
-    # whole URL as a unit; anything outside is a genuinely hidden slice we own.
-    url_spans = [match.span() for match in _URL_RE.finditer(text)]
+    # Spans of every *visible* absolute URL the URL locator recognizes in this
+    # text (both ``scheme://…`` and scheme-relative ``//…`` forms). An encoded
+    # slice that falls inside one of these belongs to the absolute-URL pass, which
+    # scrubs the whole URL as a unit; anything outside is a genuinely hidden slice
+    # we own.
+    url_spans = [(s.start, s.end) for s in find_url_spans(text, kinds=("absolute",))]
 
     def _repl(match: "re.Match[str]") -> str:
         # If this encoded slice sits inside a *visible* URL token, leave it for the
-        # ``_URL_RE`` pass, which scrubs the whole URL as a unit — redacting a
+        # URL locator's absolute-URL pass, which scrubs the whole URL as a unit — redacting a
         # deeply-encoded authority (``https://user%253A…%2540host``) wholesale
         # instead of letting this pass fragment it into a surviving
         # ``https://<username>`` prefix, and avoiding re-scrubbing a value that
         # ``_scrub_url`` has already scrubbed and re-encoded (which would e.g. hash
         # a nested ``EXTRA_HASH_FIELDS`` token twice). Bound the exemption to the
-        # actual ``_URL_RE`` match span rather than any earlier ``://`` in the
+        # actual URL locator span rather than any earlier ``://`` in the
         # whitespace token: an encoded slice that follows a visible URL after prose
         # punctuation (``https://safe.test,%252Fsearch%253Fphone%253D…``) sits
-        # *outside* the URL — ``_URL_RE`` stops at the comma — so it must be scrubbed
+        # *outside* the URL — the URL locator stops at the comma — so it must be scrubbed
         # here, while a scheme-relative URL (``//h/p?next=%2Fa%3Ftoken%3D…``) is
-        # correctly recognized and left for the single ``_URL_RE`` scrub.
+        # correctly recognized and left for the single absolute-URL scrub.
         start = match.start()
         if any(url_start <= start < url_end for url_start, url_end in url_spans):
             return match.group(0)
@@ -1534,6 +1530,31 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     return _HIDDEN_ENCODED_URL_RE.sub(_repl, text)
 
 
+def _scrub_located_urls(text: str, opts: _PiiOpts, depth: int) -> str:
+    """Scrub every URL the locator finds; absolute spans may hold adjacent URLs.
+
+    One pass per kind (absolute, relative, rootless), each locating on the text the
+    previous pass already rewrote — not one combined pass over the original text,
+    which would drop a relative span overlapping an absolute one instead of
+    scrubbing what is left of it after the absolute scrub.
+    """
+    for kind in ALL_KINDS:
+        out: List[str] = []
+        pos = 0
+        for span in find_url_spans(text, kinds=(kind,)):
+            out.append(text[pos : span.start])
+            piece = text[span.start : span.end]
+            out.append(
+                _scrub_url_token(piece, opts, depth)
+                if kind == "absolute"
+                else _scrub_url(piece, opts, depth)
+            )
+            pos = span.end
+        out.append(text[pos:])
+        text = "".join(out)
+    return text
+
+
 def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     """Pattern-scrub PII out of free-text (message/log) fields.
 
@@ -1546,9 +1567,7 @@ def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     to detect in bare prose and are left alone, mirroring the key-based model.
     """
     text = _scrub_hidden_encoded_urls(text, opts, depth)
-    text = _URL_RE.sub(lambda m: _scrub_url_token(m.group(0), opts, depth), text)
-    text = _REL_URL_RE.sub(lambda m: _scrub_url(m.group(0), opts, depth), text)
-    text = _ROOTLESS_URL_RE.sub(lambda m: _scrub_url(m.group(0), opts, depth), text)
+    text = _scrub_located_urls(text, opts, depth)
     return cast(str, _mask_emails(text))
 
 
@@ -2012,7 +2031,7 @@ def _scrub_trace_metadata(event: Dict[str, Any], opts: _PiiOpts, content_opts: _
             event["transaction"] = result
         else:
             # Brush the transaction name as free text — _scrub_text masks
-            # embedded emails/URLs (and their query PII) via _URL_RE.
+            # embedded emails/URLs (and their query PII) via the URL locator.
             event["transaction"] = _scrub_text(transaction, opts)
     _scrub_spans(event, content_opts)
     _scrub_stackframe_vars(event, content_opts)
