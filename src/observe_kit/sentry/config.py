@@ -466,7 +466,8 @@ def _value_carries_url(value: str) -> bool:
         # ``?``/``#`` and a later ``=`` (``Are you sure? answer=yes``,
         # ``prefix# section=one``) is not misclassified as a URL and mangled by
         # the structural parser — such a leaf is left to the email backstop.
-        or bool(find_url_spans(value, kinds=("relative", "rootless")))
+        or bool(find_url_spans(value, kinds=("relative",)))
+        or bool(find_url_spans(value, kinds=("rootless",)))
         # A *bare* query/fragment token that leads the value (``#access_token=…``
         # exposed from an encoded ``%23``, ``?key=value``) — no path prefix for the
         # URL locator to anchor on. Require no whitespace so it stays a URL-ish

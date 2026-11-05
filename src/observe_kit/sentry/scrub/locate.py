@@ -92,14 +92,12 @@ def split_url_token(token: str) -> List[Tuple[str, bool]]:
 
     Each URL (split at every further ``scheme://`` or ``//user@`` start) comes
     back as ``(piece, True)``. Only empty parts come back as ``(piece, False)``;
-    a lone separator such as ``","`` is ``(",", True)`` because
-    ``_SEPARATOR_RE.fullmatch`` needs the ``//`` lookahead and never matches alone.
+    a lone separator such as ``","`` is ``(",", True)``.
     ``"".join(piece for piece, _ in result) == token``.
     """
     pieces: List[Tuple[str, bool]] = []
     for part in _SEPARATOR_RE.split(token):
-        # the fullmatch clause is kept for legacy equivalence
-        if not part or _SEPARATOR_RE.fullmatch(part):
+        if not part:
             pieces.append((part, False))
             continue
         start = 0

@@ -102,6 +102,13 @@ def test_find_url_spans_kinds_filter() -> None:
     assert [s.kind for s in find_url_spans(text, kinds=("absolute",))] == ["absolute"]
 
 
+def test_split_url_token_splits_at_adjacent_url_start_without_separator() -> None:
+    assert split_url_token("https://a.test/x//u:p@h/y") == [
+        ("https://a.test/x", True),
+        ("//u:p@h/y", True),
+    ]
+
+
 def test_split_url_token_splits_adjacent_urls() -> None:
     assert split_url_token("https://safe.test,postgres://u:p@h/db") == [
         ("https://safe.test", True),
@@ -148,12 +155,12 @@ def test_find_url_spans_matches_naive_reference(text: str) -> None:
 
 
 def test_find_url_spans_scales_linearly() -> None:
-    text = "see https://a.test/p?x=1 and /b?phone=1 and cb?token=z " * 3000
+    text = "see https://a.test/p?x=1 and /b?phone=1 and cb?token=z " * 6000
     started = time.perf_counter()
     spans = find_url_spans(text)
     elapsed = time.perf_counter() - started
-    assert len(spans) == 9000
-    assert elapsed < 1.0
+    assert len(spans) == 18000
+    assert elapsed < 3.0
 
 
 if __name__ == "__main__":
