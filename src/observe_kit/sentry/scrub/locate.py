@@ -4,7 +4,9 @@ This module only answers "where in this free text might a URL be?". It never
 decides whether a candidate is really a URL or how to scrub it: every span is
 handed to the ``urlsplit``-based scrubber in ``config.py``, which parses,
 validates and redacts. A newly discovered URL-in-prose shape is therefore a
-tweak to the patterns here, not another regex spread across ``config.py``.
+tweak to the scanners here, not another regex spread across ``config.py``.
+Every scanner is linear in the length of the text: they anchor on a delimiter
+instead of retrying a prefix pattern from each index (#193).
 """
 
 from __future__ import annotations
@@ -20,14 +22,6 @@ _SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
 UrlKind = Literal["absolute", "relative", "rootless"]
 
 Scanner = Callable[[str], Iterator[Tuple[int, int]]]
-
-
-def _regex_scanner(pattern: Pattern[str]) -> Scanner:
-    def scan(text: str) -> Iterator[Tuple[int, int]]:
-        for match in pattern.finditer(text):
-            yield match.span()
-
-    return scan
 
 
 # Body of an absolute or scheme-relative URL token (``//h/p``, ``//u:p@h/p``; the
