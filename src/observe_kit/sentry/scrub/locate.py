@@ -13,16 +13,6 @@ import re
 from bisect import bisect_left
 from typing import Callable, Iterator, List, Literal, NamedTuple, Pattern, Tuple
 
-# Absolute or scheme-relative URL token (``https://h/p``, ``//u:p@h/p``,
-# ``postgres://u:p@h/db``). Stops at prose separators and quote/angle
-# delimiters; continues past ``,``/``;``/``)`` only when followed by ``&``-joined
-# query structure (``?x=a,b&phone=…``).
-_ABSOLUTE_RE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s,;|)\]}<>\"']+"
-    r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
-    re.IGNORECASE,
-)
-
 # Relative URL starting with ``/`` that carries a ``key=value`` query or
 # query-like fragment (``GET /search?phone=…``, ``/callback#access_token=…``).
 _RELATIVE_RE = re.compile(
@@ -53,8 +43,56 @@ def _regex_scanner(pattern: Pattern[str]) -> Scanner:
     return scan
 
 
+# Body of an absolute or scheme-relative URL token (``//h/p``, ``//u:p@h/p``; the
+# optional ``scheme:`` prefix is derived by ``_scheme_start``). Stops at prose
+# separators and quote/angle delimiters; continues past ``,``/``;``/``)`` only when
+# followed by ``&``-joined query structure (``?x=a,b&phone=...``).
+_ABSOLUTE_BODY_RE = re.compile(
+    r"//[^\s,;|)\]}<>\"']+"
+    r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
+)
+_SCHEME_CHAR_RE = re.compile(r"[A-Za-z0-9+.-]", re.IGNORECASE)
+_SCHEME_FIRST_RE = re.compile(r"[A-Za-z]", re.IGNORECASE)
+
+
+def _scheme_start(
+    text: str, slashes: int, floor: int, char_re: Pattern[str], first_re: Pattern[str]
+) -> int:
+    """Start of the leftmost ``scheme:`` ending right before the ``//`` at ``slashes``.
+
+    Returns ``slashes`` itself when no scheme precedes it. ``floor`` is the earliest
+    index a match may start at (the end of the previous match).
+    """
+    if slashes - 1 < floor or text[slashes - 1] != ":":
+        return slashes
+    run_start = slashes - 1
+    while run_start - 1 >= floor and char_re.match(text, run_start - 1):
+        run_start -= 1
+    for index in range(run_start, slashes - 1):
+        if first_re.match(text, index):
+            return index
+    return slashes
+
+
+def _absolute_spans(text: str) -> Iterator[Tuple[int, int]]:
+    # Anchor on ``//`` instead of retrying the optional ``scheme:`` prefix from every
+    # letter of a long run, which was quadratic.
+    pos = 0
+    while True:
+        slashes = text.find("//", pos)
+        if slashes < 0:
+            return
+        body = _ABSOLUTE_BODY_RE.match(text, slashes)
+        if body is None:
+            pos = slashes + 1
+            continue
+        start = _scheme_start(text, slashes, pos, _SCHEME_CHAR_RE, _SCHEME_FIRST_RE)
+        yield start, body.end()
+        pos = body.end()
+
+
 _KIND_SCANNERS: Tuple[Tuple[UrlKind, Scanner], ...] = (
-    ("absolute", _regex_scanner(_ABSOLUTE_RE)),
+    ("absolute", _absolute_spans),
     ("relative", _regex_scanner(_RELATIVE_RE)),
     ("rootless", _regex_scanner(_ROOTLESS_RE)),
 )
