@@ -13,7 +13,7 @@ import sys
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Dict, List, Pattern, Tuple
+from typing import Callable, Dict, List, Literal, Pattern, Tuple
 
 import pytest
 from hypothesis import given, settings
@@ -138,7 +138,8 @@ def test_split_url_token_round_trips(text: str) -> None:
 # Verbatim copies of the regexes locate.py used before the linear scanners. They
 # are the specification: find_url_spans / split_url_token must return exactly the
 # spans these produce. Do not "improve" them.
-_REFERENCE_PATTERNS: Tuple[Tuple[str, Pattern[str]], ...] = (
+Kind = Literal["absolute", "relative", "rootless"]
+_REFERENCE_PATTERNS: Tuple[Tuple[Kind, Pattern[str]], ...] = (
     (
         "absolute",
         re.compile(
@@ -177,7 +178,7 @@ def _reference_split_url_token(token: str) -> List[Tuple[str, bool]]:
     return pieces
 
 
-def _naive_find_url_spans(text: str, kinds: Tuple[str, ...]) -> List[UrlSpan]:
+def _naive_find_url_spans(text: str, kinds: Tuple[Kind, ...]) -> List[UrlSpan]:
     spans: List[UrlSpan] = []
     for kind, pattern in _REFERENCE_PATTERNS:
         if kind not in kinds:
@@ -213,10 +214,11 @@ def test_find_url_spans_scales_linearly() -> None:
 _SCAN_TOKENS = [
     "a", "Z", "1", ":", "/", "?", "#", "=", "&", ",", ";", ")", "@", ".", "-", "+", "~",
     "%", " ", "\n", '"', "'", "<", ">", "//", "://", "http://", "\u017f", "\u212a", "\u00e9",
-    "a=b", "?k=v",
+    "a=b", "?k=v", "/p?k=v", "/a?", "&x=y", ",a&b=c", ";a&b=c", "#k=v", "x/y?a=b", "a.b?k=v",
+    "-a?k=v", "/a?k=v",
 ]  # fmt: skip
 _SCAN_TEXT = st.lists(st.sampled_from(_SCAN_TOKENS), max_size=14).map("".join)
-_DIFF = settings(max_examples=3000, deadline=None)
+_DIFF = settings(max_examples=3000, deadline=None, derandomize=True)
 
 
 @_DIFF
@@ -231,6 +233,19 @@ def test_single_kind_spans_match_reference_regex(text: str) -> None:
 @given(text=_SCAN_TEXT)
 def test_split_url_token_matches_reference(text: str) -> None:
     assert split_url_token(text) == _reference_split_url_token(text), text
+
+
+_KIND_COMBOS: Tuple[Tuple[Kind, ...], ...] = (
+    ("absolute", "relative", "rootless"),
+    ("absolute", "relative"),
+)
+
+
+@_DIFF
+@given(text=_SCAN_TEXT)
+def test_merged_spans_match_naive_overlap_resolution(text: str) -> None:
+    for kinds in _KIND_COMBOS:
+        assert find_url_spans(text, kinds=kinds) == _naive_find_url_spans(text, kinds), text
 
 
 _EDGE_CASES = [
@@ -270,11 +285,14 @@ def test_edge_cases_match_reference(text: str) -> None:
         expected = [UrlSpan(*match.span(), kind) for match in pattern.finditer(text)]
         assert find_url_spans(text, kinds=(kind,)) == expected, (kind, text)
     assert split_url_token(text) == _reference_split_url_token(text)
+    for kinds in _KIND_COMBOS:
+        assert find_url_spans(text, kinds=kinds) == _naive_find_url_spans(text, kinds), text
 
 
 # (builder, n): n is large enough that the quadratic version takes seconds and the
-# linear one takes milliseconds, so the 1 s limit is not flaky on a slow runner.
-_SCALE_CASES = {
+# linear one takes milliseconds, so the limits (1 s for find/split, 2 s for
+# scrub_event) are not flaky on a slow runner.
+_SCALE_CASES: Dict[str, Tuple[Callable[[int], str], int]] = {
     "letters": (lambda n: "a" * n, 30_000),
     "letters-query": (lambda n: "a" * n + "?k=v", 30_000),
     "slash-letters-query": (lambda n: "/" + "a" * n + "?", 30_000),
