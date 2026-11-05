@@ -13,14 +13,6 @@ import re
 from bisect import bisect_left
 from typing import Callable, Iterator, List, Literal, NamedTuple, Pattern, Tuple
 
-# Relative URL starting with ``/`` that carries a ``key=value`` query or
-# query-like fragment (``GET /search?phone=…``, ``/callback#access_token=…``).
-_RELATIVE_RE = re.compile(
-    r"(?<![\w:/])/[^\s?#\"'<>]*[?#]"
-    r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
-    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
-)
-
 # Adjacent URLs joined by prose separators (``https://safe.test,postgres://u:p@h``).
 _SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
 
@@ -118,9 +110,51 @@ def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
         pos = tail.end()
 
 
+_RELATIVE_RUN_RE = re.compile(r"[^\s?#\"'<>]+")
+_RELATIVE_TAIL_RE = re.compile(
+    r"[?#]"
+    r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
+    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
+)
+_RELATIVE_STOP_RE = re.compile(r"[\s#,;|)\]}<>\"']")
+_RELATIVE_BAD_PREV_RE = re.compile(r"[\w:/]")
+
+
+def _relative_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Relative URL starting with ``/`` that carries a ``key=value`` query or
+    query-like fragment (``GET /search?phone=…``, ``/callback#access_token=…``).
+
+    One tail match per maximal path run; a failed tail is remembered in ``fail_until``.
+    """
+    pos = 0
+    fail_until = 0
+    for run in _RELATIVE_RUN_RE.finditer(text):
+        run_start, run_end = run.span()
+        if (
+            run_end <= pos
+            or run_end >= len(text)
+            or text[run_end] not in "?#"
+            or run_end < fail_until
+        ):
+            continue
+        tail = _RELATIVE_TAIL_RE.match(text, run_end)
+        if tail is None:
+            # No ``=`` before the next stop character: every ``?`` before it fails too.
+            stop = _RELATIVE_STOP_RE.search(text, run_end + 1)
+            fail_until = stop.start() if stop else len(text)
+            continue
+        start = text.find("/", max(run_start, pos), run_end)
+        while start > 0 and _RELATIVE_BAD_PREV_RE.match(text, start - 1):
+            start = text.find("/", start + 1, run_end)
+        if start == -1:
+            continue
+        yield start, tail.end()
+        pos = tail.end()
+
+
 _KIND_SCANNERS: Tuple[Tuple[UrlKind, Scanner], ...] = (
     ("absolute", _absolute_spans),
-    ("relative", _regex_scanner(_RELATIVE_RE)),
+    ("relative", _relative_spans),
     ("rootless", _rootless_spans),
 )
 ALL_KINDS: Tuple[UrlKind, ...] = tuple(kind for kind, _ in _KIND_SCANNERS)
