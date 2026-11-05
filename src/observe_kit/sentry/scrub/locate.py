@@ -21,10 +21,6 @@ _RELATIVE_RE = re.compile(
     r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
 )
 
-# Rootless relative URL (no leading ``/``) with a ``key=value`` query or fragment
-# (``callback?phone=…``, ``account/callback?phone=…``).
-_ROOTLESS_RE = re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")
-
 # Adjacent URLs joined by prose separators (``https://safe.test,postgres://u:p@h``).
 _SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
 
@@ -90,10 +86,42 @@ def _absolute_spans(text: str) -> Iterator[Tuple[int, int]]:
         pos = body.end()
 
 
+_ROOTLESS_RUN_RE = re.compile(r"[\w@.+/~-]+")
+_ROOTLESS_FIRST_RE = re.compile(r"[\w@.+~-]")
+_ROOTLESS_BAD_PREV_RE = re.compile(r"[\w/]")
+_ROOTLESS_TAIL_RE = re.compile(r"[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")
+
+
+def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Rootless relative URL with a key=value query or fragment.
+
+    Examples: ``callback?phone=...``, ``account/callback?phone=...``. One tail match
+    per maximal path run; the start is the leftmost valid index in that run.
+    """
+    pos = 0
+    for run in _ROOTLESS_RUN_RE.finditer(text):
+        run_start, run_end = run.span()
+        if run_end <= pos or run_end >= len(text) or text[run_end] not in "?#":
+            continue
+        tail = _ROOTLESS_TAIL_RE.match(text, run_end)
+        if tail is None:
+            continue
+        start = max(run_start, pos)
+        while start < run_end and not (
+            _ROOTLESS_FIRST_RE.match(text, start)
+            and (start == 0 or not _ROOTLESS_BAD_PREV_RE.match(text, start - 1))
+        ):
+            start += 1
+        if start == run_end:
+            continue
+        yield start, tail.end()
+        pos = tail.end()
+
+
 _KIND_SCANNERS: Tuple[Tuple[UrlKind, Scanner], ...] = (
     ("absolute", _absolute_spans),
     ("relative", _regex_scanner(_RELATIVE_RE)),
-    ("rootless", _regex_scanner(_ROOTLESS_RE)),
+    ("rootless", _rootless_spans),
 )
 ALL_KINDS: Tuple[UrlKind, ...] = tuple(kind for kind, _ in _KIND_SCANNERS)
 
