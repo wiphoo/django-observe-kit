@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_left
-from typing import List, Literal, NamedTuple, Pattern, Tuple
+from typing import Callable, Iterator, List, Literal, NamedTuple, Pattern, Tuple
 
 # Absolute or scheme-relative URL token (``https://h/p``, ``//u:p@h/p``,
 # ``postgres://u:p@h/db``). Stops at prose separators and quote/angle
@@ -42,12 +42,23 @@ _NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@)")
 # Priority order: an earlier kind wins any overlap with a later one.
 UrlKind = Literal["absolute", "relative", "rootless"]
 
-_KIND_PATTERNS: Tuple[Tuple[UrlKind, Pattern[str]], ...] = (
-    ("absolute", _ABSOLUTE_RE),
-    ("relative", _RELATIVE_RE),
-    ("rootless", _ROOTLESS_RE),
+Scanner = Callable[[str], Iterator[Tuple[int, int]]]
+
+
+def _regex_scanner(pattern: Pattern[str]) -> Scanner:
+    def scan(text: str) -> Iterator[Tuple[int, int]]:
+        for match in pattern.finditer(text):
+            yield match.span()
+
+    return scan
+
+
+_KIND_SCANNERS: Tuple[Tuple[UrlKind, Scanner], ...] = (
+    ("absolute", _regex_scanner(_ABSOLUTE_RE)),
+    ("relative", _regex_scanner(_RELATIVE_RE)),
+    ("rootless", _regex_scanner(_ROOTLESS_RE)),
 )
-ALL_KINDS: Tuple[UrlKind, ...] = tuple(kind for kind, _ in _KIND_PATTERNS)
+ALL_KINDS: Tuple[UrlKind, ...] = tuple(kind for kind, _ in _KIND_SCANNERS)
 
 
 class UrlSpan(NamedTuple):
@@ -68,14 +79,13 @@ def find_url_spans(text: str, kinds: Tuple[UrlKind, ...] = ALL_KINDS) -> List[Ur
     """
     accepted: List[UrlSpan] = []
     starts: List[int] = []
-    for kind, pattern in _KIND_PATTERNS:
+    for kind, scan in _KIND_SCANNERS:
         if kind not in kinds:
             continue
         # One pattern's finditer matches are already disjoint, so only the spans
         # accepted from higher-priority kinds can conflict with a candidate.
         survivors: List[UrlSpan] = []
-        for match in pattern.finditer(text):
-            start, end = match.span()
+        for start, end in scan(text):
             i = bisect_left(starts, end)
             if i and accepted[i - 1].end > start:
                 continue
