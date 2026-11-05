@@ -113,6 +113,8 @@ branches:
           - "Unit Tests (Python 3.10)"
           - "Unit Tests (Python 3.11)"
           - "Unit Tests (Python 3.12)"
+          - "Unit Tests (Django 5.2)"
+          - "Unit Tests (Django 6.1)"
           - "Build & Smoke Test"
           - "Integration Tests"
           - "E2E Tests"
