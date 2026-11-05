@@ -8,11 +8,12 @@ behavior, so fix the locator.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Pattern, Tuple
 
 import pytest
 from hypothesis import given, settings
@@ -20,7 +21,7 @@ from hypothesis import strategies as st
 
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry import config
-from observe_kit.sentry.scrub.locate import _KIND_PATTERNS, UrlSpan, find_url_spans, split_url_token
+from observe_kit.sentry.scrub.locate import UrlSpan, find_url_spans, split_url_token
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "url_locate_golden.json"
 
@@ -133,9 +134,52 @@ def test_split_url_token_round_trips(text: str) -> None:
     assert "".join(piece for piece, _ in split_url_token(text)) == text
 
 
+# --- Reference oracles (#193) -------------------------------------------------
+# Verbatim copies of the regexes locate.py used before the linear scanners. They
+# are the specification: find_url_spans / split_url_token must return exactly the
+# spans these produce. Do not "improve" them.
+_REFERENCE_PATTERNS: Tuple[Tuple[str, Pattern[str]], ...] = (
+    (
+        "absolute",
+        re.compile(
+            r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s,;|)\]}<>\"']+"
+            r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "relative",
+        re.compile(
+            r"(?<![\w:/])/[^\s?#\"'<>]*[?#]"
+            r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
+            r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
+        ),
+    ),
+    ("rootless", re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")),
+)
+_REF_SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
+_REF_NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@)")
+
+
+def _reference_split_url_token(token: str) -> List[Tuple[str, bool]]:
+    pieces: List[Tuple[str, bool]] = []
+    for part in _REF_SEPARATOR_RE.split(token):
+        if not part:
+            pieces.append((part, False))
+            continue
+        start = 0
+        for match in _REF_NEXT_URL_RE.finditer(part):
+            if match.start() == 0:
+                continue
+            pieces.append((part[start : match.start()], True))
+            start = match.start()
+        pieces.append((part[start:], True))
+    return pieces
+
+
 def _naive_find_url_spans(text: str, kinds: Tuple[str, ...]) -> List[UrlSpan]:
     spans: List[UrlSpan] = []
-    for kind, pattern in _KIND_PATTERNS:
+    for kind, pattern in _REFERENCE_PATTERNS:
         if kind not in kinds:
             continue
         for match in pattern.finditer(text):
@@ -161,6 +205,116 @@ def test_find_url_spans_scales_linearly() -> None:
     elapsed = time.perf_counter() - started
     assert len(spans) == 18000
     assert elapsed < 3.0
+
+
+# Tokens chosen to hit every anchor and boundary the scanners rely on, including
+# U+017F and U+212A, the two non-ASCII letters that case-fold into [A-Za-z] under
+# re.IGNORECASE (so they matter for the absolute pattern but not for the next-URL one).
+_SCAN_TOKENS = [
+    "a", "Z", "1", ":", "/", "?", "#", "=", "&", ",", ";", ")", "@", ".", "-", "+", "~",
+    "%", " ", "\n", '"', "'", "<", ">", "//", "://", "http://", "\u017f", "\u212a", "\u00e9",
+    "a=b", "?k=v",
+]  # fmt: skip
+_SCAN_TEXT = st.lists(st.sampled_from(_SCAN_TOKENS), max_size=14).map("".join)
+_DIFF = settings(max_examples=3000, deadline=None)
+
+
+@_DIFF
+@given(text=_SCAN_TEXT)
+def test_single_kind_spans_match_reference_regex(text: str) -> None:
+    for kind, pattern in _REFERENCE_PATTERNS:
+        expected = [UrlSpan(*match.span(), kind) for match in pattern.finditer(text)]
+        assert find_url_spans(text, kinds=(kind,)) == expected, (kind, text)
+
+
+@_DIFF
+@given(text=_SCAN_TEXT)
+def test_split_url_token_matches_reference(text: str) -> None:
+    assert split_url_token(text) == _reference_split_url_token(text), text
+
+
+_EDGE_CASES = [
+    "xhttps://h/p?a=b",
+    "1abc://h/p",
+    "1://h",
+    "\u017fhttps://h/p",
+    "\u212ahttp://h/p",
+    "a://",
+    "://x",
+    "http:///x",
+    "///",
+    "// ",
+    "//",
+    "http://a,http://b?x=1&y=2",
+    "ab+c-d.e://h/p?k=v",
+    "see //u:p@h/db and https://x.test/p",
+    "x//u@h",
+    "a.b.c?k=v",
+    "a@b?k=v",
+    "-a?k=v",
+    "a/b/c?k=v",
+    "//a/b?k=v",
+    "GET /x?a=b,c&d=e;f&g=h",
+    "/a?/b?/c?k=v",
+    "/a?x /b?k=v",
+    "/?k=v",
+    "/#k=v",
+    "x/?k=v",
+    ":/a?k=v",
+]
+
+
+@pytest.mark.parametrize("text", _EDGE_CASES)
+def test_edge_cases_match_reference(text: str) -> None:
+    for kind, pattern in _REFERENCE_PATTERNS:
+        expected = [UrlSpan(*match.span(), kind) for match in pattern.finditer(text)]
+        assert find_url_spans(text, kinds=(kind,)) == expected, (kind, text)
+    assert split_url_token(text) == _reference_split_url_token(text)
+
+
+# (builder, n): n is large enough that the quadratic version takes seconds and the
+# linear one takes milliseconds, so the 1 s limit is not flaky on a slow runner.
+_SCALE_CASES = {
+    "letters": (lambda n: "a" * n, 30_000),
+    "letters-query": (lambda n: "a" * n + "?k=v", 30_000),
+    "slash-letters-query": (lambda n: "/" + "a" * n + "?", 30_000),
+    "dotted": (lambda n: "a." * (n // 2), 30_000),
+    "dashes": (lambda n: "a-" * (n // 2), 30_000),
+    "scheme-path": (lambda n: "https://h/" + "a" * n, 30_000),
+    "relative-run": (lambda n: "/a?" * (n // 3), 100_000),
+    "digits": (lambda n: "1" * n, 30_000),
+    "colons": (lambda n: "a:" * (n // 2), 30_000),
+    "slashes": (lambda n: "/" * n, 30_000),
+}
+
+
+def _scale_text(shape: str) -> str:
+    build, n = _SCALE_CASES[shape]
+    return build(n)
+
+
+@pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
+def test_find_url_spans_scales_linearly_by_shape(shape: str) -> None:
+    text = _scale_text(shape)
+    started = time.perf_counter()
+    find_url_spans(text)
+    assert time.perf_counter() - started < 1.0
+
+
+@pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
+def test_split_url_token_scales_linearly_by_shape(shape: str) -> None:
+    text = _scale_text(shape)
+    started = time.perf_counter()
+    split_url_token(text)
+    assert time.perf_counter() - started < 1.0
+
+
+@pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
+def test_scrub_event_message_scales_linearly_by_shape(shape: str) -> None:
+    text = _scale_text(shape)
+    started = time.perf_counter()
+    config.scrub_event({"message": text}, None)
+    assert time.perf_counter() - started < 2.0
 
 
 if __name__ == "__main__":
