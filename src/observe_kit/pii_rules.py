@@ -3,7 +3,19 @@ from __future__ import annotations
 import hashlib
 import re
 from enum import Enum
-from typing import Any, Dict, FrozenSet, Mapping, MutableMapping, Optional, Set
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    Iterator,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from .conf import DEFAULT_PII_LEVELS, DROP_HEADERS, HASH_FIELDS, MASK_FIELDS
 
@@ -67,6 +79,52 @@ _ENCODED_EMAIL_RE = re.compile(
     r"(?:(?:[\w\-]|%(?!40)[0-9A-Fa-f]{2})+(?:\.|%2[Ee]))+"  # domain labels + dot
     r"(?:[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}){2,}"  # TLD (Unicode letters or encoded letters)
 )
+
+
+def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Spans of embedded emails in ``text``: exactly ``_EMAIL_RE.finditer``'s."""
+    for match in _EMAIL_RE.finditer(text):
+        yield match.span()
+
+
+def find_encoded_email_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Spans of percent-encoded emails in ``text``: exactly ``_ENCODED_EMAIL_RE.finditer``'s."""
+    for match in _ENCODED_EMAIL_RE.finditer(text):
+        yield match.span()
+
+
+def _replace_spans(
+    text: str, spans: Iterator[Tuple[int, int]], repl: Callable[[str], str]
+) -> Tuple[str, int]:
+    pieces: List[str] = []
+    last = count = 0
+    for start, end in spans:
+        pieces.append(text[last:start])
+        pieces.append(repl(text[start:end]))
+        last = end
+        count += 1
+    if not count:
+        return text, 0
+    pieces.append(text[last:])
+    return "".join(pieces), count
+
+
+def replace_email_spans(text: str, repl: Callable[[str], str]) -> Tuple[str, int]:
+    """Like ``_EMAIL_RE.subn`` with ``repl`` taking the matched text."""
+    return _replace_spans(text, find_email_spans(text), repl)
+
+
+def replace_encoded_email_spans(text: str, repl: Callable[[str], str]) -> Tuple[str, int]:
+    """Like ``_ENCODED_EMAIL_RE.subn`` with ``repl`` taking the matched text."""
+    return _replace_spans(text, find_encoded_email_spans(text), repl)
+
+
+def contains_email(text: str) -> bool:
+    return next(find_email_spans(text), None) is not None
+
+
+def contains_encoded_email(text: str) -> bool:
+    return next(find_encoded_email_spans(text), None) is not None
 
 
 class PiiLevel(str, Enum):
