@@ -57,26 +57,10 @@ _BARE_EMAIL_RE = re.compile(
 # matcher is whole-value anchored for ``_mask_value``. Both live here so email
 # grammar has a single owning module.
 _EMAIL_DOMAIN = r"(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
-_EMAIL_RE = re.compile(r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)@" + _EMAIL_DOMAIN)
-
-# Matches a percent-encoded email (``@`` → ``%40``) in a value that wasn't
-# routed through a URL/query parser (a free-text message, a generic ``extra``
-# leaf, …). Both the local part *and* the domain may carry percent-encoded
-# octets — a plus-addressed ``alice%2Btag``, an encoded local dot
-# ``alice%2Etest``, an encoded domain dot ``example%2Ecom``, or even encoded TLD
-# letters ``example%2E%63%6f%6d`` — so the local part, the domain labels *and*
-# the TLD accept any ``%XX`` *except* the ``%40`` separator (negative lookahead),
-# and the label separator may be a literal ``.`` or ``%2E``. Were ``%`` excluded
-# outright, the match would start after the last encoded octet (leaving a
-# recoverable ``alice.smith%2B`` prefix) or stop before an encoded domain dot /
-# encoded TLD (leaving the address recoverable). ``unquote`` then decodes the
-# whole matched token before masking.
-_ENCODED_EMAIL_RE = re.compile(
-    r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+"  # local part
-    r"%40"  # @
-    r"(?:(?:[\w\-]|%(?!40)[0-9A-Fa-f]{2})+(?:\.|%2[Ee]))+"  # domain labels + dot
-    r"(?:[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}){2,}"  # TLD (Unicode letters or encoded letters)
-)
+# Whole-value check only (``.fullmatch``): one attempt from index 0, so linear. Never call
+# ``finditer``/``search``/``sub`` on it: those retry the local part from every index and
+# are quadratic; use ``find_email_spans`` / ``replace_email_spans`` (#214).
+_EMAIL_FULLMATCH_RE = re.compile(r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)@" + _EMAIL_DOMAIN)
 
 
 _EMAIL_TAIL_RE = re.compile("@" + _EMAIL_DOMAIN)
@@ -114,7 +98,7 @@ def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
 
     Anchored on ``@`` instead of retrying the optional local part from every index,
     which was quadratic (#214). Two candidate streams (unquoted runs, quoted strings)
-    are merged by leftmost start, exactly as the regex alternation would.
+    are merged by leftmost start, exactly as the original regex alternation did.
     """
     if "@" not in text:
         return
@@ -143,6 +127,18 @@ def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
             pos = q[2]
 
 
+# Percent-encoded email (``@`` → ``%40``) in a value that wasn't
+# routed through a URL/query parser (a free-text message, a generic ``extra``
+# leaf, …). Both the local part *and* the domain may carry percent-encoded
+# octets — a plus-addressed ``alice%2Btag``, an encoded local dot
+# ``alice%2Etest``, an encoded domain dot ``example%2Ecom``, or even encoded TLD
+# letters ``example%2E%63%6f%6d`` — so the local part, the domain labels *and*
+# the TLD accept any ``%XX`` *except* the ``%40`` separator (negative lookahead),
+# and the label separator may be a literal ``.`` or ``%2E``. Were ``%`` excluded
+# outright, the match would start after the last encoded octet (leaving a
+# recoverable ``alice.smith%2B`` prefix) or stop before an encoded domain dot /
+# encoded TLD (leaving the address recoverable). ``unquote`` then decodes the
+# whole matched token before masking.
 _ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+")
 _ENC_TAIL_RE = re.compile(
     r"%40"  # @
@@ -187,12 +183,12 @@ def _replace_spans(
 
 
 def replace_email_spans(text: str, repl: Callable[[str], str]) -> Tuple[str, int]:
-    """Like ``_EMAIL_RE.subn`` with ``repl`` taking the matched text."""
+    """Like ``re.subn`` over the email pattern, with ``repl`` taking the matched text."""
     return _replace_spans(text, find_email_spans(text), repl)
 
 
 def replace_encoded_email_spans(text: str, repl: Callable[[str], str]) -> Tuple[str, int]:
-    """Like ``_ENCODED_EMAIL_RE.subn`` with ``repl`` taking the matched text."""
+    """Like ``re.subn`` over the encoded-email pattern, with ``repl`` taking the matched text."""
     return _replace_spans(text, find_encoded_email_spans(text), repl)
 
 
