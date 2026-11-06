@@ -300,6 +300,8 @@ _SCALE_CASES: Dict[str, Tuple[Callable[[int], str], int]] = {
     "dashes": (lambda n: "a-" * (n // 2), 30_000),
     "scheme-path": (lambda n: "https://h/" + "a" * n, 100_000),
     "relative-run": (lambda n: "/a?" * (n // 3), 100_000),
+    "no-slash-tails": (lambda n: "a?" * (n // 2) + "x=y", 30_000),
+    "slash-only-tails": (lambda n: "/?k=" * (n // 4), 30_000),
     "digits": (lambda n: "1" * n, 30_000),
     "colons": (lambda n: "a:" * (n // 2), 30_000),
     "slashes": (lambda n: "/" * n, 30_000),

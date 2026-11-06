@@ -89,9 +89,8 @@ def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
         run_start, run_end = run.span()
         if run_end <= pos or run_end >= len(text) or text[run_end] not in "?#":
             continue
-        tail = _ROOTLESS_TAIL_RE.match(text, run_end)
-        if tail is None:
-            continue
+        # Find a valid start first: a tail match on a run with none would rescan
+        # the suffix without advancing ``pos`` (quadratic on ``"/?k=" * n``).
         start = max(run_start, pos)
         while start < run_end and not (
             _ROOTLESS_FIRST_RE.match(text, start)
@@ -99,6 +98,9 @@ def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
         ):
             start += 1
         if start == run_end:
+            continue
+        tail = _ROOTLESS_TAIL_RE.match(text, run_end)
+        if tail is None:
             continue
         yield start, tail.end()
         pos = tail.end()
@@ -131,16 +133,18 @@ def _relative_spans(text: str) -> Iterator[Tuple[int, int]]:
             or run_end < fail_until
         ):
             continue
+        # Validate the start before the tail: a successful tail on a run without a
+        # valid leading ``/`` would rescan the suffix without advancing ``pos``.
+        start = text.find("/", max(run_start, pos), run_end)
+        while start > 0 and _RELATIVE_BAD_PREV_RE.match(text, start - 1):
+            start = text.find("/", start + 1, run_end)
+        if start == -1:
+            continue
         tail = _RELATIVE_TAIL_RE.match(text, run_end)
         if tail is None:
             # No ``=`` before the next stop character: every ``?`` before it fails too.
             stop = _RELATIVE_STOP_RE.search(text, run_end + 1)
             fail_until = stop.start() if stop else len(text)
-            continue
-        start = text.find("/", max(run_start, pos), run_end)
-        while start > 0 and _RELATIVE_BAD_PREV_RE.match(text, start - 1):
-            start = text.find("/", start + 1, run_end)
-        if start == -1:
             continue
         yield start, tail.end()
         pos = tail.end()
