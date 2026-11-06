@@ -56,10 +56,8 @@ _BARE_EMAIL_RE = re.compile(
 # (embedded matching in prose) and accepts single-label domains, whereas the bare
 # matcher is whole-value anchored for ``_mask_value``. Both live here so email
 # grammar has a single owning module.
-_EMAIL_RE = re.compile(
-    r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)"
-    r"@(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
-)
+_EMAIL_DOMAIN = r"(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
+_EMAIL_RE = re.compile(r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)@" + _EMAIL_DOMAIN)
 
 # Matches a percent-encoded email (``@`` → ``%40``) in a value that wasn't
 # routed through a URL/query parser (a free-text message, a generic ``extra``
@@ -81,10 +79,68 @@ _ENCODED_EMAIL_RE = re.compile(
 )
 
 
+_EMAIL_TAIL_RE = re.compile("@" + _EMAIL_DOMAIN)
+_EMAIL_LOCAL_RUN_RE = re.compile(r"[\w.%!$'^`{|}~+\-]+")
+_QUOTED_BODY_RE = re.compile(r'(?:[^"\\]|\\.)*')
+
+
+def _unquoted_groups(text: str) -> Iterator[Tuple[int, int, int]]:
+    # (run start, run end, match end): every start in [run start, run end) shares the match end.
+    for run in _EMAIL_LOCAL_RUN_RE.finditer(text):
+        lo, hi = run.span()
+        tail = _EMAIL_TAIL_RE.match(text, hi)
+        if tail is not None:
+            yield lo, hi, tail.end()
+
+
+def _quoted_groups(text: str) -> Iterator[Tuple[int, int, int]]:
+    # (first quote, closing quote, match end): the valid starts are the quotes q in
+    # [first quote, closing quote - 1) because the body needs at least one token.
+    i = text.find('"')
+    while i != -1:
+        body = _QUOTED_BODY_RE.match(text, i + 1)
+        stop = body.end() if body is not None else i + 1  # ``*`` always matches
+        if stop > i + 1 and stop < len(text) and text[stop] == '"':
+            tail = _EMAIL_TAIL_RE.match(text, stop + 1)
+            if tail is not None:
+                yield i, stop, tail.end()
+        # Quotes before ``stop`` are escaped quotes of this scan and fail or match the
+        # same way, so resume at ``stop``.
+        i = text.find('"', stop)
+
+
 def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
-    """Spans of embedded emails in ``text``: exactly ``_EMAIL_RE.finditer``'s."""
-    for match in _EMAIL_RE.finditer(text):
-        yield match.span()
+    """Spans of embedded emails in ``text``.
+
+    Anchored on ``@`` instead of retrying the optional local part from every index,
+    which was quadratic (#214). Two candidate streams (unquoted runs, quoted strings)
+    are merged by leftmost start, exactly as the regex alternation would.
+    """
+    if "@" not in text:
+        return
+    pos = 0
+    unquoted, quoted = _unquoted_groups(text), _quoted_groups(text)
+    u, q = next(unquoted, None), next(quoted, None)
+    qs = -1  # cached first valid quote start >= pos in the current quoted group
+    while True:
+        while u is not None and u[1] <= pos:
+            u = next(unquoted, None)
+        while q is not None:
+            if qs < pos:
+                qs = text.find('"', max(q[0], pos), q[1] - 1)
+            if qs != -1:
+                break
+            q = next(quoted, None)
+            qs = -1
+        if u is None and q is None:
+            return
+        if q is None or (u is not None and max(u[0], pos) < qs):
+            assert u is not None
+            yield max(u[0], pos), u[2]
+            pos = u[2]
+        else:
+            yield qs, q[2]
+            pos = q[2]
 
 
 _ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+")
