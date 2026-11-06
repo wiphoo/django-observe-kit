@@ -87,10 +87,31 @@ def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
         yield match.span()
 
 
+_ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+")
+_ENC_TAIL_RE = re.compile(
+    r"%40"  # @
+    r"(?:(?:[\w\-]|%(?!40)[0-9A-Fa-f]{2})+(?:\.|%2[Ee]))+"  # domain labels + dot
+    r"(?:[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}){2,}"  # TLD (Unicode letters or encoded letters)
+)
+
+
 def find_encoded_email_spans(text: str) -> Iterator[Tuple[int, int]]:
-    """Spans of percent-encoded emails in ``text``: exactly ``_ENCODED_EMAIL_RE.finditer``'s."""
-    for match in _ENCODED_EMAIL_RE.finditer(text):
-        yield match.span()
+    """Spans of percent-encoded emails in ``text`` (``%40`` for ``@``).
+
+    ``%40`` is never a local-part item, so a run of items always ends at the first
+    ``%40``; every start inside the run shares that end and the same tail. Match the
+    tail once per run instead of retrying the local part from each index (#214).
+    """
+    pos = 0
+    for run in _ENC_LOCAL_RUN_RE.finditer(text):
+        lo, hi = run.span()
+        if hi <= pos:
+            continue
+        tail = _ENC_TAIL_RE.match(text, hi)
+        if tail is None:
+            continue
+        yield max(lo, pos), tail.end()
+        pos = tail.end()
 
 
 def _replace_spans(
