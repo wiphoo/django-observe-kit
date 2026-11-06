@@ -10,11 +10,16 @@ single :mod:`.decode` seam.
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, Mapping
 from urllib.parse import unquote
 
-from ...pii_rules import _EMAIL_RE, _ENCODED_EMAIL_RE, _mask_value
+from ...pii_rules import (
+    _mask_value,
+    contains_email,
+    contains_encoded_email,
+    replace_email_spans,
+    replace_encoded_email_spans,
+)
 from .constants import REDACTED as _REDACTED
 from .constants import WS_SPLIT_RE as _WS_SPLIT_RE
 from .decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
@@ -53,20 +58,18 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
     masked = False
     cap_exhausted = False
     if "@" in encoded:
-        encoded, count = _EMAIL_RE.subn(lambda m: _mask_value(m.group(0)), encoded)
+        encoded, count = replace_email_spans(encoded, _mask_value)
         masked = masked or bool(count)
     for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
         if "%40" in encoded.lower():  # percent-encoded ``@``
-            encoded, count = _ENCODED_EMAIL_RE.subn(
-                lambda m: _mask_value(unquote(m.group(0))), encoded
-            )
+            encoded, count = replace_encoded_email_spans(encoded, lambda s: _mask_value(unquote(s)))
             masked = masked or bool(count)
         if "%" not in encoded:
             break
         # Decode only email-carrying substrings within each whitespace token,
         # preserving the original separators so newlines/tabs aren't collapsed.
         # A token is decoded only when doing so exposes a new maskable email
-        # pattern (``_EMAIL_RE`` or ``_ENCODED_EMAIL_RE`` match, or a ``%40``
+        # pattern (an email or encoded-email match, or a ``%40``
         # that was previously invisible) — a punctuation-adjacent encoded
         # fragment like ``alice@example.com,progress=100%25`` is not decoded
         # into ``a***@example.com,progress=100%`` because the email pattern
@@ -91,12 +94,10 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
                 else decoded_token
             )
             has_new_email = (
-                (_EMAIL_RE.search(decoded_token) and not _EMAIL_RE.search(token))
-                or (_ENCODED_EMAIL_RE.search(decoded_token) and not _ENCODED_EMAIL_RE.search(token))
-                or (_EMAIL_RE.search(double_decoded) and not _EMAIL_RE.search(token))
-                or (
-                    _ENCODED_EMAIL_RE.search(double_decoded) and not _ENCODED_EMAIL_RE.search(token)
-                )
+                (contains_email(decoded_token) and not contains_email(token))
+                or (contains_encoded_email(decoded_token) and not contains_encoded_email(token))
+                or (contains_email(double_decoded) and not contains_email(token))
+                or (contains_encoded_email(double_decoded) and not contains_encoded_email(token))
                 or ("%40" in decoded_token.lower() and "%40" not in token.lower())
             )
             if has_new_email:
@@ -108,20 +109,18 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
                 # the full token to expose it; the side effect of decoding
                 # adjacent encoded data (``progress=100%25`` → ``progress=100%``)
                 # is acceptable compared to leaking the email.
-                def _decode_mask(m: "re.Match[str]") -> str:
-                    return _mask_value(unquote(m.group(0)))
+                def _decode_mask(matched: str) -> str:
+                    return _mask_value(unquote(matched))
 
-                if _ENCODED_EMAIL_RE.search(token):
-                    parts[i] = _ENCODED_EMAIL_RE.sub(_decode_mask, token)
+                if contains_encoded_email(token):
+                    parts[i] = replace_encoded_email_spans(token, _decode_mask)[0]
                 else:
                     # Decode one level at a time until an encoded email surfaces,
                     # then mask it; if none surfaces within the cap, keep the
                     # fully-decoded token. Shares the single bounded-decode seam.
-                    decoded, matched = _decode_until(
-                        token, lambda d: bool(_ENCODED_EMAIL_RE.search(d))
-                    )
+                    decoded, matched = _decode_until(token, contains_encoded_email)
                     if matched:
-                        decoded = _ENCODED_EMAIL_RE.sub(_decode_mask, decoded)
+                        decoded = replace_encoded_email_spans(decoded, _decode_mask)[0]
                     parts[i] = decoded
                 masked = True
                 changed = True
@@ -129,7 +128,7 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
             break
         encoded = "".join(parts)
         if "@" in encoded:  # a decode pass exposed a shallower-encoded email
-            encoded, count = _EMAIL_RE.subn(lambda m: _mask_value(m.group(0)), encoded)
+            encoded, count = replace_email_spans(encoded, _mask_value)
             masked = masked or bool(count)
     else:
         # Loop exhausted all iterations — the decode cap was reached while the
@@ -155,7 +154,7 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
         if exhausted:
             return _REDACTED if redact_on_exhaust else _mask_emails_basic(value)
         if ("@" in decoded and "[Filtered]@" not in decoded) or (
-            _EMAIL_RE.search(decoded) or _ENCODED_EMAIL_RE.search(decoded)
+            contains_email(decoded) or contains_encoded_email(decoded)
         ):
             return _REDACTED if redact_on_exhaust else _mask_emails_basic(value)
         return encoded
@@ -172,8 +171,8 @@ def _mask_emails_basic(value: str) -> Any:
     — and only redact wholesale when even that finds no email (a fully
     recoverable encoded address).
     """
-    masked = _ENCODED_EMAIL_RE.sub(lambda m: _mask_value(unquote(m.group(0))), value)
-    masked = _EMAIL_RE.sub(lambda m: _mask_value(m.group(0)), masked)
+    masked = replace_encoded_email_spans(value, lambda s: _mask_value(unquote(s)))[0]
+    masked = replace_email_spans(masked, _mask_value)[0]
     return masked if masked != value else _REDACTED
 
 
