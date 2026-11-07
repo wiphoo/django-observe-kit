@@ -99,6 +99,18 @@ _ENCODED_HEAVY = [
     "%63",
     "%6f",
 ]
+# ``%2E`` is both a domain-label item and a separator, and digit labels are not a
+# valid TLD: the combination the original pattern backtracked exponentially on.
+_ENCODED_AMBIGUOUS = [
+    "a", "1", "_", "-", ".", "%2E", "%2e", "%41", "%31", "%40", "%4", "%zz", "%2B", "b",
+    "é", "٣", "a%40", "1%2E", "%2E%2E", "..", "a.", "%40a",
+]  # fmt: skip
+
+
+@_DIFF
+@given(text=_text(_ENCODED_AMBIGUOUS, 14))
+def test_encoded_spans_match_reference_ambiguous_separator(text: str) -> None:
+    assert list(find_encoded_email_spans(text)) == _ref(_REFERENCE_ENCODED_EMAIL_RE, text), text
 
 
 @_DIFF
@@ -137,6 +149,8 @@ _EDGE_CASES = [
     "a%40%40bb.cc", "%40bb.cc", "a%40", "a%4", "a%zz%40bb.cc", "%41%40bb.cc", "a%2540bb.cc",
     "a%40b.c", "x%40y.zz x%40y.zz", "a@bb.cc%40dd.ee", "ſa@bb.cc", "a@bb.cK",
     "a%40%40bb.cc%40dd.ee", "40%40bb.cc", "%40%40bb.cc",
+    "a%40" + "1%2E" * 12, "a%40" + "1%2E" * 12 + "cc", "a%40b%2E.", "a%40b%2E%2Ecc", "a%40..cc",
+    "a%40b%2E%2E", "a%40%2Ecc", "a%40b.%2E%2Ecc", "a%40b%2Ecc%2E1%2Edd",
 ]  # fmt: skip
 
 
@@ -181,6 +195,9 @@ _ENCODED_SCALE: Dict[str, Callable[[int], str]] = {
     "encoded-dots": lambda n: "a%40" + "a%2E" * (n // 4) + "1",
     "many-emails": lambda n: "x%40y.zz " * (n // 9),
     "separators": lambda n: "%40" * (n // 3),
+    # Digit labels joined by ``%2E`` and no valid TLD: exponential with the old pattern.
+    "ambiguous-separator": lambda n: "a%40" + "1%2E" * (n // 4),
+    "ambiguous-separator-tld": lambda n: "a%40" + "a%2E" * (n // 4) + "1",
 }
 _FINDERS: Dict[str, Callable[[str], Iterator[Tuple[int, int]]]] = {
     "email": find_email_spans,

@@ -52,10 +52,10 @@ _BARE_EMAIL_RE = re.compile(
 # ``parts.path``; ``_scrub_text`` re-runs this after URL scrubbing), so allowing
 # them would let a match swallow ``/users/…`` path segments or a ``?email=…`` query
 # and corrupt the URL. Those characters are extremely rare in real local parts.
-# NOTE: kept distinct from ``_BARE_EMAIL_RE`` on purpose — this one is *unanchored*
-# (embedded matching in prose) and accepts single-label domains, whereas the bare
-# matcher is whole-value anchored for ``_mask_value``. Both live here so email
-# grammar has a single owning module.
+# NOTE: kept distinct from ``_BARE_EMAIL_RE`` on purpose — this grammar is used for
+# *embedded* matching in prose (via the scanners below) and accepts single-label
+# domains, whereas the bare matcher is whole-value anchored for ``_mask_value``. Both
+# live here so email grammar has a single owning module.
 _EMAIL_DOMAIN = r"(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
 # Whole-value check only (``.fullmatch``): one attempt from index 0, so linear. Never call
 # ``finditer``/``search``/``sub`` on it: those retry the local part from every index and
@@ -140,11 +140,57 @@ def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
 # encoded TLD (leaving the address recoverable). ``unquote`` then decodes the
 # whole matched token before masking.
 _ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+")
-_ENC_TAIL_RE = re.compile(
-    r"%40"  # @
-    r"(?:(?:[\w\-]|%(?!40)[0-9A-Fa-f]{2})+(?:\.|%2[Ee]))+"  # domain labels + dot
-    r"(?:[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}){2,}"  # TLD (Unicode letters or encoded letters)
-)
+# Domain tokens after ``%40``: a label item, a label separator (``.`` / ``%2E``) and a
+# TLD item. ``%2E`` is both a label item and a separator, which made the original
+# ``(?:(?:ITEM)+(?:SEP))+(?:TLD){2,}`` pattern exponential on ``"a%40" + "1%2E" * n``.
+_ENC_ITEM_RE = re.compile(r"[\w\-]|%(?!40)[0-9A-Fa-f]{2}")
+_ENC_SEP_RE = re.compile(r"\.|%2[Ee]")
+_ENC_TLD_RE = re.compile(r"[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}")
+
+
+def _encoded_domain_end(text: str, start: int) -> int:
+    """End of the encoded domain that follows ``%40`` (``start`` is after it), or -1.
+
+    Same result as the backtracking pattern ``(?:ITEM+ SEP)+ TLD{2,}``: a depth-first
+    search that tries the alternatives in the pattern's own preference order (longer
+    label first, then the separator). A state that was already explored cannot succeed
+    on a second visit, so each state is expanded once and the search is linear (#214).
+    """
+    # ("start", p): before the first item of a label. ("item", p): inside a label after
+    # >= 1 item. ("group", p): after a separator. ("tld", p): try the TLD at p.
+    stack: List[Tuple[str, int]] = [("start", start)]
+    seen: Set[Tuple[str, int]] = set()
+    while stack:
+        state = stack.pop()
+        if state in seen:
+            continue
+        seen.add(state)
+        kind, p = state
+        if kind == "group":
+            # Another label group is preferred over stopping here for the TLD.
+            stack.append(("tld", p))
+            stack.append(("start", p))
+            continue
+        if kind == "tld":
+            end, count = p, 0
+            tld = _ENC_TLD_RE.match(text, end)
+            while tld is not None:
+                end, count = tld.end(), count + 1
+                tld = _ENC_TLD_RE.match(text, end)
+            if count >= 2:
+                return end
+            continue
+        # "start" / "item": one more item is preferred, then (after >= 1 item) a separator.
+        pending: List[Tuple[str, int]] = []
+        item = _ENC_ITEM_RE.match(text, p)
+        if item is not None:
+            pending.append(("item", item.end()))
+        if kind == "item":
+            sep = _ENC_SEP_RE.match(text, p)
+            if sep is not None:
+                pending.append(("group", sep.end()))
+        stack.extend(reversed(pending))
+    return -1
 
 
 def find_encoded_email_spans(text: str) -> Iterator[Tuple[int, int]]:
@@ -159,11 +205,13 @@ def find_encoded_email_spans(text: str) -> Iterator[Tuple[int, int]]:
         lo, hi = run.span()
         if hi <= pos:
             continue
-        tail = _ENC_TAIL_RE.match(text, hi)
-        if tail is None:
+        if not text.startswith("%40", hi):
             continue
-        yield max(lo, pos), tail.end()
-        pos = tail.end()
+        end = _encoded_domain_end(text, hi + 3)
+        if end < 0:
+            continue
+        yield max(lo, pos), end
+        pos = end
 
 
 def _replace_spans(
