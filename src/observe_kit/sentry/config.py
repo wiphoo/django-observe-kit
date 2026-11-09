@@ -5,6 +5,7 @@ import logging
 import re
 from bisect import bisect_right
 from dataclasses import dataclass, field, replace
+from itertools import islice
 from typing import (
     Any,
     Callable,
@@ -19,7 +20,7 @@ from typing import (
     TypeGuard,
     cast,
 )
-from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, unquote_plus, urlencode, urlparse, urlsplit, urlunsplit
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -489,6 +490,32 @@ def _value_carries_url(value: str) -> bool:
     )
 
 
+# A non-URL prefix glued to a nested relative URL (``redirect:/search?…``,
+# ``x=/p?…``, ``/docs'redirect:/p?…``) — the URL locators reject a relative URL after
+# such a prefix, so :func:`_value_carries_url` alone would leave its query
+# unscrubbed. The delimiter must be directly followed by ``/`` or ``?``.
+_URL_PREFIX_RE = re.compile(r"[:;=,'\"](?=[/?])")
+_MAX_PREFIX_SPLIT_TRIES = 8  # bound the rescans so a ``:/:/:/…`` value stays linear
+
+
+def _prefixed_url_split(value: str) -> Optional[Tuple[str, str]]:
+    """Split ``prefix`` + nested URL when ``value`` is a prefixed relative URL, else ``None``."""
+    for match in islice(_URL_PREFIX_RE.finditer(value), _MAX_PREFIX_SPLIT_TRIES):
+        if _value_carries_url(value[match.end() :]):
+            return value[: match.end()], value[match.end() :]
+    return None
+
+
+def _scrub_carried_url(value: str, opts: _PiiOpts, depth: int = 0) -> Optional[str]:
+    """Scrub ``value`` if it is a URL or a prefixed nested URL, else ``None``."""
+    if _value_carries_url(value):
+        return _scrub_urlish_value(value, opts, depth)
+    split = _prefixed_url_split(value)
+    if split:
+        return split[0] + _scrub_urlish_value(split[1], opts, depth)
+    return None
+
+
 def _scrub_url_token(token: str, opts: _PiiOpts, depth: int = 0) -> str:
     """Scrub one absolute-URL token, scrubbing each adjacent URL independently."""
     return "".join(
@@ -530,6 +557,37 @@ def _absolute_and_relative_spans(value: str) -> List[UrlSpan]:
     return find_url_spans(value, kinds=("absolute",)) + find_url_spans(value, kinds=("relative",))
 
 
+def _hides_url_structure(raw: str) -> bool:
+    """True when a query key/value, decoded as deep as the scrubber does, holds ``? # //``."""
+    decoded = unquote_plus(raw)
+    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
+        nxt = unquote(decoded)
+        if nxt == decoded:
+            break
+        decoded = nxt
+    return "?" in decoded or "#" in decoded or "//" in decoded
+
+
+def _outer_scrub_handles(raw: str) -> bool:
+    """True when :func:`_scrub_url_if_carries` would scrub this raw query key/value.
+
+    Mirrors its decode loop (``parse_qsl`` decodes once, then up to the fixed pass
+    limit, and a value still encoded after that is redacted), so the hidden-URL
+    pass can leave exactly those slices to the outer scrub.
+    """
+    value = unquote_plus(raw)
+    if _value_carries_url(value):
+        return True
+    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
+        nxt = unquote(value)
+        if nxt == value:
+            return _prefixed_url_split(value) is not None
+        value = nxt
+        if _value_carries_url(value):
+            return True
+    return unquote(value) != value  # exhausted: the outer scrub redacts it
+
+
 def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optional[str]:
     """Return the scrubbed value if it is / carries a URL, else ``None``.
 
@@ -545,8 +603,8 @@ def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optiona
     """
     if _value_carries_url(value):
         return _scrub_urlish_value(value, opts, depth)
+    decoded = value
     if "%" in value:
-        decoded = value
         for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
             next_decoded = unquote(decoded)
             if next_decoded == decoded:
@@ -557,6 +615,11 @@ def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optiona
         else:
             if unquote(decoded) != decoded:
                 return _REDACTED
+    # Only once fully decoded: a prefixed nested URL (``redirect:/search?…``) —
+    # trying it earlier would scrub just the tail of a still-encoded value.
+    split = _prefixed_url_split(decoded)
+    if split:
+        return split[0] + _scrub_urlish_value(split[1], opts, depth)
     return None
 
 
@@ -646,6 +709,14 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
     """
     scrubbed: List[Tuple[str, str]] = []
     for key, value in parse_qsl(query_string, keep_blank_values=True):
+        if "?" in key:
+            # A nested query lives *inside* the key (``?a:/search?phone=…`` splits at
+            # the first ``=`` into key ``a:/search?phone``): re-join and scrub the
+            # whole thing as a URL so the value gets the field rules.
+            joined = _scrub_carried_url(f"{key}={value}", opts, depth)
+            if joined is not None:
+                scrubbed.append((joined, ""))
+                continue
         for k, v in opts.mapping({key: value}).items():
             if isinstance(v, str):
                 if v != value:
@@ -1463,41 +1534,35 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             path_regions[idx] = (start + path_start, start + path_end)
         return path_regions[idx]
 
-    handled_tokens: Dict[Tuple[int, int], bool] = {}
+    handled_ranges: Dict[Tuple[int, int], bool] = {}
 
     def _query_value_handled(idx: int, start: int, end: int) -> bool:
-        # The slice sits after the path. In the *query*, the outer scrub only
-        # recurses into a value that ``_scrub_url_if_carries`` recognises as a URL
-        # once decoded; a prefixed redirect (``next=redirect:%2Fsearch%3Fphone%3D…``)
-        # is not, so keep this pass responsible for it. The fragment is redacted
-        # wholesale by the outer scrub, so it is always handled there.
+        # The slice sits after the path. In the *query*, the outer scrub parses
+        # ``key=value`` pairs separately and only recurses into a part that
+        # ``_outer_scrub_handles`` accepts, so *every* pair part the slice covers
+        # (key and value — a candidate can span several ``&``-joined parameters)
+        # that carries percent-encoding must pass; a part that doesn't (a prefixed
+        # redirect ``foo=redirect:%2Fsearch%3Fphone%3D…``) keeps this pass
+        # responsible for the whole slice. The fragment is redacted wholesale by the
+        # outer scrub, so a slice there is always handled.
         span_start, span_end = url_spans[idx]
         q = text.find("?", span_start, span_end)
         if q < 0 or start < q or text.find("#", q, start) >= 0:
             return True
+        frag = text.find("#", q, span_end)
+        query_end = span_end if frag < 0 else frag
         pair_start = max(q, text.rfind("&", q, start)) + 1
-        eq = text.find("=", pair_start, start)
-        value_start = eq + 1 if eq >= 0 else pair_start
-        value_end = text.find("&", end, span_end)
-        value_end = span_end if value_end < 0 else value_end
-        frag = text.find("#", value_start, value_end)
-        value_end = value_end if frag < 0 else frag
-        key = (value_start, value_end)
-        if key not in handled_tokens:
-            value = unquote(text[value_start:value_end])
-            handled = _value_carries_url(value)
-            for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-                if handled:
-                    break
-                nxt = unquote(value)
-                if nxt == value:
-                    break
-                value = nxt
-                handled = _value_carries_url(value)
-            else:
-                handled = handled or unquote(value) != value  # outer redacts it
-            handled_tokens[key] = handled
-        return handled_tokens[key]
+        pair_end = text.find("&", min(end, query_end), query_end)
+        pair_end = query_end if pair_end < 0 else pair_end
+        key = (pair_start, pair_end)
+        if key not in handled_ranges:
+            handled_ranges[key] = all(
+                _outer_scrub_handles(part)
+                for pair in text[pair_start:pair_end].split("&")
+                for part in pair.partition("=")[::2]
+                if _hides_url_structure(part)
+            )
+        return handled_ranges[key]
 
     def _repl(match: "re.Match[str]") -> str:
         # An encoded slice inside a *visible* URL's authority or query is left for
@@ -1532,8 +1597,8 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             return candidate
         if unquote(decoded) != decoded:
             return _REDACTED
-        if _value_carries_url(decoded):
-            scrubbed = _scrub_urlish_value(decoded, opts, depth)
+        scrubbed = _scrub_carried_url(decoded, opts, depth)
+        if scrubbed is not None:
             # ``scrubbed == decoded`` means the URL was isolated but contained
             # no values requiring scrubbing — keep the original candidate rather
             # than redacting it, so benign encoded URLs (``%2Fdocs%3Fpage%3D1``)
