@@ -3,7 +3,19 @@ from __future__ import annotations
 import hashlib
 import re
 from enum import Enum
-from typing import Any, Dict, FrozenSet, Mapping, MutableMapping, Optional, Set
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    Iterator,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Set,
+    Tuple,
+)
 
 from .conf import DEFAULT_PII_LEVELS, DROP_HEADERS, HASH_FIELDS, MASK_FIELDS
 
@@ -40,16 +52,82 @@ _BARE_EMAIL_RE = re.compile(
 # ``parts.path``; ``_scrub_text`` re-runs this after URL scrubbing), so allowing
 # them would let a match swallow ``/users/…`` path segments or a ``?email=…`` query
 # and corrupt the URL. Those characters are extremely rare in real local parts.
-# NOTE: kept distinct from ``_BARE_EMAIL_RE`` on purpose — this one is *unanchored*
-# (embedded matching in prose) and accepts single-label domains, whereas the bare
-# matcher is whole-value anchored for ``_mask_value``. Both live here so email
-# grammar has a single owning module.
-_EMAIL_RE = re.compile(
-    r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)"
-    r"@(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
-)
+# NOTE: kept distinct from ``_BARE_EMAIL_RE`` on purpose — this grammar is used for
+# *embedded* matching in prose (via the scanners below) and accepts single-label
+# domains, whereas the bare matcher is whole-value anchored for ``_mask_value``. Both
+# live here so email grammar has a single owning module.
+_EMAIL_DOMAIN = r"(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
+# Whole-value check only (``.fullmatch``): one attempt from index 0, so linear. Never call
+# ``finditer``/``search``/``sub`` on it: those retry the local part from every index and
+# are quadratic; use ``find_email_spans`` / ``replace_email_spans`` (#214).
+_EMAIL_FULLMATCH_RE = re.compile(r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)@" + _EMAIL_DOMAIN)
 
-# Matches a percent-encoded email (``@`` → ``%40``) in a value that wasn't
+
+_EMAIL_TAIL_RE = re.compile("@" + _EMAIL_DOMAIN)
+_EMAIL_LOCAL_RUN_RE = re.compile(r"[\w.%!$'^`{|}~+\-]+")
+_QUOTED_BODY_RE = re.compile(r'(?:[^"\\]|\\.)*')
+
+
+def _unquoted_groups(text: str) -> Iterator[Tuple[int, int, int]]:
+    # (run start, run end, match end): every start in [run start, run end) shares the match end.
+    for run in _EMAIL_LOCAL_RUN_RE.finditer(text):
+        lo, hi = run.span()
+        tail = _EMAIL_TAIL_RE.match(text, hi)
+        if tail is not None:
+            yield lo, hi, tail.end()
+
+
+def _quoted_groups(text: str) -> Iterator[Tuple[int, int, int]]:
+    # (first quote, closing quote, match end): the valid starts are the quotes q in
+    # [first quote, closing quote - 1) because the body needs at least one token.
+    i = text.find('"')
+    while i != -1:
+        body = _QUOTED_BODY_RE.match(text, i + 1)
+        stop = body.end() if body is not None else i + 1  # ``*`` always matches
+        if stop > i + 1 and stop < len(text) and text[stop] == '"':
+            tail = _EMAIL_TAIL_RE.match(text, stop + 1)
+            if tail is not None:
+                yield i, stop, tail.end()
+        # Quotes before ``stop`` are escaped quotes of this scan and fail or match the
+        # same way, so resume at ``stop``.
+        i = text.find('"', stop)
+
+
+def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Spans of embedded emails in ``text``.
+
+    Anchored on ``@`` instead of retrying the optional local part from every index,
+    which was quadratic (#214). Two candidate streams (unquoted runs, quoted strings)
+    are merged by leftmost start, exactly as the original regex alternation did.
+    """
+    if "@" not in text:
+        return
+    pos = 0
+    unquoted, quoted = _unquoted_groups(text), _quoted_groups(text)
+    u, q = next(unquoted, None), next(quoted, None)
+    qs = -1  # cached first valid quote start >= pos in the current quoted group
+    while True:
+        while u is not None and u[1] <= pos:
+            u = next(unquoted, None)
+        while q is not None:
+            if qs < pos:
+                qs = text.find('"', max(q[0], pos), q[1] - 1)
+            if qs != -1:
+                break
+            q = next(quoted, None)
+            qs = -1
+        if u is None and q is None:
+            return
+        if q is None or (u is not None and max(u[0], pos) < qs):
+            assert u is not None
+            yield max(u[0], pos), u[2]
+            pos = u[2]
+        else:
+            yield qs, q[2]
+            pos = q[2]
+
+
+# Percent-encoded email (``@`` → ``%40``) in a value that wasn't
 # routed through a URL/query parser (a free-text message, a generic ``extra``
 # leaf, …). Both the local part *and* the domain may carry percent-encoded
 # octets — a plus-addressed ``alice%2Btag``, an encoded local dot
@@ -61,12 +139,113 @@ _EMAIL_RE = re.compile(
 # recoverable ``alice.smith%2B`` prefix) or stop before an encoded domain dot /
 # encoded TLD (leaving the address recoverable). ``unquote`` then decodes the
 # whole matched token before masking.
-_ENCODED_EMAIL_RE = re.compile(
-    r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+"  # local part
-    r"%40"  # @
-    r"(?:(?:[\w\-]|%(?!40)[0-9A-Fa-f]{2})+(?:\.|%2[Ee]))+"  # domain labels + dot
-    r"(?:[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}){2,}"  # TLD (Unicode letters or encoded letters)
-)
+_ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+")
+# Domain tokens after ``%40``: a label item, a label separator (``.`` / ``%2E``) and a
+# TLD item. ``%2E`` is both a label item and a separator, which made the original
+# ``(?:(?:ITEM)+(?:SEP))+(?:TLD){2,}`` pattern exponential on ``"a%40" + "1%2E" * n``.
+_ENC_ITEM_RE = re.compile(r"[\w\-]|%(?!40)[0-9A-Fa-f]{2}")
+_ENC_SEP_RE = re.compile(r"\.|%2[Ee]")
+_ENC_TLD_RE = re.compile(r"[^\W\d_]|%(?!40)[0-9A-Fa-f]{2}")
+
+
+def _encoded_domain_end(text: str, start: int) -> int:
+    """End of the encoded domain that follows ``%40`` (``start`` is after it), or -1.
+
+    Same result as the backtracking pattern ``(?:ITEM+ SEP)+ TLD{2,}``: a depth-first
+    search that tries the alternatives in the pattern's own preference order (longer
+    label first, then the separator). A state that was already explored cannot succeed
+    on a second visit, so each state is expanded once and the search is linear (#214).
+    """
+    # ("start", p): before the first item of a label. ("item", p): inside a label after
+    # >= 1 item. ("group", p): after a separator. ("tld", p): try the TLD at p.
+    stack: List[Tuple[str, int]] = [("start", start)]
+    seen: Set[Tuple[str, int]] = set()
+    while stack:
+        state = stack.pop()
+        if state in seen:
+            continue
+        seen.add(state)
+        kind, p = state
+        if kind == "group":
+            # Another label group is preferred over stopping here for the TLD.
+            stack.append(("tld", p))
+            stack.append(("start", p))
+            continue
+        if kind == "tld":
+            end, count = p, 0
+            tld = _ENC_TLD_RE.match(text, end)
+            while tld is not None:
+                end, count = tld.end(), count + 1
+                tld = _ENC_TLD_RE.match(text, end)
+            if count >= 2:
+                return end
+            continue
+        # "start" / "item": one more item is preferred, then (after >= 1 item) a separator.
+        pending: List[Tuple[str, int]] = []
+        item = _ENC_ITEM_RE.match(text, p)
+        if item is not None:
+            pending.append(("item", item.end()))
+        if kind == "item":
+            sep = _ENC_SEP_RE.match(text, p)
+            if sep is not None:
+                pending.append(("group", sep.end()))
+        stack.extend(reversed(pending))
+    return -1
+
+
+def find_encoded_email_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Spans of percent-encoded emails in ``text`` (``%40`` for ``@``).
+
+    ``%40`` is never a local-part item, so a run of items always ends at the first
+    ``%40``; every start inside the run shares that end and the same tail. Match the
+    tail once per run instead of retrying the local part from each index (#214).
+    """
+    pos = 0
+    for run in _ENC_LOCAL_RUN_RE.finditer(text):
+        lo, hi = run.span()
+        if hi <= pos:
+            continue
+        if not text.startswith("%40", hi):
+            continue
+        end = _encoded_domain_end(text, hi + 3)
+        if end < 0:
+            continue
+        yield max(lo, pos), end
+        pos = end
+
+
+def _replace_spans(
+    text: str, spans: Iterator[Tuple[int, int]], repl: Callable[[str], str]
+) -> Tuple[str, int]:
+    pieces: List[str] = []
+    last = count = 0
+    for start, end in spans:
+        pieces.append(text[last:start])
+        pieces.append(repl(text[start:end]))
+        last = end
+        count += 1
+    if not count:
+        return text, 0
+    pieces.append(text[last:])
+    return "".join(pieces), count
+
+
+def replace_email_spans(text: str, repl: Callable[[str], str]) -> Tuple[str, int]:
+    """Like ``re.subn`` over the email pattern, with ``repl`` taking the matched text."""
+    return _replace_spans(text, find_email_spans(text), repl)
+
+
+def replace_encoded_email_spans(text: str, repl: Callable[[str], str]) -> Tuple[str, int]:
+    """Like ``re.subn`` over the encoded-email pattern, with ``repl`` taking the matched text."""
+    return _replace_spans(text, find_encoded_email_spans(text), repl)
+
+
+def contains_email(text: str) -> bool:
+    return next(find_email_spans(text), None) is not None
+
+
+def contains_encoded_email(text: str) -> bool:
+    return next(find_encoded_email_spans(text), None) is not None
 
 
 class PiiLevel(str, Enum):

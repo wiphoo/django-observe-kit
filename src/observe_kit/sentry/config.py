@@ -25,7 +25,7 @@ from sentry_sdk.integrations.django import DjangoIntegration
 
 from ..conf import PII_SINK_SENTRY, cgi_header_name
 from ..pii_rules import (
-    _EMAIL_RE,
+    _EMAIL_FULLMATCH_RE,
     PiiLevel,
     _hash_value,
     effective_sets,
@@ -114,9 +114,9 @@ _HIDDEN_ENCODED_URL_RE = re.compile(
     r"(?:[\w.~!$'*+@:/?#=&\-]|%[0-9A-Fa-f]{2})*"
 )
 
-# ``_EMAIL_RE`` (embedded, free-text) and ``_ENCODED_EMAIL_RE`` (percent-encoded)
-# are defined in ``pii_rules`` alongside ``_BARE_EMAIL_RE`` so email grammar has a
-# single owning module; they are imported at the top of this file.
+# The embedded and percent-encoded email scanners (``find_email_spans`` /
+# ``find_encoded_email_spans``) live in ``pii_rules`` alongside ``_BARE_EMAIL_RE`` so
+# email grammar has a single owning module; ``_EMAIL_FULLMATCH_RE`` is imported above.
 
 # Well-known keys whose *value* is a full or relative URL / a bare path. These
 # are the OTel/Sentry semantic span-data attribute names (plus the plain ``url``
@@ -323,13 +323,17 @@ def _redact_partial_email_mask(original: Any, masked: Any) -> Any:
     ``_mask_value`` masks only the local part of an email and keeps everything
     after the domain, so a matched value like ``alice@example.com supersecret``
     becomes ``a***@example.com supersecret`` — leaking the trailing secret. When
-    the original was more than a bare email (fails :data:`_EMAIL_RE` ``fullmatch``),
+    the original was more than a bare email (fails :data:`_EMAIL_FULLMATCH_RE` ``fullmatch``),
     redact the whole value. A SHA256 hash or a clean whole-value email mask
     (``a***@example.com``) is kept as-is.
     """
     if _is_sha256_hex(masked):
         return masked
-    if isinstance(original, str) and "@" in original and not _EMAIL_RE.fullmatch(original):
+    if (
+        isinstance(original, str)
+        and "@" in original
+        and not _EMAIL_FULLMATCH_RE.fullmatch(original)
+    ):
         return _REDACTED
     return masked
 
