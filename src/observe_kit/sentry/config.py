@@ -428,12 +428,17 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
     # preserved rather than merged into the newly exposed one. The authority is
     # left encoded — ``_scrub_url`` decodes ``%40`` userinfo itself.
     exposed_path = _URL_FRAG_DELIM_RE.sub("#", _URL_QUERY_DELIM_RE.sub("?", orig_parts.path))
-    path_parts = urlsplit(exposed_path)  # splits the path into path/query/fragment
+    # Split path/query/fragment by hand rather than ``urlsplit``: a path like
+    # ``//[redirect?…`` (an empty path segment then ``[``) reads as an authority
+    # with an unclosed IPv6 bracket and would raise ``ValueError`` out of
+    # ``before_send``, dropping the event.
+    path_head, _, path_fragment = exposed_path.partition("#")
+    path_only, _, path_query = path_head.partition("?")
     # Decode the hidden query by exactly the outer query delimiter's encoding depth
     # (``%3F`` → one level, ``%253F`` → two, …) so ``parse_qsl`` can split
     # ``key=value`` pairs and ``&`` separators, while a more deeply encoded octet
     # inside a value (``%2526`` beside a single-encoded ``%3F``) stays encoded.
-    hidden_query = path_parts.query
+    hidden_query = path_query
     if hidden_query:
         qmatch = _URL_QUERY_DELIM_RE.search(orig_parts.path)
         levels = (len(qmatch.group()) - 3) // 2 + 1 if qmatch else 1
@@ -444,8 +449,8 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
         query = f"{hidden_query}&{orig_parts.query}"
     else:
         query = hidden_query or orig_parts.query
-    fragment = path_parts.fragment or orig_parts.fragment
-    return urlunsplit((orig_parts.scheme, orig_parts.netloc, path_parts.path, query, fragment))
+    fragment = path_fragment or orig_parts.fragment
+    return urlunsplit((orig_parts.scheme, orig_parts.netloc, path_only, query, fragment))
 
 
 def _value_carries_url(value: str) -> bool:
@@ -1458,6 +1463,42 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             path_regions[idx] = (start + path_start, start + path_end)
         return path_regions[idx]
 
+    handled_tokens: Dict[Tuple[int, int], bool] = {}
+
+    def _query_value_handled(idx: int, start: int, end: int) -> bool:
+        # The slice sits after the path. In the *query*, the outer scrub only
+        # recurses into a value that ``_scrub_url_if_carries`` recognises as a URL
+        # once decoded; a prefixed redirect (``next=redirect:%2Fsearch%3Fphone%3D…``)
+        # is not, so keep this pass responsible for it. The fragment is redacted
+        # wholesale by the outer scrub, so it is always handled there.
+        span_start, span_end = url_spans[idx]
+        q = text.find("?", span_start, span_end)
+        if q < 0 or start < q or text.find("#", q, start) >= 0:
+            return True
+        pair_start = max(q, text.rfind("&", q, start)) + 1
+        eq = text.find("=", pair_start, start)
+        value_start = eq + 1 if eq >= 0 else pair_start
+        value_end = text.find("&", end, span_end)
+        value_end = span_end if value_end < 0 else value_end
+        frag = text.find("#", value_start, value_end)
+        value_end = value_end if frag < 0 else frag
+        key = (value_start, value_end)
+        if key not in handled_tokens:
+            value = unquote(text[value_start:value_end])
+            handled = _value_carries_url(value)
+            for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
+                if handled:
+                    break
+                nxt = unquote(value)
+                if nxt == value:
+                    break
+                value = nxt
+                handled = _value_carries_url(value)
+            else:
+                handled = handled or unquote(value) != value  # outer redacts it
+            handled_tokens[key] = handled
+        return handled_tokens[key]
+
     def _repl(match: "re.Match[str]") -> str:
         # An encoded slice inside a *visible* URL's authority or query is left for
         # the absolute-URL scrub, which scrubs the whole URL as a unit — redacting a
@@ -1476,7 +1517,9 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
         idx = bisect_right(span_starts, start) - 1
         if idx >= 0 and start < url_spans[idx][1] and end <= url_spans[idx][1]:
             path_start, path_end = _path_region(idx)
-            if not path_start <= start < path_end:
+            if not path_start <= start < path_end and (
+                start < path_end or _query_value_handled(idx, start, end)
+            ):
                 return match.group(0)
         candidate = match.group(0)
         decoded = candidate

@@ -391,6 +391,18 @@ def test_scrubs_path_query_after_encoded_authority() -> None:
         # Authority nested in a path must not leak the username.
         ("https://h/https%3A%2F%2Falicesecret%3Apwsecret%40host/x", ["alicesecret", "pwsecret"]),
         ("https://h/a/https%3A%2F%2Falicesecret%3Apwsecret%40host/x", ["alicesecret", "pwsecret"]),
+        # Prefixed nested redirect in a query value (the colon defeats the outer
+        # scrub's URL detection), at encode depth 1-3.
+        ("https://h/p?next=redirect:%2Fsearch%3Fphone%3D0812345678", ["0812345678"]),
+        ("https://h/p?next=redirect:%252Fsearch%253Fphone%253D0812345678", ["0812345678"]),
+        ("https://h/p?next=a:%25252Fsearch%25253Fphone%25253D0812345678", ["0812345678"]),
+        # Malformed bracket authority/path must not raise out of scrub_event.
+        ("https://h//[%3Fphone%3D0812345678", ["0812345678"]),
+        ("https://h//[%253Fphone%253D0812345678", ["0812345678"]),
+        ("https://h//[redirect%3A%2Fsearch%3Fphone%3D0812345678", ["0812345678"]),
+        ("https://h//[x%3Fphone%3D0812345678#f", ["0812345678"]),
+        # Prefixed redirect in a query key / with a following parameter.
+        ("https://h/p?k=1&next=a:%2Fsearch%3Fphone%3D0812345678&y=2", ["0812345678"]),
     ],
 )
 def test_hidden_encoded_structure_does_not_leak(msg: str, secrets: list) -> None:
@@ -404,6 +416,16 @@ def test_hidden_encoded_structure_does_not_leak(msg: str, secrets: list) -> None
         decoded = unquote(decoded)
     for secret in secrets:
         assert secret not in decoded, out
+
+
+def test_encoded_nested_redirect_hash_matches_request_url() -> None:
+    # Scrubbing an encoded nested redirect in free text must hash an
+    # EXTRA_HASH_FIELDS token exactly once, like the same value in request.url.
+    value = "https://h/p?next=%2Fa%3Ftoken%3Dsupersecret"
+    event = {"message": value, "request": {"url": value}}
+    out = _scrub(event, "SENSITIVE", extra_hash=frozenset({"token"}))
+    assert "supersecret" not in out["message"]
+    assert out["message"] == out["request"]["url"]
 
 
 def test_scrubs_scheme_relative_nested_redirect_credentials() -> None:
