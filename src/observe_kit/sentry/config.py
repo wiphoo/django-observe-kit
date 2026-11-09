@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from bisect import bisect_right
 from dataclasses import dataclass, field, replace
 from typing import (
     Any,
@@ -366,8 +367,10 @@ def _url_form_to_scrub(value: str) -> Optional[str]:
         # ``_scrub_url``'s own ``ValueError`` fallback can redact the now-visible
         # query/fragment; otherwise keep the original (that fallback already
         # handles a raw ``http://[/p?…``).
-        if decoded != value and (
-            ("?" in decoded and "?" not in value) or ("#" in decoded and "#" not in value)
+        # Test for an *encoded* delimiter, not merely the absence of a literal one:
+        # a literal ``?x=1`` elsewhere must not hide an encoded ``%253F`` query.
+        if ("?" in decoded or "#" in decoded) and (
+            _URL_QUERY_DELIM_RE.search(value) or _URL_FRAG_DELIM_RE.search(value)
         ):
             return decoded
         return value
@@ -1440,24 +1443,41 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     # scrubs the whole URL as a unit; anything outside is a genuinely hidden slice
     # we own.
     url_spans = [(s.start, s.end) for s in find_url_spans(text, kinds=("absolute",))]
+    span_starts = [start for start, _ in url_spans]
+    path_regions: Dict[int, Tuple[int, int]] = {}
+
+    def _path_region(idx: int) -> Tuple[int, int]:
+        # ``[start, end)`` of the span's path: after the authority, before ``? #``.
+        if idx not in path_regions:
+            start, end = url_spans[idx]
+            body = text[start:end]
+            scheme_end = body.find("//")
+            auth = 0 if scheme_end < 0 else scheme_end + 2
+            path_start = next((i for i in range(auth, len(body)) if body[i] in "/?#"), len(body))
+            path_end = next((i for i in range(path_start, len(body)) if body[i] in "?#"), len(body))
+            path_regions[idx] = (start + path_start, start + path_end)
+        return path_regions[idx]
 
     def _repl(match: "re.Match[str]") -> str:
-        # If this encoded slice sits inside a *visible* URL token, leave it for the
-        # absolute-URL scrub, which scrubs the whole URL as a unit — redacting a
+        # An encoded slice inside a *visible* URL's authority or query is left for
+        # the absolute-URL scrub, which scrubs the whole URL as a unit — redacting a
         # deeply-encoded authority (``https://user%253A…%2540host``) wholesale
-        # instead of letting this pass fragment it into a surviving
-        # ``https://<username>`` prefix, and avoiding re-scrubbing a value that
-        # ``_scrub_url`` has already scrubbed and re-encoded (which would e.g. hash
-        # a nested ``EXTRA_HASH_FIELDS`` token twice). Bound the exemption to the
-        # located absolute-URL span rather than any earlier ``://`` in the
-        # whitespace token: an encoded slice that follows a visible URL after prose
-        # punctuation (``https://safe.test,%252Fsearch%253Fphone%253D…``) sits
-        # *outside* the located span — it ends at the comma — so it must be
-        # scrubbed here, while a scheme-relative URL (``//h/p?next=%2Fa%3Ftoken%3D…``)
-        # is correctly recognized and left for the single absolute-URL scrub.
-        start = match.start()
-        if any(url_start <= start < url_end for url_start, url_end in url_spans):
-            return match.group(0)
+        # instead of fragmenting it into a surviving ``https://<username>`` prefix,
+        # and avoiding re-scrubbing a value ``_scrub_url`` already scrubbed (which
+        # would e.g. hash a nested ``EXTRA_HASH_FIELDS`` token twice). The exemption
+        # holds only when the candidate lies *fully inside* the located span: the
+        # candidate's character class admits ``'`` etc. that end the span, so an
+        # out-of-span tail (``https://safe.test/%2Fdocs'%252Fsearch%253F…``) must be
+        # scrubbed here. A candidate starting in the *path* is also scrubbed here:
+        # the outer scrub does not expose an authority nested in a path
+        # (``https://h/https%3A%2F%2Falice%3Asecret%40host/x``). The span lookup is a
+        # bisect, so the pass stays O((urls + candidates) log urls).
+        start, end = match.span()
+        idx = bisect_right(span_starts, start) - 1
+        if idx >= 0 and start < url_spans[idx][1] and end <= url_spans[idx][1]:
+            path_start, path_end = _path_region(idx)
+            if not path_start <= start < path_end:
+                return match.group(0)
         candidate = match.group(0)
         decoded = candidate
         for _ in range(_MAX_NESTED_URL_DECODE_PASSES):

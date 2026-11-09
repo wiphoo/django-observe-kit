@@ -378,6 +378,34 @@ def test_scrubs_path_query_after_encoded_authority() -> None:
     assert out == "GET https://[Filtered]@host/search?phone=08%2A%2A%2A"
 
 
+@pytest.mark.parametrize(
+    "msg, secrets",
+    [
+        # Hidden candidate runs past the visible-URL span (``'`` ends the span).
+        ("https://safe.test/%2Fdocs'%252Fsearch%253Fphone%253D0812345678", ["0812345678"]),
+        ('https://safe.test/%2Fdocs"%252Fsearch%253Fphone%253D0812345678', ["0812345678"]),
+        ("https://safe.test/%2Fdocs<%252Fsearch%253Fphone%253D0812345678", ["0812345678"]),
+        # Malformed (bracket) URL with a literal ``?`` elsewhere still hides a query.
+        ("https://safe.test[%252Fsearch%253Fphone%253D0812345678?x=1", ["0812345678"]),
+        ("https://safe.test[%252Fsearch%253Fphone%253D0812345678#frag", ["0812345678"]),
+        # Authority nested in a path must not leak the username.
+        ("https://h/https%3A%2F%2Falicesecret%3Apwsecret%40host/x", ["alicesecret", "pwsecret"]),
+        ("https://h/a/https%3A%2F%2Falicesecret%3Apwsecret%40host/x", ["alicesecret", "pwsecret"]),
+    ],
+)
+def test_hidden_encoded_structure_does_not_leak(msg: str, secrets: list) -> None:
+    out = _scrub({"message": msg}, "SENSITIVE")["message"]
+    for secret in secrets:
+        assert secret not in out, out
+    from urllib.parse import unquote
+
+    decoded = out
+    for _ in range(4):
+        decoded = unquote(decoded)
+    for secret in secrets:
+        assert secret not in decoded, out
+
+
 def test_scrubs_scheme_relative_nested_redirect_credentials() -> None:
     # A scheme-relative //user:secret@host redirect value carries no http scheme
     # and no ?key=value, so it must still be routed through _scrub_url (which

@@ -305,6 +305,9 @@ _SCALE_CASES: Dict[str, Tuple[Callable[[int], str], int]] = {
     "digits": (lambda n: "1" * n, 30_000),
     "colons": (lambda n: "a:" * (n // 2), 30_000),
     "slashes": (lambda n: "/" * n, 30_000),
+    # many visible URLs each carrying an encoded slice: the hidden-URL exemption
+    # lookup must not rescan the span list per candidate (was ~2.2 s at n=8000).
+    "encoded-url-run": (lambda n: "https://h/a%2Fb " * (n // 16), 160_000),
 }
 
 
