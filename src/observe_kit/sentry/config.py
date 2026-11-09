@@ -1493,6 +1493,54 @@ def _scrub_breadcrumbs(breadcrumbs: Any, opts: _PiiOpts) -> None:
             crumb["data"] = opts.body(crumb["data"])
 
 
+_URL_BOUNDARY_RE = re.compile(r"[/?#]")
+
+
+class _UrlLayout:
+    """Component offsets of one visible absolute URL inside ``text`` (computed once)."""
+
+    def __init__(self, text: str, start: int, end: int) -> None:
+        scheme_end = text.find("//", start, end)
+        auth = start if scheme_end < 0 else scheme_end + 2
+        boundary = _URL_BOUNDARY_RE.search(text, auth, end)
+        self.auth_end = boundary.start() if boundary else end
+        frag = text.find("#", self.auth_end, end)
+        query = text.find("?", self.auth_end, end)
+        if query >= 0 and (frag < 0 or query < frag):
+            self.path_end = self.query_start = query
+            self.query_end = end if frag < 0 else frag
+        else:
+            self.path_end = end if frag < 0 else frag
+            self.query_start = -1
+            self.query_end = self.path_end
+        # Offsets of the ``&`` separators inside the query, for pair boundaries.
+        self._amps: List[int] = []
+        if self.query_start >= 0:
+            pos = text.find("&", self.query_start, self.query_end)
+            while pos >= 0:
+                self._amps.append(pos)
+                pos = text.find("&", pos + 1, self.query_end)
+
+    def pair_start(self, pos: int) -> int:
+        i = bisect_right(self._amps, pos - 1) - 1  # last ``&`` strictly before ``pos``
+        return self._amps[i] + 1 if i >= 0 else self.query_start + 1
+
+    def pair_end(self, pos: int) -> int:
+        i = bisect_right(self._amps, pos - 1)  # first ``&`` at or after ``pos``
+        return self._amps[i] if i < len(self._amps) else self.query_end
+
+
+def _hides_nested_authority(part: str) -> bool:
+    """True when a percent-encoded path slice decodes (bounded) to a nested ``//``."""
+    decoded = part
+    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
+        nxt = unquote(decoded)
+        if nxt == decoded:
+            break
+        decoded = nxt
+    return "//" in decoded
+
+
 def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     """Scrub percent-encoded URLs / nested queries hidden in free text.
 
@@ -1520,73 +1568,74 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     # we own.
     url_spans = [(s.start, s.end) for s in find_url_spans(text, kinds=("absolute",))]
     span_starts = [start for start, _ in url_spans]
-    path_regions: Dict[int, Tuple[int, int]] = {}
-
-    def _path_region(idx: int) -> Tuple[int, int]:
-        # ``[start, end)`` of the span's path: after the authority, before ``? #``.
-        if idx not in path_regions:
-            start, end = url_spans[idx]
-            body = text[start:end]
-            scheme_end = body.find("//")
-            auth = 0 if scheme_end < 0 else scheme_end + 2
-            path_start = next((i for i in range(auth, len(body)) if body[i] in "/?#"), len(body))
-            path_end = next((i for i in range(path_start, len(body)) if body[i] in "?#"), len(body))
-            path_regions[idx] = (start + path_start, start + path_end)
-        return path_regions[idx]
-
+    layouts: Dict[int, "_UrlLayout"] = {}
     handled_ranges: Dict[Tuple[int, int], bool] = {}
 
-    def _query_value_handled(idx: int, start: int, end: int) -> bool:
-        # The slice sits after the path. In the *query*, the outer scrub parses
-        # ``key=value`` pairs separately and only recurses into a part that
-        # ``_outer_scrub_handles`` accepts, so *every* pair part the slice covers
-        # (key and value — a candidate can span several ``&``-joined parameters)
-        # that carries percent-encoding must pass; a part that doesn't (a prefixed
-        # redirect ``foo=redirect:%2Fsearch%3Fphone%3D…``) keeps this pass
-        # responsible for the whole slice. The fragment is redacted wholesale by the
-        # outer scrub, so a slice there is always handled.
-        span_start, span_end = url_spans[idx]
-        q = text.find("?", span_start, span_end)
-        if q < 0 or start < q or text.find("#", q, start) >= 0:
-            return True
-        frag = text.find("#", q, span_end)
-        query_end = span_end if frag < 0 else frag
-        pair_start = max(q, text.rfind("&", q, start)) + 1
-        pair_end = text.find("&", min(end, query_end), query_end)
-        pair_end = query_end if pair_end < 0 else pair_end
-        key = (pair_start, pair_end)
-        if key not in handled_ranges:
-            handled_ranges[key] = all(
-                _outer_scrub_handles(part)
-                for pair in text[pair_start:pair_end].split("&")
-                for part in pair.partition("=")[::2]
-                if _hides_url_structure(part)
-            )
-        return handled_ranges[key]
+    def _layout(idx: int) -> "_UrlLayout":
+        # Component boundaries and ``&`` offsets of one visible URL, computed once
+        # per span (not per candidate) so many candidates in one URL stay linear.
+        if idx not in layouts:
+            layouts[idx] = _UrlLayout(text, *url_spans[idx])
+        return layouts[idx]
+
+    def _covered_components_handled(idx: int, start: int, end: int) -> bool:
+        # True when the outer absolute-URL scrub handles *every* component the
+        # candidate ``[start, end)`` covers: the authority (decoded and redacted by
+        # ``_scrub_url``), the path (only if it hides no nested ``//`` authority —
+        # ``_scrub_url`` does not expose one), each query key/value
+        # (``_outer_scrub_handles``) and the fragment (redacted wholesale).
+        lay = _layout(idx)
+        if lay.auth_end <= start < lay.path_end:
+            return False  # starts in the path: the pass owns it
+        if start < lay.path_end and end > lay.auth_end:
+            path_part = text[max(start, lay.auth_end) : min(end, lay.path_end)]
+            if "%" in path_part and _hides_nested_authority(path_part):
+                return False
+        if lay.query_start >= 0 and end > lay.query_start + 1 and start < lay.query_end:
+            lo = max(start, lay.query_start + 1)
+            pair_start = lay.pair_start(lo)
+            pair_end = lay.pair_end(min(end, lay.query_end))
+            key = (pair_start, pair_end)
+            if key not in handled_ranges:
+                handled_ranges[key] = all(
+                    _outer_scrub_handles(part)
+                    for pair in text[pair_start:pair_end].split("&")
+                    for part in pair.partition("=")[::2]
+                    if _hides_url_structure(part)
+                )
+            return handled_ranges[key]
+        return True
 
     def _repl(match: "re.Match[str]") -> str:
-        # An encoded slice inside a *visible* URL's authority or query is left for
-        # the absolute-URL scrub, which scrubs the whole URL as a unit — redacting a
-        # deeply-encoded authority (``https://user%253A…%2540host``) wholesale
-        # instead of fragmenting it into a surviving ``https://<username>`` prefix,
-        # and avoiding re-scrubbing a value ``_scrub_url`` already scrubbed (which
-        # would e.g. hash a nested ``EXTRA_HASH_FIELDS`` token twice). The exemption
-        # holds only when the candidate lies *fully inside* the located span: the
-        # candidate's character class admits ``'`` etc. that end the span, so an
-        # out-of-span tail (``https://safe.test/%2Fdocs'%252Fsearch%253F…``) must be
-        # scrubbed here. A candidate starting in the *path* is also scrubbed here:
-        # the outer scrub does not expose an authority nested in a path
-        # (``https://h/https%3A%2F%2Falice%3Asecret%40host/x``). The span lookup is a
-        # bisect, so the pass stays O((urls + candidates) log urls).
+        # An encoded slice inside a *visible* URL is left for the absolute-URL
+        # scrub, which scrubs the whole URL as a unit — redacting a deeply-encoded
+        # authority (``https://user%253A…%2540host``) wholesale instead of fragmenting
+        # it into a surviving ``https://<username>`` prefix, and avoiding re-scrubbing
+        # a value ``_scrub_url`` already scrubbed (which would e.g. hash a nested
+        # ``EXTRA_HASH_FIELDS`` token twice). That holds only when the candidate lies
+        # *fully inside* the located span (its character class admits ``'`` etc. that
+        # end the span, so an out-of-span tail must be scrubbed here) and the outer
+        # scrub handles every component the candidate covers
+        # (:func:`_covered_components_handled`) — a candidate can begin in the
+        # authority and run on into a path holding a nested authority
+        # (``https://u%3Ap%40host/https%3A%2F%2Falice%3As%40dest/x``).
         start, end = match.span()
+        candidate = match.group(0)
         idx = bisect_right(span_starts, start) - 1
         if idx >= 0 and start < url_spans[idx][1] and end <= url_spans[idx][1]:
-            path_start, path_end = _path_region(idx)
-            if not path_start <= start < path_end and (
-                start < path_end or _query_value_handled(idx, start, end)
-            ):
-                return match.group(0)
-        candidate = match.group(0)
+            if _covered_components_handled(idx, start, end):
+                return candidate
+            auth_end = _layout(idx).auth_end
+            if start < auth_end < end:
+                # Begins in the authority but runs on into components the outer scrub
+                # can't handle: leave only the authority part (which the outer scrub
+                # redacts as a unit; scrubbing it here would strand the username) and
+                # scrub the rest in this pass.
+                head = candidate[: auth_end - start]
+                return head + _scrub_candidate(candidate[auth_end - start :])
+        return _scrub_candidate(candidate)
+
+    def _scrub_candidate(candidate: str) -> str:
         decoded = candidate
         for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
             next_decoded = unquote(decoded)

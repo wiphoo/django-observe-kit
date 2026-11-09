@@ -396,6 +396,18 @@ def test_scrubs_path_query_after_encoded_authority() -> None:
         ("https://h/p?next=redirect:%2Fsearch%3Fphone%3D0812345678", ["0812345678"]),
         ("https://h/p?next=redirect:%252Fsearch%253Fphone%253D0812345678", ["0812345678"]),
         ("https://h/p?next=a:%25252Fsearch%25253Fphone%25253D0812345678", ["0812345678"]),
+        # Candidate begins in the authority and runs into a path holding a nested
+        # authority (the outer scrub only redacts the outer one).
+        (
+            "https://u%3Ap%40host/https%3A%2F%2Falicesecret%3Apwsecret%40dest/x",
+            ["alicesecret", "pwsecret"],
+        ),
+        (
+            "https://u%3Ap%40host/a/%2F%2Falicesecret%3Apwsecret%40dest/x?y=1",
+            ["alicesecret", "pwsecret"],
+        ),
+        ("https://u%253Ap%2540host/%252Fa%253Fphone%253D0812345678", ["0812345678"]),
+        ("https://u%3Ap%40host/p?k=redirect:%2Fsearch%3Fphone%3D0812345678", ["0812345678"]),
         # Candidate spanning several query parameters: the parameter *after* the
         # first handled one holds a prefixed redirect the outer scrub can't parse.
         ("https://h/p?next=%2Fdocs&foo=redirect:%2Fsearch%3Fphone%3D0812345678", ["0812345678"]),
