@@ -1,6 +1,19 @@
 """Project-wide defaults and constants."""
 
-from typing import Dict
+from typing import Dict, Optional
+
+
+def cgi_header_name(key: str) -> Optional[str]:
+    """Return the request-header name for a CGI/WSGI ``HTTP_*`` ``META`` key.
+
+    ``HTTP_X_FORWARDED_FOR`` → ``x-forwarded-for``. Non-``HTTP_`` keys (e.g.
+    ``QUERY_STRING``, ``REMOTE_ADDR``) return ``None``. Shared so the OTel
+    middleware's header extraction and the Sentry env scrubber can't drift.
+    """
+    if key.startswith("HTTP_"):
+        return key[5:].replace("_", "-").lower()
+    return None
+
 
 DEFAULT_PII_LEVEL = "BASIC"
 DROP_HEADERS = {"authorization", "cookie", "set-cookie", "x-api-key", "x-access-token"}
