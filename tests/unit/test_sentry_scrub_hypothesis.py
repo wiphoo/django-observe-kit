@@ -41,23 +41,16 @@ pytestmark = pytest.mark.skipif(
 # first example (import warmup).
 _HYP_CELL = settings(deadline=timedelta(milliseconds=1000), max_examples=25)
 
-# Upper bound for the email-encoding depth strategy. Must stay > the scrubber's
+# Upper bound for the encoding-depth strategies. Must stay > the scrubber's
 # decode cap so the exhaustion→redact path is exercised; kept as a literal (not a
 # top-level import from the Sentry package) to avoid loading Django at collection
 # time, and cross-checked against the real cap at runtime in the test body.
+# Applies to both the email property and the URL-userinfo property: since #98
+# closed the deep-encoded-authority gap (a URL whose authority delimiters are
+# encoded beyond the cap is now redacted wholesale, not left with a
+# ``https://<username>`` prefix), the userinfo property also covers depths past
+# the cap rather than stopping at it.
 _MAX_ENCODING_DEPTH = 6
-
-# The userinfo property only encodes the authority *delimiters* (`:`/`@`). When
-# those are encoded *beyond* the decode cap, the current scrubber can't decode
-# far enough to see the authority: it redacts the still-encoded tail to
-# `[Filtered]` but keeps the literal `https://<username>` prefix, so the username
-# survives. That deep-encoded-authority gap is tracked for the URL-parsing
-# rewrite (#98) to close; here we assert the guarantee that holds today —
-# wholesale userinfo removal for delimiter encoding *up to* the cap. This bound
-# must equal the decode cap (asserted ``==`` at runtime, not ``<=``): if the cap
-# is ever raised, the mismatch fails the test loudly so this literal is bumped
-# too, rather than silently omitting the newly within-cap depths.
-_MAX_AUTHORITY_ENCODING_DEPTH = 5
 
 # High-entropy, metachar-free secret. Length >= 8 guarantees that a masked form
 # (first char + "***") cannot contain the whole sentinel.
@@ -154,11 +147,12 @@ def test_email_secret_never_survives_any_depth(
 
 # Vary how deeply the authority delimiters (`:`/`@`) are encoded: depth 0 is a
 # plain authority, depth >= 1 hides them (`user%3Apassword%40host`,
-# `…%253A…%2540…`), exercising the hidden-authority and exhaustion paths — up to
-# the decode cap (see _MAX_AUTHORITY_ENCODING_DEPTH). Finite dims parametrized so
-# every cell runs; Hypothesis fuzzes the two credential sentinels.
+# `…%253A…%2540…`), exercising the hidden-authority path within the cap and the
+# exhaustion→whole-URL-redaction path beyond it (0..cap+1, since #98 closed the
+# deep-encoded-authority gap). Finite dims parametrized so every cell runs;
+# Hypothesis fuzzes the two credential sentinels.
 @pytest.mark.parametrize("placement", ["url", "message", "query", "referer_header"])
-@pytest.mark.parametrize("depth", range(_MAX_AUTHORITY_ENCODING_DEPTH + 1))
+@pytest.mark.parametrize("depth", range(_MAX_ENCODING_DEPTH + 1))
 @_HYP_CELL
 @given(user=_SENTINEL, password=_SENTINEL)
 def test_url_userinfo_credential_never_survives(
@@ -173,7 +167,7 @@ def test_url_userinfo_credential_never_survives(
     """
     from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
 
-    assert _MAX_AUTHORITY_ENCODING_DEPTH == MAX_DECODE_PASSES, "authority depth must equal the cap"
+    assert _MAX_ENCODING_DEPTH > MAX_DECODE_PASSES, "depth bound must exceed the decode cap"
     colon, at = _encode(":", depth), _encode("@", depth)
     url = f"https://{user}{colon}{password}{at}internal.test/dashboard"
     event: dict[str, Any]
