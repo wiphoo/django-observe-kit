@@ -26,13 +26,40 @@ Scanner = Callable[[str], Iterator[Tuple[int, int]]]
 
 # Body of an absolute or scheme-relative URL token (``//h/p``, ``//u:p@h/p``; the
 # optional ``scheme:`` prefix is derived by ``_scheme_start``). Stops at prose
-# separators and quote/angle delimiters; continues past ``,``/``;``/``)`` only when
-# followed by ``&``-joined query structure (``?x=a,b&phone=...``).
+# separators and quote/angle delimiters; ``_extend_query`` continues it past runs of
+# ``,``/``;``/``)``/``'`` only when followed by ``&``-joined query structure
+# (``?x=f(a,b)&phone=...``).
 _ABSOLUTE_BODY_RE = re.compile(
     r"//(?:[^\s/?#@|\]}<>\"]*@)?"
     r"(?:\[[^\]\s/<>\"']*\][^\s,;|)\]}<>\"']*|[^\s,;|)\]}<>\"']+)"
-    r"(?:[,;)'][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
 )
+# One or more ``<sub-delimiter><non-delimiter chars>`` chunks; no ``&`` inside.
+_CHUNKS_RE = re.compile(r"(?:[,;)'][^\s&,;|)\]}<>\"']*)+")
+_PAIR_RUN_RE = re.compile(r"[^\s,;|)\]}<>\"']*")
+_PAIR_RUN_NO_HASH_RE = re.compile(r"[^\s#,;|)\]}<>\"']*")
+
+
+def _extend_query(text: str, end: int, memo: List[int], run_re: Pattern[str] = _PAIR_RUN_RE) -> int:
+    """Extend a match across ``<delims><chunk>&key=value`` repeats; return the new end.
+
+    Hand-written instead of a regex repeat: a failed lookahead for ``&`` used to
+    rescan the whole delimiter run for every candidate (quadratic). The chunk scan is
+    deterministic, so ``memo[0]`` (where the last failed scan stopped) lets later
+    candidates inside the same run fail immediately.
+    """
+    while end >= memo[0]:
+        chunks = _CHUNKS_RE.match(text, end)
+        if chunks is None:
+            return end
+        amp = chunks.end()
+        pair = run_re.match(text, amp + 1) if text.startswith("&", amp) else None
+        if pair is None or text.find("=", amp + 1, pair.end()) < 0:
+            memo[0] = amp
+            return end
+        end = pair.end()
+    return end
+
+
 _SCHEME_CHAR_RE = re.compile(r"[A-Za-z0-9+.-]", re.IGNORECASE)
 _SCHEME_FIRST_RE = re.compile(r"[A-Za-z]", re.IGNORECASE)
 
@@ -60,6 +87,7 @@ def _absolute_spans(text: str) -> Iterator[Tuple[int, int]]:
     # Anchor on ``//`` instead of retrying the optional ``scheme:`` prefix from every
     # letter of a long run, which was quadratic.
     pos = 0
+    memo = [0]
     while True:
         slashes = text.find("//", pos)
         if slashes < 0:
@@ -69,17 +97,15 @@ def _absolute_spans(text: str) -> Iterator[Tuple[int, int]]:
             pos = slashes + 1
             continue
         start = _scheme_start(text, slashes, pos, _SCHEME_CHAR_RE, _SCHEME_FIRST_RE)
-        yield start, body.end()
-        pos = body.end()
+        end = _extend_query(text, body.end(), memo)
+        yield start, end
+        pos = end
 
 
 _ROOTLESS_RUN_RE = re.compile(r"[\w@.+/~-]+")
 _ROOTLESS_FIRST_RE = re.compile(r"[\w@.+~-]")
 _ROOTLESS_BAD_PREV_RE = re.compile(r"[\w/]")
-_ROOTLESS_TAIL_RE = re.compile(
-    r"[?#][^\s=&?#,;|)\]}<>\"']+=[^\s,;|)\]}<>\"']*"
-    r"(?:[,;)'][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
-)
+_ROOTLESS_TAIL_RE = re.compile(r"[?#][^\s=&?#,;|)\]}<>\"']+=[^\s,;|)\]}<>\"']*")
 
 
 def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
@@ -89,6 +115,7 @@ def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
     per maximal path run; the start is the leftmost valid index in that run.
     """
     pos = 0
+    memo = [0]
     for run in _ROOTLESS_RUN_RE.finditer(text):
         run_start, run_end = run.span()
         if run_end <= pos or run_end >= len(text) or text[run_end] not in "?#":
@@ -106,15 +133,15 @@ def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
         tail = _ROOTLESS_TAIL_RE.match(text, run_end)
         if tail is None:
             continue
-        yield start, tail.end()
-        pos = tail.end()
+        end = _extend_query(text, tail.end(), memo)
+        yield start, end
+        pos = end
 
 
 _RELATIVE_RUN_RE = re.compile(r"[^\s?#\"'<>]+")
 _RELATIVE_TAIL_RE = re.compile(
     r"[?#]"
     r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
-    r"(?:[,;)'][^\s&,;|)\]}<>\"']*&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
 )
 _RELATIVE_STOP_RE = re.compile(r"[\s#,;|)\]}<>\"']")
 _RELATIVE_BAD_PREV_RE = re.compile(r"[\w:/]")
@@ -128,6 +155,7 @@ def _relative_spans(text: str) -> Iterator[Tuple[int, int]]:
     """
     pos = 0
     fail_until = 0
+    memo = [0]
     for run in _RELATIVE_RUN_RE.finditer(text):
         run_start, run_end = run.span()
         if (
@@ -150,8 +178,9 @@ def _relative_spans(text: str) -> Iterator[Tuple[int, int]]:
             stop = _RELATIVE_STOP_RE.search(text, run_end + 1)
             fail_until = stop.start() if stop else len(text)
             continue
-        yield start, tail.end()
-        pos = tail.end()
+        end = _extend_query(text, tail.end(), memo, _PAIR_RUN_NO_HASH_RE)
+        yield start, end
+        pos = end
 
 
 _KIND_SCANNERS: Tuple[Tuple[UrlKind, Scanner], ...] = (

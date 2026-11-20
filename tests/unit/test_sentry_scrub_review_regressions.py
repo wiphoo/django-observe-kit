@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import pytest
+
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry import config
 
@@ -154,3 +156,16 @@ def test_deep_encoded_email_not_hidden_by_another_masked_address() -> None:
 def test_masked_value_with_benign_percent_is_not_redacted() -> None:
     note = _run({"extra": {"note": "alice@example.com,progress=100%25"}})["extra"]["note"]
     assert note.startswith("a***@example.com") and "progress=100" in note
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "see https://host/search?x=f(a,b)&phone=0812345678 now",
+        "see //host/search?x=f(a,b)&phone=0812345678 now",
+        "GET /search?x=f(a,b)&phone=0812345678 now",
+        "see search?x=f(a,b);'&phone=0812345678 now",
+        "see https://host/s?x=f(a,b)&y=g(c;d)&phone=0812345678 now",
+    ],
+)
+def test_query_continues_across_multiple_punctuation_delimiters(text: str) -> None:
+    assert "0812345678" not in _run({"message": text})["message"]
