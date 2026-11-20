@@ -105,7 +105,7 @@ def _jsonable(obj: Any) -> Any:
     "ops",
     [
         {},
-        {"extra_mask": frozenset({"server_name", "category", "op"})},
+        {"extra_mask": frozenset({"server_name", "category"})},
         {"extra_hash": frozenset({"release", "ip_address"}), "extra_drop": frozenset({"id"})},
     ],
     ids=["plain", "mask", "hash-drop"],

@@ -1931,6 +1931,11 @@ def _scrub_spans(event: Dict[str, Any], opts: _PiiOpts, full_opts: _PiiOpts) -> 
             # Full options: descriptions are shielded from the later value walk, so
             # walk-managed operator rules (``message`` / ``url`` …) apply only here.
             span["description"] = _scrub_span_description(description, span.get("op"), full_opts)
+        # Generic string keys (``op``, ``status``, ``origin``, ...): the operator
+        # drop/mask/hash-by-name rules. Runs *after* the description scrub, which
+        # classifies db/cache spans by the raw ``op`` — masking ``op`` first would
+        # let a db statement escape wholesale redaction. ``description`` has its owner above.
+        _scrub_generic_string_keys(span, opts, frozenset({"description"}))
 
 
 def _scrub_stackframe_vars(event: Dict[str, Any], opts: _PiiOpts) -> None:
@@ -1943,11 +1948,15 @@ def _scrub_stackframe_vars(event: Dict[str, Any], opts: _PiiOpts) -> None:
         if not isinstance(values, list):
             continue
         for entry in values:
+            if isinstance(entry, dict):
+                _scrub_generic_string_keys(entry, opts)
             stacktrace = entry.get("stacktrace") if isinstance(entry, dict) else None
             frames = stacktrace.get("frames") if isinstance(stacktrace, dict) else None
             if not isinstance(frames, list):
                 continue
             for frame in frames:
+                if isinstance(frame, dict):
+                    _scrub_generic_string_keys(frame, opts)
                 if isinstance(frame, dict) and isinstance(frame.get("vars"), (dict, list)):
                     frame["vars"] = opts.body(frame["vars"])
 
@@ -2206,6 +2215,11 @@ def _scrub_request(
         request["headers"] = header_opts.mapping(headers)
     elif isinstance(headers, (list, tuple)):
         request["headers"] = _scrub_pair_list(list(headers), header_opts)
+    # Generic string keys (``method``, ``api_target``, ...): operator rules by name.
+    # The pieces handled below (query_string / fragment / cookies / data) own theirs.
+    _scrub_generic_string_keys(
+        request, content_opts, frozenset({"query_string", "fragment", "cookies", "data"})
+    )
     # URL-valued headers (Referer, …) keep query PII the key rules pass through.
     _scrub_url_headers(request.get("headers"), opts)
     # Redact cookies wholesale regardless of shape (dict / raw string / list).
