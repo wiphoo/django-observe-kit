@@ -404,7 +404,8 @@ def _repair_url(value: str) -> Optional[str]:
     delimiters, so unrelated escapes (``%2F``/``%20``) stay intact. Every parse goes
     through :func:`_split_repaired`, so an unparseable bracket URL is repaired rather
     than hand-parsed. Returns ``value`` when nothing is hidden, and ``None`` when
-    the decode cap is exhausted (the caller redacts the value wholesale).
+    the decode cap is exhausted or either form is unparseable (the caller redacts
+    the value wholesale).
     """
     decoded, exhausted = _bounded_unquote(value)
     if exhausted:
@@ -414,7 +415,7 @@ def _repair_url(value: str) -> Optional[str]:
     orig = _split_repaired(value)
     dec = _split_repaired(decoded)
     if orig is None or dec is None:
-        return value
+        return None  # decoded form hides structure we can't parse: fail closed
     orig_parts, dec_parts = orig[0], dec[0]
     # An encoded query/fragment delimiter hidden in the *path* is structure even
     # when the URL already carries a visible outer query.

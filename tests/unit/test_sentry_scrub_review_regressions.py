@@ -208,3 +208,11 @@ def test_generic_event_keys_untouched_without_rules() -> None:
     out = config.scrub_event(_generic_event(), None, PiiLevel.SENSITIVE, "salt")
     assert out["server_name"] == "host-1"
     assert out["breadcrumbs"]["values"][0]["category"] == "cat"
+
+
+def test_url_whose_decoded_form_is_unparseable_is_redacted() -> None:
+    # Decoding exposes a fullwidth slash (NFKC-invalid authority); the hidden
+    # query must not ship as-is.
+    url = "https://host%EF%BC%8Fpath%3Fphone%3D0812345678"
+    out = _run({"request": {"url": url}})
+    assert "0812345678" not in str(out)
