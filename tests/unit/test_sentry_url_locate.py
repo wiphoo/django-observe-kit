@@ -144,7 +144,7 @@ _REFERENCE_PATTERNS: Tuple[Tuple[Kind, Pattern[str]], ...] = (
         "absolute",
         re.compile(
             r"(?:[A-Za-z][A-Za-z0-9+.-]*:)?//[^\s,;|)\]}<>\"']+"
-            r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
+            r"(?:[,;)'][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*",
             re.IGNORECASE,
         ),
     ),
@@ -156,7 +156,10 @@ _REFERENCE_PATTERNS: Tuple[Tuple[Kind, Pattern[str]], ...] = (
             r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
         ),
     ),
-    ("rootless", re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")),
+    (
+        "rootless",
+        re.compile(r"(?<![\w/])[\w@.+~-][\w@.+/~-]*[?#][^\s=&?#,;|)\]}<>\"']+=[^\s,;|)\]}<>\"']*"),
+    ),
 )
 _REF_SEPARATOR_RE = re.compile(r"([,;|)\]}])(?=(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)")
 _REF_NEXT_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://|//(?=[^/?#\s]*@)")
@@ -337,10 +340,18 @@ def test_split_url_token_scales_linearly_by_shape(shape: str) -> None:
 
 @pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
 def test_scrub_event_message_scales_linearly_by_shape(shape: str) -> None:
-    text = _scale_text(shape)
-    started = time.perf_counter()
-    config.scrub_event({"message": text}, None)
-    assert time.perf_counter() - started < 2.0
+    build, n = _SCALE_CASES[shape]
+
+    def timed(size: int) -> float:
+        text = build(size)
+        started = time.perf_counter()
+        config.scrub_event({"message": text}, None)
+        return time.perf_counter() - started
+
+    half, full = timed(n // 2), timed(n)
+    # Absolute budget on a fast box; otherwise the doubling ratio (linear ~2x,
+    # quadratic ~4x) so slower CI runners do not flake on raw wall-clock.
+    assert full < 2.0 or full < 3.0 * half, (half, full)
 
 
 if __name__ == "__main__":

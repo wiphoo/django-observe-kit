@@ -24,7 +24,7 @@ from observe_kit.sentry import config
 
 _REFERENCE_EMAIL_RE = re.compile(
     r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)"
-    r"@(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
+    r"@(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]+)"
 )
 _REFERENCE_ENCODED_EMAIL_RE = re.compile(
     r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+"

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from bisect import bisect_right
+from collections.abc import Hashable
 from dataclasses import dataclass, field, replace
 from itertools import islice
 from typing import (
@@ -531,6 +532,9 @@ def _scrub_urlish_value(value: str, opts: _PiiOpts, depth: int = 0) -> str:
     # an absolute one, which a combined call would drop by priority.
     spans = _absolute_and_relative_spans(value)
     if not spans:
+        rootless = find_url_spans(value, kinds=("rootless",))
+        if rootless and not (rootless[0].start == 0 and rootless[0].end == len(value)):
+            return _scrub_text(value, opts, depth)  # prose around a rootless URL
         return _scrub_url(value, opts, depth)
     first = min(spans, key=lambda s: s.start)
     if first.start == 0 and first.end == len(value):
@@ -1008,7 +1012,9 @@ def _scrub_text_subtree(value: Any, opts: _PiiOpts) -> Any:
     ``http.query`` / statements) stripped so :func:`_scrub_all_text` applies them
     exactly once — then pattern-scrubs the remaining string leaves.
     """
-    value = _content_opts(opts).body(value)
+    # The key-based body pass already ran over every container that can hold a
+    # ``params`` subtree (:func:`_scrub_metadata` covers ``logentry.params``), so
+    # running it again here would hash/mask the same leaf twice.
     return _scrub_all_text(value, opts)
 
 
@@ -1207,8 +1213,9 @@ def _walk_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> Any:
         if scrubbed_url is not None:
             return scrubbed_url
         return cast(str, _mask_emails(value))
-    if rule is not None:
-        # Non-string value under a walk-managed key — the body pass deliberately
+    if rule is not None or _strip_bytes_repr_key(key_lower) != key_lower:
+        # Non-string value under a walk-managed (or colliding bytes-repr) key — the
+        # body pass deliberately
         # removed these keys via ``_content_opts``, so the operator field rule is
         # applied here (see docstring).
         field_rule = _check_field_rule(key_lower, opts)
@@ -1670,7 +1677,17 @@ def _scrub_located_urls(text: str, opts: _PiiOpts, depth: int) -> str:
     for kind in ALL_KINDS:
         out: List[str] = []
         pos = 0
+        # A later-kind match wholly inside an already-scrubbed absolute URL (the
+        # rootless ``com/p?ip=…`` tail after a hostname dot) must not be scrubbed
+        # again — its query values were handled once, and hashing twice would make
+        # the pseudonym depend on which field carried the URL.
+        done = [] if kind == "absolute" else find_url_spans(text, kinds=("absolute",))
+        di = 0
         for span in find_url_spans(text, kinds=(kind,)):
+            while di < len(done) and done[di].end < span.end:
+                di += 1
+            if di < len(done) and done[di].start <= span.start:
+                continue
             out.append(text[pos : span.start])
             piece = text[span.start : span.end]
             out.append(
@@ -1839,12 +1856,16 @@ def _scrub_single_param(key: str, value: Any, opts: _PiiOpts) -> Optional[Any]:
     avoid calling ``sanitize_mapping`` on a list-valued dict entry (which would
     stringify the list and mask the repr, leaking individual elements).
     """
+    if not isinstance(key, Hashable):  # malformed pair: must not raise in before_send
+        key = str(key)
     sanitized = opts.mapping({key: value})
     if key not in sanitized:
         return None
     sv = sanitized[key]
     if sv != value:  # a mask/hash rule matched — redact a partial email mask
         return _redact_partial_email_mask(value, sv)
+    if isinstance(value, (dict, list, tuple)):
+        return _content_opts(opts).body(value)  # nested containers need the field rules too
     if isinstance(value, str):
         scrubbed_url = _scrub_url_if_carries(value, opts)
         if scrubbed_url is not None:
@@ -2110,6 +2131,12 @@ def _scrub_metadata(event: Dict[str, Any], opts: _PiiOpts, content_opts: _PiiOpt
     extra = event.get("extra")
     if isinstance(extra, (dict, list)):
         event["extra"] = content_opts.body(extra)
+
+    # ``logentry.params`` is the one ``params`` subtree no other phase covers; give
+    # it its key-based body pass here so the walk applies only free-text scrubbing.
+    logentry = event.get("logentry")
+    if isinstance(logentry, dict) and "params" in logentry:
+        logentry["params"] = content_opts.body(logentry["params"])
 
     # Application-attached contexts (sentry_sdk.set_context) are user-supplied
     # dicts just like extra, so apply the same field rules.

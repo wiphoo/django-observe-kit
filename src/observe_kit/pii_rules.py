@@ -56,7 +56,7 @@ _BARE_EMAIL_RE = re.compile(
 # *embedded* matching in prose (via the scanners below) and accepts single-label
 # domains, whereas the bare matcher is whole-value anchored for ``_mask_value``. Both
 # live here so email grammar has a single owning module.
-_EMAIL_DOMAIN = r"(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]{2,})"
+_EMAIL_DOMAIN = r"(?:[\w.\-]+\.[^\W\d_]{2,}|\[[^\[\]\s]+\]|[^\W\d_]+)"
 # Whole-value check only (``.fullmatch``): one attempt from index 0, so linear. Never call
 # ``finditer``/``search``/``sub`` on it: those retry the local part from every index and
 # are quadratic; use ``find_email_spans`` / ``replace_email_spans`` (#214).

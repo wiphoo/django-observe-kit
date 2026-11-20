@@ -30,7 +30,7 @@ Scanner = Callable[[str], Iterator[Tuple[int, int]]]
 # followed by ``&``-joined query structure (``?x=a,b&phone=...``).
 _ABSOLUTE_BODY_RE = re.compile(
     r"//[^\s,;|)\]}<>\"']+"
-    r"(?:[,;)][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
+    r"(?:[,;)'][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
 )
 _SCHEME_CHAR_RE = re.compile(r"[A-Za-z0-9+.-]", re.IGNORECASE)
 _SCHEME_FIRST_RE = re.compile(r"[A-Za-z]", re.IGNORECASE)
@@ -75,7 +75,7 @@ def _absolute_spans(text: str) -> Iterator[Tuple[int, int]]:
 _ROOTLESS_RUN_RE = re.compile(r"[\w@.+/~-]+")
 _ROOTLESS_FIRST_RE = re.compile(r"[\w@.+~-]")
 _ROOTLESS_BAD_PREV_RE = re.compile(r"[\w/]")
-_ROOTLESS_TAIL_RE = re.compile(r"[?#][\w.%\-]+=[^\s,;|)\]}<>\"']*")
+_ROOTLESS_TAIL_RE = re.compile(r"[?#][^\s=&?#,;|)\]}<>\"']+=[^\s,;|)\]}<>\"']*")
 
 
 def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
