@@ -2032,6 +2032,24 @@ def _build_opts(
     return opts, header_opts, content_opts
 
 
+def _apply_bytes_key_rules(mapping: Dict[Any, Any], opts: _PiiOpts) -> None:
+    """Apply field rules, in place, to serialized byte-repr keys (``"b'authorization'"``).
+
+    The mapping scrubbers match the plain key name only, and the request headers /
+    query string are shielded from the later walk that handles the alias.
+    """
+    for key in list(mapping):
+        if not isinstance(key, str) or _strip_bytes_repr_key(key.lower()) == key.lower():
+            continue
+        rule = _check_field_rule(key.lower(), opts)
+        if rule == "drop":
+            del mapping[key]
+        elif rule == "mask":
+            mapping[key] = _REDACTED
+        elif rule == "hash":
+            mapping[key] = _hash_value(str(mapping[key]), opts.hash_salt)
+
+
 def _scrub_request(
     event: Dict[str, Any], opts: _PiiOpts, header_opts: _PiiOpts, content_opts: _PiiOpts
 ) -> None:
@@ -2041,6 +2059,7 @@ def _scrub_request(
         return
     headers = request.get("headers")
     if isinstance(headers, dict):
+        _apply_bytes_key_rules(headers, header_opts)
         request["headers"] = header_opts.mapping(headers)
     elif isinstance(headers, (list, tuple)):
         request["headers"] = _scrub_pair_list(list(headers), header_opts)
@@ -2078,6 +2097,7 @@ def _scrub_request(
         elif action is not None:
             request["query_string"] = result
         elif isinstance(query_string, dict):
+            _apply_bytes_key_rules(query_string, opts)
             # Apply the field rules to each entry. A value that is a list
             # (repeated params like ``?token=a&token=b``) has each element
             # scrubbed individually via ``_scrub_single_param`` instead of

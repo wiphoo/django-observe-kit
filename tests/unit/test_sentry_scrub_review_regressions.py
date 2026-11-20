@@ -121,3 +121,16 @@ def test_credentialed_url_hashes_query_once_like_request_url() -> None:
     url = "https://u:p@h/p?ip=192.0.2.1"
     out = _run({"message": url, "request": {"url": url}}, PiiLevel.SENSITIVE)
     assert out["message"].split("?")[-1] == out["request"]["url"].split("?")[-1]
+
+
+def test_bracketed_ipv6_url_without_path_keeps_query_in_candidate() -> None:
+    msg = _run({"message": "see https://[2001:db8::1]?phone=0812345678 now"})["message"]
+    assert "0812345678" not in msg
+
+
+def test_byte_key_alias_in_request_headers_and_query_string() -> None:
+    bearer = {"authorization": "safe", "b'authorization'": "Bearer supersecret"}
+    out = _run({"request": {"headers": dict(bearer), "query_string": dict(bearer)}})["request"]
+    assert "supersecret" not in str(out)
+    out = _run({"request": {"query_string": {"phone": "1", "b'phone'": "0812345678"}}})["request"]
+    assert "0812345678" not in str(out)
