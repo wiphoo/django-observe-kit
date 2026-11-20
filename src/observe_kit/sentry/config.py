@@ -21,7 +21,16 @@ from typing import (
     TypeGuard,
     cast,
 )
-from urllib.parse import parse_qsl, unquote, unquote_plus, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import (
+    SplitResult,
+    parse_qsl,
+    unquote,
+    unquote_plus,
+    urlencode,
+    urlparse,
+    urlsplit,
+    urlunsplit,
+)
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -342,118 +351,115 @@ def _redact_partial_email_mask(original: Any, masked: Any) -> Any:
     return masked
 
 
-def _url_form_to_scrub(value: str) -> Optional[str]:
-    """Choose which form of a URL value to hand to :func:`_scrub_url`.
+_BRACKET_SENTINELS = str.maketrans({"[": "\ue000", "]": "\ue001"})
+_BRACKET_RESTORE = str.maketrans({"\ue000": "[", "\ue001": "]"})
 
-    When decoding exposes a new query, fragment, or ``user:pass@`` authority that
-    ``urlsplit`` would otherwise miss (``%3F``/``%23``/``%40`` hiding structure),
-    reconstruct a URL that exposes *only* those structural delimiters and carries
-    the fully decoded query/fragment (which the scrubber needs decoded to parse
-    and mask), while keeping the original path's unrelated escapes (``%2F``/
-    ``%20``) intact rather than rewriting them. When decoding reveals no hidden
-    structure, return the original ``value`` unchanged. Returns ``None`` when the
-    decode cap is exhausted, signalling the caller to redact the value wholesale.
+
+def _split_repaired(value: str) -> Optional[tuple[SplitResult, bool]]:
+    """``urlsplit`` ``value``, repairing it first if ``urlsplit`` rejects it.
+
+    ``urlsplit`` raises ``ValueError`` on a stray/unbalanced IPv6 bracket
+    (``http://[``, ``https://safe.test[%252F…``). The repair swaps every ``[``/``]``
+    for a private-use sentinel so the *parser* succeeds, then maps the sentinels
+    back in each component, so the returned parts carry the original text and the
+    malformed URL is never reserialised into something else. Returns
+    ``(parts, repaired)`` or ``None`` when the URL can't be parsed even then (the
+    caller redacts it wholesale).
+    """
+    try:
+        return urlsplit(value), False
+    except ValueError:
+        pass
+    if "\ue000" in value or "\ue001" in value:
+        return None
+    try:
+        parts = urlsplit(value.translate(_BRACKET_SENTINELS))
+    except ValueError:
+        return None
+    return SplitResult(*(c.translate(_BRACKET_RESTORE) for c in parts)), True
+
+
+def _split_path(path: str) -> tuple[str, str, str]:
+    """Split ``path`` (possibly carrying a literal ``?``/``#``) into path/query/fragment.
+
+    Delegates to ``urlsplit`` behind a dummy authority so a path that merely starts
+    with ``//`` (``//[redirect?…``) is not read as a new authority.
+    """
+    rooted = path[:1] in ("/", "?", "#", "")
+    parts = urlsplit("s://h" + ("" if rooted else "/") + path.translate(_BRACKET_SENTINELS))
+    head = parts.path if rooted else parts.path[1:]
+    return (
+        head.translate(_BRACKET_RESTORE),
+        parts.query.translate(_BRACKET_RESTORE),
+        parts.fragment.translate(_BRACKET_RESTORE),
+    )
+
+
+def _repair_url(value: str) -> Optional[str]:
+    """Normalise a URL value so :func:`_scrub_url` can drive off ``urlsplit`` alone.
+
+    Percent-encoded delimiters hide structure from ``urlsplit`` (``%3F``/``%23`` in a
+    path or authority, ``%40`` userinfo), so the value is bounded-decoded via the
+    :mod:`scrub.decode` seam and the *encoded* delimiters are exposed — only the
+    delimiters, so unrelated escapes (``%2F``/``%20``) stay intact. Every parse goes
+    through :func:`_split_repaired`, so an unparseable bracket URL is repaired rather
+    than hand-parsed. Returns ``value`` when nothing is hidden, and ``None`` when
+    the decode cap is exhausted (the caller redacts the value wholesale).
     """
     decoded, exhausted = _bounded_unquote(value)
     if exhausted:
         return None
     if decoded == value:
         return value
-    try:
-        orig_parts = urlsplit(value)
-        dec_parts = urlsplit(decoded)
-    except ValueError:
-        # ``urlsplit`` can't parse the URL (e.g. an unclosed IPv6 bracket ``[``
-        # that the URL locator still matched: ``https://safe.test[%252Fsearch%253F…``).
-        # If bounded-decoding exposed a *literal* query/fragment delimiter the raw
-        # value hid behind percent-encoding, hand back the decoded form so
-        # ``_scrub_url``'s own ``ValueError`` fallback can redact the now-visible
-        # query/fragment; otherwise keep the original (that fallback already
-        # handles a raw ``http://[/p?…``).
-        # Test for an *encoded* delimiter, not merely the absence of a literal one:
-        # a literal ``?x=1`` elsewhere must not hide an encoded ``%253F`` query.
-        if ("?" in decoded or "#" in decoded) and (
-            _URL_QUERY_DELIM_RE.search(value) or _URL_FRAG_DELIM_RE.search(value)
-        ):
-            return decoded
+    orig = _split_repaired(value)
+    dec = _split_repaired(decoded)
+    if orig is None or dec is None:
         return value
+    orig_parts, dec_parts = orig[0], dec[0]
     # An encoded query/fragment delimiter hidden in the *path* is structure even
-    # when the URL already carries a visible outer query — e.g.
-    # ``…/search%3Fphone%3D…?x=1`` must still be scrubbed, so testing
-    # ``dec_parts.query and not orig_parts.query`` would wrongly skip it. Detect
-    # the encoded delimiter in the path directly.
+    # when the URL already carries a visible outer query.
     authority_revealed = "@" in dec_parts.netloc and "@" not in orig_parts.netloc
-    # A query/fragment delimiter can hide in the *authority* too: when the path
-    # separator ``/`` is itself encoded (``https://host!%252Fsearch%253Fphone%253D…``),
-    # ``urlsplit`` sees the whole ``host!%2Fsearch%3Fphone%3D…`` as the netloc, so
-    # the path-based detection below misses it and ``_scrub_url`` can't reach the
-    # buried query. The URL locator happily matches such a token (``! ( : =`` aren't
-    # host-invalid to it), so without this the encoded query would be exempted
-    # from the hidden-URL pass yet never scrubbed — a leak.
-    netloc_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.netloc)) or bool(
-        _URL_FRAG_DELIM_RE.search(orig_parts.netloc)
+    # A delimiter can hide in the *authority* too, when the path-separating ``/`` is
+    # itself encoded (``https://host!%252Fsearch%253Fphone%253D…``): ``urlsplit``
+    # then sees the whole thing as the netloc.
+    netloc_hides_structure = bool(
+        _URL_QUERY_DELIM_RE.search(orig_parts.netloc)
+        or _URL_FRAG_DELIM_RE.search(orig_parts.netloc)
     )
-    path_hides_structure = bool(_URL_QUERY_DELIM_RE.search(orig_parts.path)) or bool(
-        _URL_FRAG_DELIM_RE.search(orig_parts.path)
+    path_hides_structure = bool(
+        _URL_QUERY_DELIM_RE.search(orig_parts.path) or _URL_FRAG_DELIM_RE.search(orig_parts.path)
     )
-    reveals_structure = path_hides_structure or authority_revealed or netloc_hides_structure
-    if not reveals_structure:
+    if not (path_hides_structure or authority_revealed or netloc_hides_structure):
         return value  # only ordinary escapes decoded — keep the original form
     if netloc_hides_structure and not authority_revealed:
-        # The path boundary was encoded, so the query/fragment is buried in what
-        # urlsplit parsed as the authority. Hand ``_scrub_url`` the decoded form
-        # to reparse and scrub the exposed query/fragment.
-        return decoded
+        return decoded  # buried in the authority: reparse the decoded form
     if authority_revealed and not path_hides_structure:
-        # The authority was opaque-encoded. When the *whole* structure was encoded
-        # (a fully double-encoded ``https%253A%252F%252Falice%253Asecret%2540host``),
-        # ``urlsplit(value)`` sees no scheme/authority and the encoded-path branch
-        # below would return the value unscrubbed — the email fallback would then
-        # decode it and expose the ``user:pass@`` credentials. Hand ``_scrub_url``
-        # the decoded form so it redacts the authority. When the scheme is already
-        # visible (``https://alice%3Asecret%40host/a%2Fb``), only the authority was
-        # encoded: rebuild with the decoded authority while keeping the original
-        # path/query/fragment escapes, so ``a%2Fb`` stays a single path segment
-        # instead of being flattened to ``a/b``.
+        # Fully encoded structure (no visible scheme) -> reparse the decoded form;
+        # otherwise only the authority was encoded: keep the original path escapes.
         if orig_parts.scheme:
-            return urlunsplit(
-                (
-                    orig_parts.scheme,
-                    dec_parts.netloc,
-                    orig_parts.path,
-                    orig_parts.query,
-                    orig_parts.fragment,
-                )
-            )
+            return urlunsplit(orig_parts._replace(netloc=dec_parts.netloc))
         return decoded
-    # Expose the encoded query/fragment delimiters *within the path only* so the
-    # path keeps its unrelated escapes and a pre-existing outer query/fragment is
-    # preserved rather than merged into the newly exposed one. The authority is
-    # left encoded — ``_scrub_url`` decodes ``%40`` userinfo itself.
+    # Expose the encoded delimiters *within the path only*; a pre-existing outer
+    # query/fragment is preserved rather than merged into the exposed one.
     exposed_path = _URL_FRAG_DELIM_RE.sub("#", _URL_QUERY_DELIM_RE.sub("?", orig_parts.path))
-    # Split path/query/fragment by hand rather than ``urlsplit``: a path like
-    # ``//[redirect?…`` (an empty path segment then ``[``) reads as an authority
-    # with an unclosed IPv6 bracket and would raise ``ValueError`` out of
-    # ``before_send``, dropping the event.
-    path_head, _, path_fragment = exposed_path.partition("#")
-    path_only, _, path_query = path_head.partition("?")
+    path_only, hidden_query, path_fragment = _split_path(exposed_path)
     # Decode the hidden query by exactly the outer query delimiter's encoding depth
-    # (``%3F`` → one level, ``%253F`` → two, …) so ``parse_qsl`` can split
-    # ``key=value`` pairs and ``&`` separators, while a more deeply encoded octet
-    # inside a value (``%2526`` beside a single-encoded ``%3F``) stays encoded.
-    hidden_query = path_query
+    # (``%3F`` -> one level, ``%253F`` -> two, ...) so ``parse_qsl`` splits the pairs
+    # while a more deeply encoded octet inside a value stays encoded.
     if hidden_query:
         qmatch = _URL_QUERY_DELIM_RE.search(orig_parts.path)
-        levels = (len(qmatch.group()) - 3) // 2 + 1 if qmatch else 1
-        for _ in range(levels):
+        for _ in range((len(qmatch.group()) - 3) // 2 + 1 if qmatch else 1):
             hidden_query = unquote(hidden_query)
-    # Merge the exposed path-carried query with any already-parsed outer query.
-    if hidden_query and orig_parts.query:
-        query = f"{hidden_query}&{orig_parts.query}"
-    else:
-        query = hidden_query or orig_parts.query
-    fragment = path_fragment or orig_parts.fragment
-    return urlunsplit((orig_parts.scheme, orig_parts.netloc, path_only, query, fragment))
+    query = (
+        f"{hidden_query}&{orig_parts.query}"
+        if hidden_query and orig_parts.query
+        else (hidden_query or orig_parts.query)
+    )
+    return urlunsplit(
+        orig_parts._replace(
+            path=path_only, query=query, fragment=path_fragment or orig_parts.fragment
+        )
+    )
 
 
 def _value_carries_url(value: str) -> bool:
@@ -755,7 +761,7 @@ def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
     ``%40``) is an invariant of URL scrubbing, so it happens here first — that way
     *every* caller (free text, generic leaves, URL fields, URL headers) is covered
     uniformly and no path can hand ``urlsplit`` a still-encoded URL and mistake a
-    hidden query for path text (see :func:`_url_form_to_scrub`).
+    hidden query for path text (see :func:`_repair_url`).
 
     The query component is then masked per the field rules plus email-value masking;
     unambiguous email tokens embedded in the path (``/users/alice@example.com``,
@@ -765,10 +771,10 @@ def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
     the authority (``https://user:secret@host/…``) is redacted wholesale — it can
     carry basic-auth credentials that neither the query nor field rules catch.
 
-    ``urlsplit`` raises ``ValueError`` on malformed URLs (e.g. ``http://[``).
-    Since this runs inside ``before_send`` — which must never raise or the whole
-    event is dropped — fall back to redacting the query wholesale so no raw
-    query PII can leak from a URL we can't parse.
+    ``urlsplit`` raises ``ValueError`` on malformed URLs (e.g. ``http://[``). Since
+    this runs inside ``before_send`` — which must never raise — :func:`_split_repaired`
+    repairs such a URL so ``urlsplit`` succeeds, the same component policy applies, and
+    its query is redacted wholesale; a URL that can't be parsed even then is redacted.
 
     ``depth`` bounds the URL→query→nested-URL recursion: a query value that is
     itself a URL re-enters here one level deeper, so a maliciously nested
@@ -777,38 +783,14 @@ def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
     """
     if depth > _MAX_URL_NESTING:
         return _REDACTED
-    form = _url_form_to_scrub(url)
+    form = _repair_url(url)
     if form is None:  # decode cap exhausted while still changing → don't leak
         return _REDACTED
     url = form
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        # Can't parse to isolate the components. If the authority (after the
-        # scheme, or a protocol-relative ``//``, up to the next ``/ ? #``)
-        # carries ``user:pass@`` credentials we can't strip them precisely, so
-        # redact the whole URL rather than leak them; otherwise redact the query
-        # and any query-like/email fragment (matching the parsed-path behaviour)
-        # while keeping a plain anchor.
-        after_scheme = url.split("://", 1)[-1]
-        if after_scheme.startswith("//"):  # scheme-relative //authority form
-            after_scheme = after_scheme[2:]
-        authority = re.split(r"[/?#]", after_scheme, maxsplit=1)[0]
-        if "%" in authority:  # decode ``%40`` etc. only when something is encoded
-            authority = _bounded_unquote(authority)[0]
-        if "@" in authority:
-            return _REDACTED
-        head, hash_sep, frag = url.partition("#")
-        base, query_sep, _ = head.partition("?")
-        # Mask path emails in the surviving base too (literal or %40-encoded),
-        # so a malformed URL like ``http://[/users/alice@example.com?x=1`` can't
-        # leak the path email that the parsed branch below would have masked.
-        # Apply to the encoded form to preserve unrelated percent-encoding.
-        base = _mask_emails(base)
-        result = f"{base}?{_REDACTED}" if query_sep else base
-        if hash_sep:
-            result = f"{result}#{_REDACTED}" if _fragment_carries_pii(frag) else f"{result}#{frag}"
-        return result
+    split = _split_repaired(url)
+    if split is None:  # unparseable even after repair → don't leak
+        return _REDACTED
+    parts, repaired = split
     netloc = parts.netloc
     if "@" in netloc:  # strip user:password@, keep host[:port] as written
         netloc = f"{_REDACTED}@{netloc.rsplit('@', 1)[1]}"
@@ -818,6 +800,9 @@ def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
             netloc = _REDACTED
         elif "@" in decoded_netloc:
             netloc = f"{_REDACTED}@{decoded_netloc.rsplit('@', 1)[1]}"
+    if repaired and netloc != parts.netloc:
+        # Credentials in an unparseable URL can't be stripped precisely: redact it all.
+        return _REDACTED
     # Mask emails in the path, whether the ``@`` is literal or percent-encoded
     # (``/users/alice%40example.com``). Apply ``_mask_emails`` to the *encoded*
     # path so unrelated percent-encoding like ``%2F`` isn't decoded as a side
@@ -826,7 +811,11 @@ def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
     # encoded path email in place (via :func:`_mask_emails_basic`) instead of
     # redacting the whole path, redacting only when even that finds nothing.
     path = _mask_emails(parts.path, redact_on_exhaust=False)
-    query = _scrub_query_string(parts.query, opts, depth + 1) if parts.query else parts.query
+    query = parts.query
+    if query:
+        # A repaired (originally unparseable) URL has no trustworthy host, so its
+        # query is redacted wholesale rather than field-scrubbed.
+        query = _REDACTED if repaired else _scrub_query_string(query, opts, depth + 1)
     # Fragments can carry OAuth implicit-flow tokens / PII (``#access_token=…``,
     # ``#email=…``, possibly percent-encoded). Redact a query-like or
     # email-bearing fragment wholesale; leave plain anchors (``#section``) intact.
