@@ -1482,6 +1482,28 @@ def _scrub_url_headers(headers: Any, opts: _PiiOpts) -> None:
                 _set_pair_value(headers, i, _scrub_url_header_value(name, pair[1], opts))
 
 
+def _scrub_generic_string_keys(
+    container: Dict[str, Any], opts: _PiiOpts, skip: FrozenSet[str] = frozenset()
+) -> None:
+    """Apply the operator drop/mask/hash-by-name rules to plain string entries.
+
+    Covers generic keys no body/mapping pass owns (``server_name``, ``release``,
+    breadcrumb ``category``, ...). ``opts`` must be the content opts so the
+    walk-managed keys (rewritten once by the final walk) are never touched
+    here; ``skip`` excludes keys another phase already owns (``transaction``).
+    One application per entry: the walk's backstop leaves hashes/redactions as-is.
+    """
+    for key in list(container):
+        value = container[key]
+        if not isinstance(key, str) or not isinstance(value, str) or key.lower() in skip:
+            continue
+        sanitized = opts.mapping({key: value})
+        if key in sanitized:
+            container[key] = sanitized[key]
+        else:
+            del container[key]
+
+
 def _scrub_breadcrumbs(breadcrumbs: Any, opts: _PiiOpts) -> None:
     """Apply the key-based field rules to each breadcrumb's ``data`` payload.
 
@@ -1498,8 +1520,11 @@ def _scrub_breadcrumbs(breadcrumbs: Any, opts: _PiiOpts) -> None:
     if not isinstance(values, list):
         return
     for crumb in values:
-        if isinstance(crumb, dict) and isinstance(crumb.get("data"), (dict, list)):
+        if not isinstance(crumb, dict):
+            continue
+        if isinstance(crumb.get("data"), (dict, list)):
             crumb["data"] = opts.body(crumb["data"])
+        _scrub_generic_string_keys(crumb, opts)
 
 
 _URL_BOUNDARY_RE = re.compile(r"[/?#]")
@@ -2165,6 +2190,11 @@ def _scrub_request(
 
 def _scrub_metadata(event: Dict[str, Any], opts: _PiiOpts, content_opts: _PiiOpts) -> None:
     """Scrub top-level ``tags`` / ``extra`` / ``contexts`` / ``user``."""
+    # Generic top-level string keys (``server_name``, ``release``, ``environment``,
+    # ``logger``, ...) get the operator field rules; ``transaction`` is owned by
+    # ``_scrub_trace_metadata`` and the walk-managed keys by the final walk.
+    _scrub_generic_string_keys(event, content_opts, frozenset({"transaction"}))
+
     # Top-level tags (sentry_sdk.set_tag) are flat key→value pairs, in either
     # the dict or list-of-pairs shape.
     tags = event.get("tags")

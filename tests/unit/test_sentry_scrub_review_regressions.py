@@ -169,3 +169,40 @@ def test_masked_value_with_benign_percent_is_not_redacted() -> None:
 )
 def test_query_continues_across_multiple_punctuation_delimiters(text: str) -> None:
     assert "0812345678" not in _run({"message": text})["message"]
+
+def _generic_event() -> Dict[str, Any]:
+    return {
+        "server_name": "host-1",
+        "release": "r1",
+        "logger": "lg",
+        "transaction": "tx",
+        "breadcrumbs": {"values": [{"category": "cat", "type": "ty", "message": "msg"}]},
+    }
+
+
+def test_generic_event_keys_get_field_rules_hashed_once() -> None:
+    keys = frozenset({"server_name", "release", "category", "transaction", "message"})
+    out = config.scrub_event(_generic_event(), None, PiiLevel.SENSITIVE, "salt", extra_hash=keys)
+    crumb = out["breadcrumbs"]["values"][0]
+    assert out["server_name"] == config._hash_value("host-1", "salt")
+    assert out["release"] == config._hash_value("r1", "salt")
+    assert crumb["category"] == config._hash_value("cat", "salt")
+    assert crumb["message"] == config._hash_value("msg", "salt")
+    assert out["transaction"] == config._hash_value("tx", "salt")
+    assert out["logger"] == "lg" and crumb["type"] == "ty"
+
+
+def test_generic_event_keys_dropped_and_masked() -> None:
+    keys = frozenset({"server_name", "category"})
+    dropped = config.scrub_event(_generic_event(), None, PiiLevel.BASIC, "salt", extra_drop=keys)
+    assert "server_name" not in dropped
+    assert "category" not in dropped["breadcrumbs"]["values"][0]
+    masked = config.scrub_event(_generic_event(), None, PiiLevel.BASIC, "salt", extra_mask=keys)
+    assert masked["server_name"] != "host-1"
+    assert masked["breadcrumbs"]["values"][0]["category"] != "cat"
+
+
+def test_generic_event_keys_untouched_without_rules() -> None:
+    out = config.scrub_event(_generic_event(), None, PiiLevel.SENSITIVE, "salt")
+    assert out["server_name"] == "host-1"
+    assert out["breadcrumbs"]["values"][0]["category"] == "cat"
