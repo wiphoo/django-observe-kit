@@ -134,3 +134,13 @@ def test_byte_key_alias_in_request_headers_and_query_string() -> None:
     assert "supersecret" not in str(out)
     out = _run({"request": {"query_string": {"phone": "1", "b'phone'": "0812345678"}}})["request"]
     assert "0812345678" not in str(out)
+
+
+def test_apostrophe_in_userinfo_is_fully_redacted() -> None:
+    msg = _run({"message": "https://alice:supersecret:part'word@host/p"})["message"]
+    assert "alice" not in msg and "supersecret" not in msg
+
+
+def test_encoded_email_with_special_local_part_is_fully_masked() -> None:
+    msg = _run({"message": "contact alice.smith!tag%40example.com"})["message"]
+    assert "alice" not in msg and "tag" not in msg

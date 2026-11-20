@@ -139,7 +139,7 @@ def find_email_spans(text: str) -> Iterator[Tuple[int, int]]:
 # recoverable ``alice.smith%2B`` prefix) or stop before an encoded domain dot /
 # encoded TLD (leaving the address recoverable). ``unquote`` then decodes the
 # whole matched token before masking.
-_ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w._+\-]|%(?!40)[0-9A-Fa-f]{2})+")
+_ENC_LOCAL_RUN_RE = re.compile(r"(?:[\w.!$'^`{|}~+\-]|%(?!40)[0-9A-Fa-f]{2})+")
 # Domain tokens after ``%40``: a label item, a label separator (``.`` / ``%2E``) and a
 # TLD item. ``%2E`` is both a label item and a separator, which made the original
 # ``(?:(?:ITEM)+(?:SEP))+(?:TLD){2,}`` pattern exponential on ``"a%40" + "1%2E" * n``.

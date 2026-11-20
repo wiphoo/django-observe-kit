@@ -29,7 +29,7 @@ Scanner = Callable[[str], Iterator[Tuple[int, int]]]
 # separators and quote/angle delimiters; continues past ``,``/``;``/``)`` only when
 # followed by ``&``-joined query structure (``?x=a,b&phone=...``).
 _ABSOLUTE_BODY_RE = re.compile(
-    r"//(?:[^\s/?#@|\]}<>\"']*@)?"
+    r"//(?:[^\s/?#@|\]}<>\"]*@)?"
     r"(?:\[[^\]\s/<>\"']*\][^\s,;|)\]}<>\"']*|[^\s,;|)\]}<>\"']+)"
     r"(?:[,;)'][^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
 )
