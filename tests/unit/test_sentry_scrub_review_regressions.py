@@ -157,6 +157,7 @@ def test_masked_value_with_benign_percent_is_not_redacted() -> None:
     note = _run({"extra": {"note": "alice@example.com,progress=100%25"}})["extra"]["note"]
     assert note.startswith("a***@example.com") and "progress=100" in note
 
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -169,6 +170,7 @@ def test_masked_value_with_benign_percent_is_not_redacted() -> None:
 )
 def test_query_continues_across_multiple_punctuation_delimiters(text: str) -> None:
     assert "0812345678" not in _run({"message": text})["message"]
+
 
 def _generic_event() -> Dict[str, Any]:
     return {
