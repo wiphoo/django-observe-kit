@@ -6,7 +6,7 @@ import re
 from bisect import bisect_right
 from collections.abc import Hashable
 from dataclasses import dataclass, field, replace
-from itertools import islice
+from itertools import accumulate, islice
 from typing import (
     Any,
     Callable,
@@ -1676,6 +1676,7 @@ def _scrub_located_urls(text: str, opts: _PiiOpts, depth: int) -> str:
     which would drop a relative span overlapping an absolute one instead of
     scrubbing what is left of it after the absolute scrub.
     """
+    done: List[Tuple[int, int]] = []  # ranges of already-scrubbed absolute URLs
     for kind in ALL_KINDS:
         out: List[str] = []
         pos = 0
@@ -1683,23 +1684,41 @@ def _scrub_located_urls(text: str, opts: _PiiOpts, depth: int) -> str:
         # rootless ``com/p?ip=…`` tail after a hostname dot) must not be scrubbed
         # again — its query values were handled once, and hashing twice would make
         # the pseudonym depend on which field carried the URL.
-        done = [] if kind == "absolute" else find_url_spans(text, kinds=("absolute",))
-        di = 0
+        starts = [r[0] for r in done]
+        rewrites: List[Tuple[int, int]] = []  # (old end, length delta), in text order
+        written = 0  # length of ``out`` so far
+        fresh: List[Tuple[int, int]] = []
         for span in find_url_spans(text, kinds=(kind,)):
-            while di < len(done) and done[di].end < span.end:
-                di += 1
-            if di < len(done) and done[di].start <= span.start:
+            i = bisect_right(starts, span.start) - 1
+            if i >= 0 and done[i][1] >= span.end:
                 continue
             out.append(text[pos : span.start])
+            written += span.start - pos
             piece = text[span.start : span.end]
-            out.append(
+            new = (
                 _scrub_url_token(piece, opts, depth)
                 if kind == "absolute"
                 else _scrub_url(piece, opts, depth)
             )
+            out.append(new)
+            fresh.append((written, written + len(new)))
+            written += len(new)
+            rewrites.append((span.end, len(new) - (span.end - span.start)))
             pos = span.end
         out.append(text[pos:])
         text = "".join(out)
+        # ponytail: ranges straddling a rewrite are shifted by whole-rewrite deltas
+        # only; fine for the "skip already-scrubbed" heuristic.
+        ends = [r[0] for r in rewrites]
+        cum = list(accumulate(r[1] for r in rewrites))
+
+        def shift(x: int) -> int:
+            k = bisect_right(ends, x)
+            return x + (cum[k - 1] if k else 0)
+
+        done = [(shift(s), shift(e)) for s, e in done]
+        if kind == "absolute":
+            done = fresh
     return text
 
 

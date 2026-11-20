@@ -110,3 +110,14 @@ def test_byte_key_params_subtree_honours_drop_rule() -> None:
     event = {"extra": {"params": "safe", "b'params'": ["supersecret"]}}
     out = config.scrub_event(event, None, PiiLevel.BASIC, "", extra_drop=frozenset({"params"}))
     assert "supersecret" not in str(out)
+
+
+def test_userinfo_with_comma_is_fully_redacted() -> None:
+    msg = _run({"message": "https://alice:supersecret,more@host/p"})["message"]
+    assert "alice" not in msg and "supersecret" not in msg
+
+
+def test_credentialed_url_hashes_query_once_like_request_url() -> None:
+    url = "https://u:p@h/p?ip=192.0.2.1"
+    out = _run({"message": url, "request": {"url": url}}, PiiLevel.SENSITIVE)
+    assert out["message"].split("?")[-1] == out["request"]["url"].split("?")[-1]
