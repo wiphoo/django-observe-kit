@@ -929,8 +929,9 @@ def _scrub_free_text_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> 
     rule, dispatch_key = _walk_rule(key_lower)
     if isinstance(value, str) and rule is not None and not rule.subtree:
         return rule.handler(dispatch_key, value, opts)
-    if _strip_bytes_repr_key(key_lower) != key_lower:
-        # A colliding bytes-repr key the subtree body pass couldn't match: apply
+    if (rule is not None and not rule.subtree) or _strip_bytes_repr_key(key_lower) != key_lower:
+        # A compound value under a walk-managed key (the body pass stripped those
+        # rules) or a colliding bytes-repr key the subtree body pass couldn't match: apply
         # the operator field rule via the unwrapped name, or the value leaks.
         field_rule = _check_field_rule(key_lower, opts)
         if field_rule == "hash":

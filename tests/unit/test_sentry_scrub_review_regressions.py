@@ -93,3 +93,9 @@ def test_nested_pair_list_query_param_is_key_aware() -> None:
     qs = {"profile": [["authorization", "Bearer supersecret"], ["phone", "0812345678"]]}
     out = _run({"request": {"query_string": qs}})["request"]["query_string"]
     assert "supersecret" not in str(out) and "0812345678" not in str(out)
+
+
+def test_logentry_named_arg_compound_value_honours_field_rule() -> None:
+    event = {"logentry": {"message": "m", "params": {"url": ["supersecret"]}}}
+    out = config.scrub_event(event, None, PiiLevel.BASIC, "", extra_mask=frozenset({"url"}))
+    assert "supersecret" not in str(out)
