@@ -68,3 +68,16 @@ def test_container_valued_query_param_is_sanitized() -> None:
     qs = {"profile": {"phone": "0812345678", "authorization": "Bearer x"}}
     out = _run({"request": {"query_string": qs}})["request"]["query_string"]
     assert "0812345678" not in str(out) and "Bearer x" not in str(out)
+
+
+def test_container_query_param_gets_value_walk() -> None:
+    qs = {"profile": {"url": "https://host/?phone=0812345678"}}
+    out = _run({"request": {"query_string": qs}})["request"]["query_string"]
+    assert "0812345678" not in str(out)
+
+
+def test_apostrophe_in_relative_query_value_does_not_hide_later_param() -> None:
+    msg = _run({"message": "GET /search?q=O'Reilly&phone=0812345678"})["message"]
+    assert "0812345678" not in msg
+    msg = _run({"message": "see callback?q=O'Reilly&phone=0812345678"})["message"]
+    assert "0812345678" not in msg

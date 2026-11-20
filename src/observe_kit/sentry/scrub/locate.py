@@ -75,7 +75,10 @@ def _absolute_spans(text: str) -> Iterator[Tuple[int, int]]:
 _ROOTLESS_RUN_RE = re.compile(r"[\w@.+/~-]+")
 _ROOTLESS_FIRST_RE = re.compile(r"[\w@.+~-]")
 _ROOTLESS_BAD_PREV_RE = re.compile(r"[\w/]")
-_ROOTLESS_TAIL_RE = re.compile(r"[?#][^\s=&?#,;|)\]}<>\"']+=[^\s,;|)\]}<>\"']*")
+_ROOTLESS_TAIL_RE = re.compile(
+    r"[?#][^\s=&?#,;|)\]}<>\"']+=[^\s,;|)\]}<>\"']*"
+    r"(?:'[^\s&,;|)\]}<>\"']*&[^\s,;|)\]}<>\"']*=[^\s,;|)\]}<>\"']*)*"
+)
 
 
 def _rootless_spans(text: str) -> Iterator[Tuple[int, int]]:
@@ -110,7 +113,7 @@ _RELATIVE_RUN_RE = re.compile(r"[^\s?#\"'<>]+")
 _RELATIVE_TAIL_RE = re.compile(
     r"[?#]"
     r"[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*"
-    r"(?:[,;][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
+    r"(?:[,;'][^\s&,;|)\]}<>\"']+&[^\s#,;|)\]}<>\"']*=[^\s#,;|)\]}<>\"']*)*"
 )
 _RELATIVE_STOP_RE = re.compile(r"[\s#,;|)\]}<>\"']")
 _RELATIVE_BAD_PREV_RE = re.compile(r"[\w:/]")

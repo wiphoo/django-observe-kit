@@ -1865,7 +1865,11 @@ def _scrub_single_param(key: str, value: Any, opts: _PiiOpts) -> Optional[Any]:
     if sv != value:  # a mask/hash rule matched — redact a partial email mask
         return _redact_partial_email_mask(value, sv)
     if isinstance(value, (dict, list, tuple)):
-        return _content_opts(opts).body(value)  # nested containers need the field rules too
+        # Nested containers need the field rules *and* the value walk: the saved
+        # ``query_string`` is shielded from the later whole-event walk.
+        nested = _content_opts(opts).body(value)
+        _scrub_value_fields(nested, opts)
+        return nested
     if isinstance(value, str):
         scrubbed_url = _scrub_url_if_carries(value, opts)
         if scrubbed_url is not None:
