@@ -1743,7 +1743,7 @@ def _scrub_span_description(description: str, op: Any, opts: _PiiOpts) -> str:
     return _scrub_text(description, opts)
 
 
-def _scrub_spans(event: Dict[str, Any], opts: _PiiOpts) -> None:
+def _scrub_spans(event: Dict[str, Any], opts: _PiiOpts, full_opts: _PiiOpts) -> None:
     """Scrub ``data``, ``tags`` and ``description`` on each span (transaction events)."""
     spans = event.get("spans")
     if not isinstance(spans, list):
@@ -1764,7 +1764,9 @@ def _scrub_spans(event: Dict[str, Any], opts: _PiiOpts) -> None:
             span["tags"] = _scrub_pair_list(list(tags) if isinstance(tags, tuple) else tags, opts)
         description = span.get("description")
         if isinstance(description, str) and description:
-            span["description"] = _scrub_span_description(description, span.get("op"), opts)
+            # Full options: descriptions are shielded from the later value walk, so
+            # walk-managed operator rules (``message`` / ``url`` …) apply only here.
+            span["description"] = _scrub_span_description(description, span.get("op"), full_opts)
 
 
 def _scrub_stackframe_vars(event: Dict[str, Any], opts: _PiiOpts) -> None:
@@ -2063,7 +2065,7 @@ def _scrub_request(
             # that survive ``_mask_value``).
             cleaned: Dict[str, Any] = {}
             for qk, orig in query_string.items():
-                if isinstance(orig, (list, tuple)):
+                if isinstance(orig, (list, tuple)) and not _is_pair_list(orig):
                     scrubbed_list: List[Any] = []
                     for v in orig:
                         sv = _scrub_single_param(qk, v, opts)
@@ -2085,7 +2087,7 @@ def _scrub_request(
             for pair in qs_list:
                 if isinstance(pair, (list, tuple)) and len(pair) == 2:
                     k, v = pair
-                    if isinstance(v, (list, tuple)):
+                    if isinstance(v, (list, tuple)) and not _is_pair_list(v):
                         scrubbed_vals: List[Any] = []
                         for val in v:
                             sv = _scrub_single_param(k, val, opts)
@@ -2193,7 +2195,7 @@ def _scrub_trace_metadata(event: Dict[str, Any], opts: _PiiOpts, content_opts: _
             # Brush the transaction name as free text — _scrub_text masks
             # embedded emails/URLs (and their query PII) via the URL locator.
             event["transaction"] = _scrub_text(transaction, opts)
-    _scrub_spans(event, content_opts)
+    _scrub_spans(event, content_opts, opts)
     _scrub_stackframe_vars(event, content_opts)
 
 

@@ -81,3 +81,15 @@ def test_apostrophe_in_relative_query_value_does_not_hide_later_param() -> None:
     assert "0812345678" not in msg
     msg = _run({"message": "see callback?q=O'Reilly&phone=0812345678"})["message"]
     assert "0812345678" not in msg
+
+
+def test_span_description_honours_walk_managed_field_rule() -> None:
+    event = {"spans": [{"op": "http.client", "description": "GET https://h/p?message=supersecret"}]}
+    out = config.scrub_event(event, None, PiiLevel.BASIC, "", extra_mask=frozenset({"message"}))
+    assert "supersecret" not in out["spans"][0]["description"]
+
+
+def test_nested_pair_list_query_param_is_key_aware() -> None:
+    qs = {"profile": [["authorization", "Bearer supersecret"], ["phone", "0812345678"]]}
+    out = _run({"request": {"query_string": qs}})["request"]["query_string"]
+    assert "supersecret" not in str(out) and "0812345678" not in str(out)
