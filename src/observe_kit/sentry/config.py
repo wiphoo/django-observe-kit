@@ -31,6 +31,7 @@ from ..pii_rules import (
     _EMAIL_FULLMATCH_RE,
     PiiLevel,
     _hash_value,
+    _mask_value,
     effective_sets,
     get_pii_config,
     sanitize_body,
@@ -1277,6 +1278,123 @@ def _scrub_value_fields(obj: Any, opts: _PiiOpts) -> None:
                 _scrub_value_fields(item, opts)
 
 
+def _decode_key(key: Any, original: Dict[Any, Any]) -> Any:
+    """Normalise one dict key like :func:`_normalize_bytes_leaves` (decode / unwrap repr)."""
+    if isinstance(key, (bytes, bytearray)):
+        return _decode_bytes_leaf(key)
+    if isinstance(key, str):
+        new_key = _strip_bytes_repr_key(key)
+        return key if new_key != key and new_key in original else new_key
+    return key
+
+
+def _pair_shape(node: List[Any]) -> int:
+    """Classify a list: 2 = canonical pair list, 1 = pair list only after decoding, 0 = other."""
+    if not node:
+        return 0
+    canonical = _pii_is_pair_list(node) and all(isinstance(i, list) for i in node)
+    if canonical:
+        return 2
+    if _pii_is_pair_list(node):
+        return 1  # tuple pairs: keep the shape-exact reference path
+    if all(
+        isinstance(i, (list, tuple)) and len(i) == 2 and isinstance(i[0], (str, bytes, bytearray))
+        for i in node
+    ):
+        return 1  # bytes pair keys become a pair list only after decoding
+    return 0
+
+
+def _fused_reference(node: Any, bopts: _PiiOpts, opts: _PiiOpts) -> Any:
+    """Reference (multi-pass) sequence the fused walk is defined to equal.
+
+    Used for the rare shapes (tuples/sets, bytes-keyed pairs, walk-managed or
+    byte-repr keys) where the multi-pass semantics are subtle; those subtrees are
+    small and the common containers stay on the single-visit path.
+    """
+    node = bopts.body(_normalize_bytes_leaves(node))
+    _scrub_value_fields(node, opts)
+    return node
+
+
+def _fused_child(
+    key: Any, raw: Any, walk_key_lower: str, bopts: _PiiOpts, opts: _PiiOpts
+) -> Tuple[bool, Any]:
+    """Body (field-rule) + value-walk for one entry; returns ``(keep, scrubbed)``."""
+    key_lower = str(key).lower()
+    drop, mask, hsh = bopts.rule_sets
+    if key_lower in drop:
+        return False, None
+    rule, _ = _walk_rule(walk_key_lower)
+    if rule is not None or _strip_bytes_repr_key(walk_key_lower) != walk_key_lower:
+        decoded = _normalize_bytes_leaves(raw)
+        value = bopts.body({key: decoded})[key]
+        return True, _walk_keyed_value(walk_key_lower, value, opts)
+    if _is_statement_key(walk_key_lower):
+        return True, _REDACTED
+    if key_lower in mask:
+        if isinstance(raw, (bytes, bytearray)):
+            raw = _decode_bytes_leaf(raw)
+        return True, _walk_keyed_value(
+            walk_key_lower, _mask_value(raw) if isinstance(raw, str) else "***", opts
+        )
+    if bopts.level == PiiLevel.SENSITIVE and key_lower in hsh:
+        hashed = _hash_value(str(_normalize_bytes_leaves(raw)), bopts.hash_salt)
+        return True, _walk_keyed_value(walk_key_lower, hashed, opts)
+    if isinstance(raw, (dict, list)):
+        return True, _fused_walk(raw, bopts, opts)
+    if isinstance(raw, (bytes, bytearray)):
+        return True, _walk_keyed_value(walk_key_lower, _decode_bytes_leaf(raw), opts)
+    if isinstance(raw, (tuple, set, frozenset)):
+        value = bopts.body(_normalize_bytes_leaves(raw))
+        return True, _walk_keyed_value(walk_key_lower, value, opts)
+    return True, _walk_keyed_value(walk_key_lower, raw, opts)
+
+
+def _fused_walk(node: Any, bopts: _PiiOpts, opts: _PiiOpts) -> Any:
+    """Single visit-once scrub of a ``dict`` / ``list`` subtree (returns a new container).
+
+    Equals ``_scrub_value_fields(bopts.body(_normalize_bytes_leaves(node)), opts)``
+    — bytes decoding, the key-based drop/mask/hash rules and the URL / query /
+    text value rules — but each node is visited once, with no intermediate
+    copies, and a value is never rule-hashed twice. Container values the multi-pass
+    pipeline treats specially go through :func:`_fused_reference`.
+    """
+    if isinstance(node, dict):
+        norm: Dict[Any, Any] = {}
+        for key, value in node.items():
+            norm[_decode_key(key, node)] = value
+        rebuilt: Dict[Any, Any] = {}
+        for key, raw in norm.items():
+            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key))
+            keep, value = _fused_child(key, raw, str(masked_key).lower(), bopts, opts)
+            if keep:
+                rebuilt[masked_key] = value
+        return rebuilt
+    shape = _pair_shape(node)
+    if shape == 1:
+        return _fused_reference(node, bopts, opts)
+    out: List[Any] = []
+    if shape == 2:
+        for key, raw in node:
+            keep, value = _fused_child(key, raw, str(key).lower(), bopts, opts)
+            if keep:
+                out.append([_mask_email_key(key), value])
+        return out
+    for item in node:
+        if isinstance(item, (dict, list)):
+            out.append(_fused_walk(item, bopts, opts))
+        elif isinstance(item, str):
+            out.append(_walk_keyed_value("", item, opts))
+        elif isinstance(item, (bytes, bytearray)):
+            out.append(_walk_keyed_value("", _decode_bytes_leaf(item), opts))
+        elif isinstance(item, (tuple, set, frozenset)):
+            out.append(_fused_reference(item, bopts, opts))
+        else:
+            out.append(item)
+    return out
+
+
 # ``_is_pair_list`` delegates to the canonical definition in
 # ``observe_kit.pii_rules``. The shared version accepts both ``list`` and
 # ``tuple`` nodes (Sentry can supply either), while the old sentry-local copy
@@ -2188,6 +2306,26 @@ def _scrub_request(
     event["request"] = request
 
 
+def _user_body_opts(content_opts: _PiiOpts) -> _PiiOpts:
+    """Field-rule opts for the ``user`` object (``ip`` alias; ``ip_address`` left to the hasher)."""
+    user_opts = content_opts
+    # Honor the semantic "ip" alias for user.ip_address (matching _scrub_env's
+    # alias for REMOTE_ADDR) — EXTRA_DROP_HEADERS/MASK/HASH keyed by "ip"
+    # must apply to user.ip_address too, not only to env.REMOTE_ADDR.
+    for attr in ("extra_drop", "extra_mask", "extra_hash"):
+        current = getattr(user_opts, attr, None)
+        if current and "ip" in current and "ip_address" not in current:
+            user_kwargs: dict[str, frozenset[str]] = {attr: frozenset(current | {"ip_address"})}
+            user_opts = replace(user_opts, **user_kwargs)  # type: ignore[arg-type]
+    # `_hash_ip_fields` owns `user.ip_address` (single sha256, matching
+    # REMOTE_ADDR), so drop it from the generic hash set here to avoid a
+    # double-hash when the operator lists `ip_address` (or `ip` which was
+    # expanded above) in EXTRA_HASH_FIELDS.
+    if user_opts.extra_hash and "ip_address" in user_opts.extra_hash:
+        user_opts = replace(user_opts, extra_hash=frozenset(user_opts.extra_hash - {"ip_address"}))
+    return user_opts
+
+
 def _scrub_metadata(event: Dict[str, Any], opts: _PiiOpts, content_opts: _PiiOpts) -> None:
     """Scrub top-level ``tags`` / ``extra`` / ``contexts`` / ``user``."""
     # Generic top-level string keys (``server_name``, ``release``, ``environment``,
@@ -2228,23 +2366,7 @@ def _scrub_metadata(event: Dict[str, Any], opts: _PiiOpts, content_opts: _PiiOpt
     # double-hash when the operator lists `ip_address` in EXTRA_HASH_FIELDS.
     user = event.get("user")
     if isinstance(user, dict):
-        user_opts = content_opts
-        # Honor the semantic "ip" alias for user.ip_address (matching _scrub_env's
-        # alias for REMOTE_ADDR) — EXTRA_DROP_HEADERS/MASK/HASH keyed by "ip"
-        # must apply to user.ip_address too, not only to env.REMOTE_ADDR.
-        for attr in ("extra_drop", "extra_mask", "extra_hash"):
-            current = getattr(user_opts, attr, None)
-            if current and "ip" in current and "ip_address" not in current:
-                user_kwargs: dict[str, frozenset[str]] = {attr: frozenset(current | {"ip_address"})}
-                user_opts = replace(user_opts, **user_kwargs)  # type: ignore[arg-type]
-        # `_hash_ip_fields` owns `user.ip_address` (single sha256, matching
-        # REMOTE_ADDR), so drop it from the generic hash set here to avoid a
-        # double-hash when the operator lists `ip_address` (or `ip` which was
-        # expanded above) in EXTRA_HASH_FIELDS.
-        if user_opts.extra_hash and "ip_address" in user_opts.extra_hash:
-            user_opts = replace(
-                user_opts, extra_hash=frozenset(user_opts.extra_hash - {"ip_address"})
-            )
+        user_opts = _user_body_opts(content_opts)
         event["user"] = user_opts.body(user)
 
 
@@ -2334,6 +2456,60 @@ def _walk_with_saved_fields(event: Dict[str, Any], opts: _PiiOpts) -> None:
             ev_spans[si]["description"] = _mask_emails_in_leaves(desc)
 
 
+_HELD = object()  # inert placeholder the multi-pass phases skip over
+
+
+def _clean_keys(parent: Dict[Any, Any]) -> bool:
+    """True when no key can be rewritten by bytes normalisation (so a held key is stable)."""
+    return all(isinstance(k, str) and _strip_bytes_repr_key(k) == k for k in parent)
+
+
+def _hold_fusable(
+    event: Dict[str, Any], content_opts: _PiiOpts
+) -> List[Tuple[Any, Any, Any, _PiiOpts]]:
+    """Detach the big user-content containers so the fused walk visits them once.
+
+    ``extra`` / ``contexts`` / ``user`` / ``spans[*].data`` / ``breadcrumbs[*].data`` /
+    stack-frame ``vars`` would otherwise be walked by the bytes pre-pass, a key-rule
+    body pass and the value walk. Each is swapped for :data:`_HELD` (position kept)
+    and scrubbed by :func:`_fused_walk` in :func:`_release_held`.
+    """
+    held: List[Tuple[Any, Any, Any, _PiiOpts]] = []
+
+    def take(parent: Any, key: str, kinds: Tuple[type, ...], bopts: _PiiOpts) -> None:
+        if isinstance(parent, dict) and isinstance(parent.get(key), kinds) and _clean_keys(parent):
+            held.append((parent, key, parent[key], bopts))
+            parent[key] = _HELD
+
+    if _clean_keys(event):
+        take(event, "extra", (dict, list), content_opts)
+        take(event, "contexts", (dict,), content_opts)
+        if isinstance(event.get("user"), dict):
+            take(event, "user", (dict,), _user_body_opts(content_opts))
+    spans = event.get("spans")
+    for span in spans if isinstance(spans, list) else ():
+        take(span, "data", (dict, list), content_opts)
+    crumbs = event.get("breadcrumbs")
+    if isinstance(crumbs, dict):
+        crumbs = crumbs.get("values")
+    for crumb in crumbs if isinstance(crumbs, list) else ():
+        take(crumb, "data", (dict, list), content_opts)
+    for container_key in ("exception", "threads"):
+        container = event.get(container_key)
+        values = container.get("values") if isinstance(container, dict) else None
+        for entry in values if isinstance(values, list) else ():
+            stacktrace = entry.get("stacktrace") if isinstance(entry, dict) else None
+            frames = stacktrace.get("frames") if isinstance(stacktrace, dict) else None
+            for frame in frames if isinstance(frames, list) else ():
+                take(frame, "vars", (dict, list), content_opts)
+    return held
+
+
+def _release_held(held: List[Tuple[Any, Any, Any, _PiiOpts]], opts: _PiiOpts) -> None:
+    for parent, key, node, bopts in held:
+        parent[key] = _fused_walk(node, bopts, opts)
+
+
 def scrub_event(
     event: Dict[str, Any],
     hint: Optional[Dict[str, Any]] = None,
@@ -2378,16 +2554,17 @@ def scrub_event(
     # Sentry serializes bytes/bytearray leaves to strings *after* before_send, so
     # decode them up front — otherwise a byte-valued leaf bypasses every
     # str-based scrubber and reaches Sentry decoded and raw.
-    _normalize_bytes_leaves(event)
-
     opts, header_opts, content_opts = _build_opts(
         level, hash_salt, extra_drop, extra_mask, extra_hash
     )
+    held = _hold_fusable(event, content_opts)
+    _normalize_bytes_leaves(event)
 
     _scrub_request(event, opts, header_opts, content_opts)
     _scrub_metadata(event, opts, content_opts)
     _scrub_trace_metadata(event, opts, content_opts)
     _walk_with_saved_fields(event, opts)
+    _release_held(held, opts)
 
     if level == PiiLevel.SENSITIVE:
         # An explicit EXTRA_MASK rule for an IP field wins over the IP hash.
