@@ -99,3 +99,14 @@ def test_logentry_named_arg_compound_value_honours_field_rule() -> None:
     event = {"logentry": {"message": "m", "params": {"url": ["supersecret"]}}}
     out = config.scrub_event(event, None, PiiLevel.BASIC, "", extra_mask=frozenset({"url"}))
     assert "supersecret" not in str(out)
+
+
+def test_relative_and_rootless_urls_continue_past_parens_and_commas() -> None:
+    for text in ("GET /search?x=f(a)&phone=0812345678", "callback?x=a,b&phone=0812345678"):
+        assert "0812345678" not in _run({"message": text})["message"]
+
+
+def test_byte_key_params_subtree_honours_drop_rule() -> None:
+    event = {"extra": {"params": "safe", "b'params'": ["supersecret"]}}
+    out = config.scrub_event(event, None, PiiLevel.BASIC, "", extra_drop=frozenset({"params"}))
+    assert "supersecret" not in str(out)

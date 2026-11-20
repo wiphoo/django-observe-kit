@@ -1184,11 +1184,12 @@ def _walk_keyed_value(key_lower: str, value: Any, opts: _PiiOpts) -> Any:
         # a positional ``params=["supersecret"]`` has no key or email/URL pattern
         # to catch otherwise. A drop redacts wholesale (the walk can't delete a
         # key mid-iteration); else scrub the subtree's leaves.
-        sanitized = opts.mapping({key_lower: value})
-        if key_lower not in sanitized:  # operator drop
+        # Resolved (unwrapped) name: a ``b'params'`` key must hit the ``params`` rule.
+        sanitized = opts.mapping({dispatch_key: value})
+        if dispatch_key not in sanitized:  # operator drop
             return _REDACTED
-        if sanitized[key_lower] != value:  # operator mask / hash
-            return _scrub_masked_field_result(key_lower, value, sanitized[key_lower], opts)
+        if sanitized[dispatch_key] != value:  # operator mask / hash
+            return _scrub_masked_field_result(dispatch_key, value, sanitized[dispatch_key], opts)
         return _scrub_text_subtree(value, opts)
     if _is_statement_key(key_lower):
         # Redact DB statements/bind params regardless of value type — an
