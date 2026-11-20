@@ -144,3 +144,13 @@ def test_apostrophe_in_userinfo_is_fully_redacted() -> None:
 def test_encoded_email_with_special_local_part_is_fully_masked() -> None:
     msg = _run({"message": "contact alice.smith!tag%40example.com"})["message"]
     assert "alice" not in msg and "tag" not in msg
+
+
+def test_deep_encoded_email_not_hidden_by_another_masked_address() -> None:
+    note = _run({"extra": {"note": "alice@example.com,bob%25252540example.com"}})["extra"]["note"]
+    assert "alice" not in note and "bob" not in note
+
+
+def test_masked_value_with_benign_percent_is_not_redacted() -> None:
+    note = _run({"extra": {"note": "alice@example.com,progress=100%25"}})["extra"]["note"]
+    assert note.startswith("a***@example.com") and "progress=100" in note

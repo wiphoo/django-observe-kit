@@ -10,6 +10,7 @@ single :mod:`.decode` seam.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, Mapping
 from urllib.parse import unquote
 
@@ -25,6 +26,8 @@ from .constants import WS_SPLIT_RE as _WS_SPLIT_RE
 from .decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
 from .decode import bounded_unquote as _bounded_unquote
 from .decode import decode_until as _decode_until
+
+_UNMASKED_AT_RE = re.compile(r"(?<!\*\*\*)(?<!\[Filtered\])@")
 
 
 def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
@@ -139,8 +142,8 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
         if not redact_on_exhaust:
             return _mask_emails_basic(value)
         return _REDACTED
-    if not masked and unquote(encoded) != encoded:
-        # Still percent-encoded but nothing masked above. Bounded-decode to see
+    if unquote(encoded) != encoded:
+        # Still percent-encoded after the passes above. Bounded-decode to see
         # whether the encoding actually hides an email before destroying context.
         # A lone ``%25`` — a benign *doubly-encoded percent* like
         # ``progress=100%2525`` or ``abc%2525def`` — is NOT evidence on its own:
@@ -153,7 +156,10 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
         decoded, exhausted = _bounded_unquote(encoded)
         if exhausted:
             return _REDACTED if redact_on_exhaust else _mask_emails_basic(value)
-        if ("@" in decoded and "[Filtered]@" not in decoded) or (
+        # Runs even when another address was already masked, so a second deeper
+        # encoded address can't hide behind it. The mask marker ``x***@dom`` is
+        # excluded by the lookbehind so masked values with benign ``%25`` stay.
+        if _UNMASKED_AT_RE.search(decoded) or (
             contains_email(decoded) or contains_encoded_email(decoded)
         ):
             return _REDACTED if redact_on_exhaust else _mask_emails_basic(value)
