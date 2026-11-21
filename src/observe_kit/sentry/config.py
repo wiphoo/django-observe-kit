@@ -48,8 +48,8 @@ from ..pii_rules import (
 )
 from ..pii_rules import _is_pair_list as _pii_is_pair_list
 from .scrub.constants import REDACTED
-from .scrub.decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
 from .scrub.decode import bounded_unquote as _bounded_unquote
+from .scrub.decode import decode_scan, still_encoded
 from .scrub.emails import _dedupe_masked_key, _mask_email_key, _mask_emails, _mask_emails_in_leaves
 from .scrub.locate import (
     ALL_KINDS,
@@ -547,19 +547,18 @@ def _scrub_urlish_value(value: str, opts: _PiiOpts, depth: int = 0) -> str:
     first = min(spans, key=lambda s: s.start)
     if first.start == 0 and first.end == len(value):
         if "%" in value:
-            decoded = value
-            for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-                next_decoded = unquote(decoded)
-                if next_decoded == decoded:
-                    break
-                decoded = next_decoded
-                # Any interior match (something precedes it) means the token is
-                # mixed content — route it through the free-text scrubber. An
-                # end-aligned match counts too: a visible URL followed by an
-                # encoded one leaks if the encoded suffix is treated as a plain
-                # path by the visible-URL parser.
-                if any(s.start > 0 for s in _absolute_and_relative_spans(decoded)):
-                    return _scrub_text(value, opts, depth)
+            # Any interior match (something precedes it) means the token is
+            # mixed content — route it through the free-text scrubber. An
+            # end-aligned match counts too: a visible URL followed by an
+            # encoded one leaks if the encoded suffix is treated as a plain
+            # path by the visible-URL parser.
+            _, mixed, _ = decode_scan(
+                value,
+                lambda d: any(s.start > 0 for s in _absolute_and_relative_spans(d)),
+                check_original=False,
+            )
+            if mixed:
+                return _scrub_text(value, opts, depth)
         return _scrub_url_token(value, opts, depth)
     return _scrub_text(value, opts, depth)
 
@@ -571,12 +570,7 @@ def _absolute_and_relative_spans(value: str) -> List[UrlSpan]:
 
 def _hides_url_structure(raw: str) -> bool:
     """True when a query key/value, decoded as deep as the scrubber does, holds ``? # //``."""
-    decoded = unquote_plus(raw)
-    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-        nxt = unquote(decoded)
-        if nxt == decoded:
-            break
-        decoded = nxt
+    decoded, _ = _bounded_unquote(unquote_plus(raw))
     return "?" in decoded or "#" in decoded or "//" in decoded
 
 
@@ -587,17 +581,12 @@ def _outer_scrub_handles(raw: str) -> bool:
     limit, and a value still encoded after that is redacted), so the hidden-URL
     pass can leave exactly those slices to the outer scrub.
     """
-    value = unquote_plus(raw)
-    if _value_carries_url(value):
+    decoded, matched, capped = decode_scan(unquote_plus(raw), _value_carries_url)
+    if matched:
         return True
-    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-        nxt = unquote(value)
-        if nxt == value:
-            return _prefixed_url_split(value) is not None
-        value = nxt
-        if _value_carries_url(value):
-            return True
-    return unquote(value) != value  # exhausted: the outer scrub redacts it
+    if capped:
+        return still_encoded(decoded)  # exhausted: the outer scrub redacts it
+    return _prefixed_url_split(decoded) is not None
 
 
 def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optional[str]:
@@ -615,18 +604,11 @@ def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optiona
     """
     if _value_carries_url(value):
         return _scrub_urlish_value(value, opts, depth)
-    decoded = value
-    if "%" in value:
-        for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-            next_decoded = unquote(decoded)
-            if next_decoded == decoded:
-                break
-            decoded = next_decoded
-            if _value_carries_url(decoded):
-                return _scrub_urlish_value(decoded, opts, depth)
-        else:
-            if unquote(decoded) != decoded:
-                return _REDACTED
+    decoded, matched, capped = decode_scan(value, _value_carries_url, check_original=False)
+    if matched:
+        return _scrub_urlish_value(decoded, opts, depth)
+    if capped and still_encoded(decoded):
+        return _REDACTED
     # Only once fully decoded: a prefixed nested URL (``redirect:/search?…``) —
     # trying it earlier would scrub just the tail of a still-encoded value.
     split = _prefixed_url_split(decoded)
@@ -1671,12 +1653,7 @@ class _UrlLayout:
 
 def _hides_nested_authority(part: str) -> bool:
     """True when a percent-encoded path slice decodes (bounded) to a nested ``//``."""
-    decoded = part
-    for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-        nxt = unquote(decoded)
-        if nxt == decoded:
-            break
-        decoded = nxt
+    decoded, _ = _bounded_unquote(part)
     return "//" in decoded
 
 
@@ -1774,15 +1751,10 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
         return _scrub_candidate(candidate)
 
     def _scrub_candidate(candidate: str) -> str:
-        decoded = candidate
-        for _ in range(_MAX_NESTED_URL_DECODE_PASSES):
-            next_decoded = unquote(decoded)
-            if next_decoded == decoded:
-                break
-            decoded = next_decoded
+        decoded, exhausted = _bounded_unquote(candidate)
         if decoded == candidate:
             return candidate
-        if unquote(decoded) != decoded:
+        if exhausted:
             return _REDACTED
         scrubbed = _scrub_carried_url(decoded, opts, depth)
         if scrubbed is not None:

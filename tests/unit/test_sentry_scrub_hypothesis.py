@@ -38,8 +38,9 @@ pytestmark = pytest.mark.skipif(
 # then only draws the sentinel(s) per cell, so a modest per-cell example count
 # keeps the total bounded while still fuzzing each cell. A generous finite
 # deadline keeps the per-example runtime guardrail without flaking on the cold
-# first example (import warmup).
-_HYP_CELL = settings(deadline=timedelta(milliseconds=1000), max_examples=25)
+# first example (import warmup). ``derandomize=True`` seeds example generation
+# from the test itself, so CI runs are reproducible (no flaky first-failure).
+_HYP_CELL = settings(deadline=timedelta(milliseconds=1000), max_examples=25, derandomize=True)
 
 # Upper bound for the encoding-depth strategies. Must stay > the scrubber's
 # decode cap so the exhaustion→redact path is exercised; kept as a literal (not a
@@ -151,7 +152,9 @@ def test_email_secret_never_survives_any_depth(
 # exhaustion→whole-URL-redaction path beyond it (0..cap+1, since #98 closed the
 # deep-encoded-authority gap). Finite dims parametrized so every cell runs;
 # Hypothesis fuzzes the two credential sentinels.
-@pytest.mark.parametrize("placement", ["url", "message", "query", "referer_header"])
+@pytest.mark.parametrize(
+    "placement", ["url", "message", "query", "referer_header", "span_http_url"]
+)
 @pytest.mark.parametrize("depth", range(_MAX_ENCODING_DEPTH + 1))
 @_HYP_CELL
 @given(user=_SENTINEL, password=_SENTINEL)
@@ -177,6 +180,8 @@ def test_url_userinfo_credential_never_survives(
         event = {"message": f"redirecting to {url} shortly"}
     elif placement == "query":
         event = {"request": {"query_string": f"next={url}"}}
+    elif placement == "span_http_url":
+        event = {"spans": [{"data": {"http.url": url}}]}
     else:
         event = {"request": {"headers": {"Referer": url}}}
     scrubbed = _scrub(event)

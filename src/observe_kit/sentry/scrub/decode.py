@@ -32,7 +32,42 @@ def bounded_unquote(value: str) -> Tuple[str, bool]:
         if nxt == decoded:
             return decoded, False
         decoded = nxt
-    return decoded, unquote(decoded) != decoded
+    return decoded, still_encoded(decoded)
+
+
+def still_encoded(decoded: str) -> bool:
+    """True when one more decode pass would still change ``decoded``.
+
+    The shared exhaustion test: a value that is still changing once the cap is
+    spent is treated by callers as unsafe to keep (redact, or defer to the redacting
+    scrub) rather than restored.
+    """
+    return unquote(decoded) != decoded
+
+
+def decode_scan(
+    value: str, predicate: Callable[[str], bool], *, check_original: bool = True
+) -> Tuple[str, bool, bool]:
+    """Decode one level at a time until ``predicate`` holds, the value settles or the cap is hit.
+
+    Returns ``(decoded, matched, capped)``. ``matched`` is True when ``predicate``
+    held at some level (``decoded`` is that level). ``capped`` is True when every
+    one of the :data:`MAX_DECODE_PASSES` passes changed the value without a match,
+    so stability was never observed; callers decide the policy via
+    :func:`still_encoded`. ``check_original=False`` skips testing ``value`` itself
+    for callers that have already done so.
+    """
+    decoded = value
+    if check_original and predicate(decoded):
+        return decoded, True, False
+    for _ in range(MAX_DECODE_PASSES):
+        nxt = unquote(decoded)
+        if nxt == decoded:
+            return decoded, False, False
+        decoded = nxt
+        if predicate(decoded):
+            return decoded, True, False
+    return decoded, False, True
 
 
 def decode_until(value: str, predicate: Callable[[str], bool]) -> Tuple[str, bool]:
@@ -45,14 +80,5 @@ def decode_until(value: str, predicate: Callable[[str], bool]) -> Tuple[str, boo
     within the cap (``matched=False``). Shares the same :data:`MAX_DECODE_PASSES`
     budget as :func:`bounded_unquote`.
     """
-    decoded = value
-    if predicate(decoded):
-        return decoded, True
-    for _ in range(MAX_DECODE_PASSES):
-        nxt = unquote(decoded)
-        if nxt == decoded:
-            break
-        decoded = nxt
-        if predicate(decoded):
-            return decoded, True
-    return decoded, False
+    decoded, matched, _ = decode_scan(value, predicate)
+    return decoded, matched
