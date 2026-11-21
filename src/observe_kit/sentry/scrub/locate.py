@@ -267,3 +267,47 @@ def split_url_token(token: str) -> List[Tuple[str, bool]]:
             start = next_start
         pieces.append((part[start:], True))
     return pieces
+
+
+# Percent-encoded URL structure hidden in text (``%2F`` -> ``/``, ``%3A`` -> ``:``,
+# ``%3F`` -> ``?``, ``%23`` -> ``#``), at any nesting depth (``%253F``, ``%2523`` ...).
+_ENCODED_DELIMS = {"2f": "/", "3a": ":", "3f": "?", "23": "#"}
+# What may follow the anchoring delimiter inside a hidden encoded URL: URL-ish
+# characters and percent escapes, stopping at whitespace or a prose separator.
+_ENCODED_URL_RUN_RE = re.compile(r"(?:[\w.~!$'*+@:/?#=&\-]|%[0-9A-Fa-f]{2})*")
+
+
+def find_encoded_delims(text: str, delims: str = "/:?#") -> Iterator[Tuple[int, int, str]]:
+    """Yield ``(start, end, delimiter)`` for each percent-encoded delimiter in ``text``.
+
+    The one encoded-delimiter locator. ``delims`` limits which decoded delimiters
+    (any of ``/ : ? #``) are reported. Linear: each ``%`` scans only its own
+    ``25`` layers, which cannot contain another ``%``.
+    """
+    pos = 0
+    i = text.find("%")
+    while i >= 0:
+        j = i + 1
+        while text.startswith("25", j):
+            j += 2
+        kind = _ENCODED_DELIMS.get(text[j : j + 2].lower())
+        if kind is not None and kind in delims:
+            yield i, j + 2, kind
+            pos = j + 2
+        else:
+            pos = i + 1
+        i = text.find("%", pos)
+
+
+def find_encoded_url_spans(text: str) -> Iterator[Tuple[int, int]]:
+    """Yield ``(start, end)`` of each percent-encoded URL substring hidden in ``text``.
+
+    A span starts at an encoded ``/ : ? #`` and runs through URL-ish characters and
+    percent escapes. Ordinary encoded text (``%20``, ``%25``) never anchors one.
+    """
+    pos = 0
+    for start, delim_end, _ in find_encoded_delims(text):
+        if start < pos:
+            continue
+        pos = _ENCODED_URL_RUN_RE.match(text, delim_end).end()  # type: ignore[union-attr]
+        yield start, pos

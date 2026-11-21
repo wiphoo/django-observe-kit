@@ -21,7 +21,13 @@ from hypothesis import strategies as st
 
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry import config
-from observe_kit.sentry.scrub.locate import UrlSpan, find_url_spans, split_url_token
+from observe_kit.sentry.scrub.locate import (
+    UrlSpan,
+    find_encoded_delims,
+    find_encoded_url_spans,
+    find_url_spans,
+    split_url_token,
+)
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "url_locate_golden.json"
 
@@ -358,6 +364,56 @@ def test_scrub_event_message_scales_linearly_by_shape(shape: str) -> None:
     # Absolute budget on a fast box; otherwise the doubling ratio (linear ~2x,
     # quadratic ~4x) so slower CI runners do not flake on raw wall-clock.
     assert full < 2.0 or full < 3.0 * half, (half, full)
+
+
+# Oracles: the regexes the encoded locators replaced (#99).
+_REF_QUERY_DELIM_RE = re.compile(r"%(?:25)*3[Ff]")
+_REF_FRAG_DELIM_RE = re.compile(r"%(?:25)*23")
+_REF_HIDDEN_URL_RE = re.compile(
+    r"%(?:25)*(?:2[Ff]|3[AaFf]|23)"
+    r"(?:[\w.~!$'*+@:/?#=&\-]|%[0-9A-Fa-f]{2})*"
+)
+_ENC_TOKENS = [
+    "%", "25", "2", "3", "F", "f", "A", "a", "3F", "3f", "23", "2F", "2f", "3A", "%25", "%3F",
+    "%23", "%2F", "%3A", "%253F", "%2523", "%20", "&", "=", "x", " ", ",", "/", "?", "#", ":",
+    "'", "\u00e9", "_",
+]  # fmt: skip
+_ENC_TEXT = st.lists(st.sampled_from(_ENC_TOKENS), max_size=14).map("".join)
+
+
+@_DIFF
+@given(text=_ENC_TEXT)
+def test_find_encoded_delims_matches_reference(text: str) -> None:
+    got_q = [(s, e) for s, e, _ in find_encoded_delims(text, "?")]
+    got_f = [(s, e) for s, e, _ in find_encoded_delims(text, "#")]
+    assert got_q == [m.span() for m in _REF_QUERY_DELIM_RE.finditer(text)]
+    assert got_f == [m.span() for m in _REF_FRAG_DELIM_RE.finditer(text)]
+
+
+@_DIFF
+@given(text=_ENC_TEXT)
+def test_find_encoded_url_spans_matches_reference(text: str) -> None:
+    assert list(find_encoded_url_spans(text)) == [
+        m.span() for m in _REF_HIDDEN_URL_RE.finditer(text)
+    ]
+
+
+_ENC_SCALE = {
+    "enc-25-run": "%" + "25" * 200_000,
+    "enc-pct-run": "%25" * 100_000,
+    "enc-no-delim": "%2525x" * 50_000,
+    "enc-url-run": "%2Fa%3Fb=c " * 30_000,
+    "enc-one-long-url": "%2F" + "a%20" * 100_000,
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_ENC_SCALE))
+def test_encoded_locators_scale_linearly_by_shape(shape: str) -> None:
+    text = _ENC_SCALE[shape]
+    started = time.perf_counter()
+    list(find_encoded_delims(text))
+    list(find_encoded_url_spans(text))
+    assert time.perf_counter() - started < 1.0
 
 
 if __name__ == "__main__":

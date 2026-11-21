@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from bisect import bisect_right
 from collections.abc import Hashable
 from dataclasses import dataclass, field, replace
@@ -52,7 +51,14 @@ from .scrub.constants import REDACTED
 from .scrub.decode import MAX_DECODE_PASSES as _MAX_NESTED_URL_DECODE_PASSES
 from .scrub.decode import bounded_unquote as _bounded_unquote
 from .scrub.emails import _dedupe_masked_key, _mask_email_key, _mask_emails, _mask_emails_in_leaves
-from .scrub.locate import ALL_KINDS, UrlSpan, find_url_spans, split_url_token
+from .scrub.locate import (
+    ALL_KINDS,
+    UrlSpan,
+    find_encoded_delims,
+    find_encoded_url_spans,
+    find_url_spans,
+    split_url_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,27 +111,6 @@ _REDACTED = REDACTED
 # cycle and the value is redacted once it is exhausted. Legitimate nested
 # redirects are only a level or two deep.
 _MAX_URL_NESTING = 20
-
-# Match a percent-encoded URL query (``%3F`` → ``?``) or fragment (``%23`` → ``#``)
-# delimiter at any nesting depth (``%253F``/``%2523`` …). Used to expose *only*
-# the structural delimiters an attacker hid via encoding, leaving unrelated path
-# escapes (``%2F``/``%20``) intact when reconstructing a scrubbed URL.
-_URL_QUERY_DELIM_RE = re.compile(r"%(?:25)*3[Ff]")
-_URL_FRAG_DELIM_RE = re.compile(r"%(?:25)*23")
-
-# Matches a *percent-encoded URL substring* hidden inside free text: it starts at
-# an encoded ``/`` (``%2F``), ``:`` (``%3A``), ``?`` (``%3F``) or ``#`` (``%23``) —
-# the structural delimiters that mark URL syntax — then runs through URL-ish
-# characters and percent escapes, stopping at whitespace or a prose separator
-# (``, ; | ) ] }``). Anchoring on an encoded delimiter lets the surrounding text
-# (a ``redirect:`` prefix, an adjacent ``hello%20world`` / ``progress=100%25``) be
-# preserved so only the hidden URL slice is scrubbed. Ordinary encoded text like
-# ``%20`` / ``%25`` never matches the anchor, so a decoded-form
-# ``_value_carries_url`` gate still guards against false positives.
-_HIDDEN_ENCODED_URL_RE = re.compile(
-    r"%(?:25)*(?:2[Ff]|3[AaFf]|23)"
-    r"(?:[\w.~!$'*+@:/?#=&\-]|%[0-9A-Fa-f]{2})*"
-)
 
 # The embedded and percent-encoded email scanners (``find_email_spans`` /
 # ``find_encoded_email_spans``) live in ``pii_rules`` alongside ``_BARE_EMAIL_RE`` so
@@ -395,6 +380,21 @@ def _split_path(path: str) -> tuple[str, str, str]:
     )
 
 
+def _hides_query_or_frag_delim(text: str) -> bool:
+    return next(find_encoded_delims(text, "?#"), None) is not None
+
+
+def _expose_query_frag_delims(text: str) -> str:
+    """Replace every encoded query/fragment delimiter (any depth) with its literal."""
+    out: List[str] = []
+    pos = 0
+    for start, end, delim in find_encoded_delims(text, "?#"):
+        out.extend((text[pos:start], delim))
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def _repair_url(value: str) -> Optional[str]:
     """Normalise a URL value so :func:`_scrub_url` can drive off ``urlsplit`` alone.
 
@@ -423,13 +423,8 @@ def _repair_url(value: str) -> Optional[str]:
     # A delimiter can hide in the *authority* too, when the path-separating ``/`` is
     # itself encoded (``https://host!%252Fsearch%253Fphone%253D…``): ``urlsplit``
     # then sees the whole thing as the netloc.
-    netloc_hides_structure = bool(
-        _URL_QUERY_DELIM_RE.search(orig_parts.netloc)
-        or _URL_FRAG_DELIM_RE.search(orig_parts.netloc)
-    )
-    path_hides_structure = bool(
-        _URL_QUERY_DELIM_RE.search(orig_parts.path) or _URL_FRAG_DELIM_RE.search(orig_parts.path)
-    )
+    netloc_hides_structure = _hides_query_or_frag_delim(orig_parts.netloc)
+    path_hides_structure = _hides_query_or_frag_delim(orig_parts.path)
     if not (path_hides_structure or authority_revealed or netloc_hides_structure):
         return value  # only ordinary escapes decoded — keep the original form
     if netloc_hides_structure and not authority_revealed:
@@ -442,14 +437,14 @@ def _repair_url(value: str) -> Optional[str]:
         return decoded
     # Expose the encoded delimiters *within the path only*; a pre-existing outer
     # query/fragment is preserved rather than merged into the exposed one.
-    exposed_path = _URL_FRAG_DELIM_RE.sub("#", _URL_QUERY_DELIM_RE.sub("?", orig_parts.path))
+    exposed_path = _expose_query_frag_delims(orig_parts.path)
     path_only, hidden_query, path_fragment = _split_path(exposed_path)
     # Decode the hidden query by exactly the outer query delimiter's encoding depth
     # (``%3F`` -> one level, ``%253F`` -> two, ...) so ``parse_qsl`` splits the pairs
     # while a more deeply encoded octet inside a value stays encoded.
     if hidden_query:
-        qmatch = _URL_QUERY_DELIM_RE.search(orig_parts.path)
-        for _ in range((len(qmatch.group()) - 3) // 2 + 1 if qmatch else 1):
+        qspan = next(find_encoded_delims(orig_parts.path, "?"), None)
+        for _ in range((qspan[1] - qspan[0] - 3) // 2 + 1 if qspan else 1):
             hidden_query = unquote(hidden_query)
     query = (
         f"{hidden_query}&{orig_parts.query}"
@@ -503,15 +498,20 @@ def _value_carries_url(value: str) -> bool:
 # ``x=/p?…``, ``/docs'redirect:/p?…``) — the URL locators reject a relative URL after
 # such a prefix, so :func:`_value_carries_url` alone would leave its query
 # unscrubbed. The delimiter must be directly followed by ``/`` or ``?``.
-_URL_PREFIX_RE = re.compile(r"[:;=,'\"](?=[/?])")
+_URL_PREFIX_CHARS = frozenset(":;=,'\"")
 _MAX_PREFIX_SPLIT_TRIES = 8  # bound the rescans so a ``:/:/:/…`` value stays linear
 
 
 def _prefixed_url_split(value: str) -> Optional[Tuple[str, str]]:
     """Split ``prefix`` + nested URL when ``value`` is a prefixed relative URL, else ``None``."""
-    for match in islice(_URL_PREFIX_RE.finditer(value), _MAX_PREFIX_SPLIT_TRIES):
-        if _value_carries_url(value[match.end() :]):
-            return value[: match.end()], value[match.end() :]
+    prefix_ends = (
+        i + 1
+        for i in range(len(value) - 1)
+        if value[i] in _URL_PREFIX_CHARS and value[i + 1] in "/?"
+    )
+    for end in islice(prefix_ends, _MAX_PREFIX_SPLIT_TRIES):
+        if _value_carries_url(value[end:]):
+            return value[:end], value[end:]
     return None
 
 
@@ -1635,17 +1635,14 @@ def _scrub_breadcrumbs(breadcrumbs: Any, opts: _PiiOpts) -> None:
         _scrub_generic_string_keys(crumb, opts)
 
 
-_URL_BOUNDARY_RE = re.compile(r"[/?#]")
-
-
 class _UrlLayout:
     """Component offsets of one visible absolute URL inside ``text`` (computed once)."""
 
     def __init__(self, text: str, start: int, end: int) -> None:
         scheme_end = text.find("//", start, end)
         auth = start if scheme_end < 0 else scheme_end + 2
-        boundary = _URL_BOUNDARY_RE.search(text, auth, end)
-        self.auth_end = boundary.start() if boundary else end
+        found = (text.find(ch, auth, end) for ch in "/?#")
+        self.auth_end = min((i for i in found if i >= 0), default=end)
         frag = text.find("#", self.auth_end, end)
         query = text.find("?", self.auth_end, end)
         if query >= 0 and (frag < 0 or query < frag):
@@ -1692,7 +1689,7 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     URL locator passes only see already-decoded structure, so the
     encoded portion would reach Sentry unchanged.
 
-    Only the encoded-URL *substring* (``_HIDDEN_ENCODED_URL_RE``, anchored on an
+    Only the encoded-URL *substring* (``find_encoded_url_spans``, anchored on an
     encoded ``/``/``:``/``?``) is bounded-decoded and scrubbed, so the surrounding
     text is preserved verbatim — a ``redirect:`` prefix, a trailing ``,hello%20world``,
     or an adjacent ``progress=100%25`` keep their original encoding. Each candidate
@@ -1748,7 +1745,7 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             return handled_ranges[key]
         return True
 
-    def _repl(match: "re.Match[str]") -> str:
+    def _repl(start: int, end: int) -> str:
         # An encoded slice inside a *visible* URL is left for the absolute-URL
         # scrub, which scrubs the whole URL as a unit — redacting a deeply-encoded
         # authority (``https://user%253A…%2540host``) wholesale instead of fragmenting
@@ -1761,8 +1758,7 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
         # (:func:`_covered_components_handled`) — a candidate can begin in the
         # authority and run on into a path holding a nested authority
         # (``https://u%3Ap%40host/https%3A%2F%2Falice%3As%40dest/x``).
-        start, end = match.span()
-        candidate = match.group(0)
+        candidate = text[start:end]
         idx = bisect_right(span_starts, start) - 1
         if idx >= 0 and start < url_spans[idx][1] and end <= url_spans[idx][1]:
             if _covered_components_handled(idx, start, end):
@@ -1798,7 +1794,13 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             return scrubbed if scrubbed != decoded else candidate
         return candidate
 
-    return _HIDDEN_ENCODED_URL_RE.sub(_repl, text)
+    out: List[str] = []
+    pos = 0
+    for start, end in find_encoded_url_spans(text):
+        out.extend((text[pos:start], _repl(start, end)))
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def _scrub_located_urls(text: str, opts: _PiiOpts, depth: int) -> str:
