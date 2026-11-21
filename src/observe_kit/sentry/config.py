@@ -5,7 +5,7 @@ import logging
 from bisect import bisect_right
 from collections.abc import Hashable
 from dataclasses import dataclass, field, replace
-from itertools import accumulate, islice
+from itertools import accumulate, groupby, islice
 from typing import (
     Any,
     Callable,
@@ -1771,7 +1771,13 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             return candidate
         if exhausted:
             return _REDACTED
-        scrubbed = _scrub_carried_url(decoded, opts, depth)
+        # Encoded whitespace (``%3Fphone%3D…%20HTTP/1.1``) glues prose onto the URL
+        # token, which then isn't recognised as a URL as a whole: scrub per token.
+        scrubbed = (
+            _scrub_whitespace_tokens(decoded, opts, depth)
+            if any(c.isspace() for c in decoded)
+            else _scrub_carried_url(decoded, opts, depth)
+        )
         if scrubbed is not None:
             # ``scrubbed == decoded`` means the URL was isolated but contained
             # no values requiring scrubbing — keep the original candidate rather
@@ -1786,6 +1792,55 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     for start, end in find_encoded_url_spans(text):
         out.extend((text[pos:start], _repl(start, end)))
         pos = end
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def _whitespace_runs(text: str) -> List[str]:
+    """Split ``text`` into alternating whitespace / non-whitespace runs (lossless)."""
+    return ["".join(run) for _, run in groupby(text, str.isspace)]
+
+
+def _scrub_whitespace_tokens(text: str, opts: _PiiOpts, depth: int) -> str:
+    """Scrub each whitespace-separated token of ``text`` that is / carries a URL."""
+    parts = _whitespace_runs(text)
+    for i, token in enumerate(parts):
+        scrubbed = None if token[0].isspace() else _scrub_carried_url(token, opts, depth)
+        if scrubbed is not None:
+            parts[i] = scrubbed
+    return "".join(parts)
+
+
+def _scrub_prefixed_urls(text: str, opts: _PiiOpts, depth: int) -> str:
+    """Scrub ``prefix:/path?key=value`` relative URLs (``redirect:/search?phone=…``).
+
+    The relative-URL locator rejects a ``/`` that follows ``:`` (it would otherwise
+    match inside ``scheme://``), so such a URL is invisible to
+    :func:`_scrub_located_urls`. Re-locate on a same-length copy of the text whose
+    ``:`` before a single ``/`` is blanked; a span overlapping a URL the locator
+    already sees in the real text was scrubbed by that pass and is left alone.
+    """
+    chunks: List[str] = []
+    pos = 0
+    colon = text.find(":/")
+    while colon >= 0:
+        if not text.startswith("//", colon + 1):
+            chunks.extend((text[pos:colon], " "))
+            pos = colon + 1
+        colon = text.find(":/", colon + 1)
+    if not chunks:
+        return text
+    chunks.append(text[pos:])
+    seen = find_url_spans(text)
+    seen_starts = [span.start for span in seen]
+    out: List[str] = []
+    pos = 0
+    for span in find_url_spans("".join(chunks), kinds=("relative",)):
+        i = bisect_right(seen_starts, span.end - 1) - 1  # last seen span starting before the end
+        if i >= 0 and seen[i].end > span.start:
+            continue
+        out.extend((text[pos : span.start], _scrub_url(text[span.start : span.end], opts, depth)))
+        pos = span.end
     out.append(text[pos:])
     return "".join(out)
 
@@ -1857,6 +1912,7 @@ def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     """
     text = _scrub_hidden_encoded_urls(text, opts, depth)
     text = _scrub_located_urls(text, opts, depth)
+    text = _scrub_prefixed_urls(text, opts, depth)
     return cast(str, _mask_emails(text))
 
 
