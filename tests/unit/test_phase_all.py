@@ -245,11 +245,81 @@ class TestTrustedProxyIpResolution:
         req = self._make_request("1.2.3.4", xff="10.0.0.1")
         assert _resolve_remote_addr(req, []) == "1.2.3.4"
 
-    def test_trusted_proxy_uses_xff_leftmost(self) -> None:
+    def test_trusted_proxy_uses_xff_rightmost_untrusted(self) -> None:
         from observe_kit.context_middleware import _resolve_remote_addr
 
         req = self._make_request("10.0.0.1", xff="203.0.113.5, 10.0.0.1")
         assert _resolve_remote_addr(req, ["10.0.0.1"]) == "203.0.113.5"
+
+    def test_spoofed_leftmost_xff_ignored(self) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        req = self._make_request("10.0.0.1", xff="10.9.9.9, 203.0.113.7")
+        assert _resolve_remote_addr(req, ["10.0.0.1"]) == "203.0.113.7"
+
+    def test_multi_hop_trusted_chain(self) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        req = self._make_request("10.0.0.1", xff="6.6.6.6, 203.0.113.7, 10.0.0.2, 10.0.0.1")
+        assert _resolve_remote_addr(req, ["10.0.0.1", "10.0.0.2"]) == "203.0.113.7"
+
+    def test_all_hops_trusted_falls_back_to_remote_addr(self) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        req = self._make_request("10.0.0.1", xff="10.0.0.2")
+        assert _resolve_remote_addr(req, ["10.0.0.1", "10.0.0.2"]) == "10.0.0.1"
+
+    def test_wildcard_uses_rightmost_entry(self) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        req = self._make_request("192.168.1.1", xff="10.9.9.9, 203.0.113.7")
+        assert _resolve_remote_addr(req, ["*"]) == "203.0.113.7"
+
+    @pytest.mark.parametrize("xff", ["garbage", "1.2.3.4, not-an-ip", "1.2.3.4,", "unknown"])
+    def test_garbage_entries_fall_back_to_remote_addr(self, xff: str) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        req = self._make_request("10.0.0.1", xff=xff)
+        assert _resolve_remote_addr(req, ["10.0.0.1"]) == "10.0.0.1"
+        assert _resolve_remote_addr(req, ["*"]) == "10.0.0.1"
+
+    @pytest.mark.parametrize(
+        ("remote", "xff", "proxies", "expected"),
+        [
+            ("10.1.2.3", "203.0.113.7", ["10.0.0.0/8"], "203.0.113.7"),
+            ("10.0.0.1", "6.6.6.6, 203.0.113.7, 10.5.5.5", ["10.0.0.0/8"], "203.0.113.7"),
+            ("10.0.0.1", "203.0.113.7, 172.16.0.9", ["10.0.0.1", "172.16.0.0/12"], "203.0.113.7"),
+            ("::1", "2001:db8::5, 0:0:0:0:0:0:0:2", ["::2", "::1"], "2001:db8::5"),
+            ("0:0:0:0:0:0:0:1", "2001:db8::5", ["::1"], "2001:db8::5"),
+            ("2001:db8::1", "2001:4860::1", ["2001:db8::/32"], "2001:4860::1"),
+            ("9.9.9.9", "203.0.113.7", ["10.0.0.0/8"], "9.9.9.9"),
+            ("10.0.0.1", "203.0.113.7", ["bogus", "10.0.0.1"], "203.0.113.7"),
+            ("10.0.0.1", "203.0.113.7", ["bogus"], "10.0.0.1"),
+        ],
+    )
+    def test_cidr_and_ipv6_matching(
+        self, remote: str, xff: str, proxies: list[str], expected: str
+    ) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        req = self._make_request(remote, xff=xff)
+        assert _resolve_remote_addr(req, proxies) == expected
+
+    def test_each_xff_hop_checked_against_trusted_list(self) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+
+        # Only the connection address is 10.0.0.1; the XFF hop 10.0.0.2 is trusted too.
+        req = self._make_request("10.0.0.1", xff="203.0.113.7, 10.0.0.2")
+        assert _resolve_remote_addr(req, ["10.0.0.1", "10.0.0.2"]) == "203.0.113.7"
+        assert _resolve_remote_addr(req, ["10.0.0.1"]) == "10.0.0.2"
+
+    def test_forged_xff_cannot_pass_trusted_trace_sources(self) -> None:
+        from observe_kit.context_middleware import _resolve_remote_addr
+        from observe_kit.otel.middleware import _client_ip_matches_sources
+
+        req = self._make_request("10.0.0.1", xff="10.9.9.9, 203.0.113.7")
+        ip = _resolve_remote_addr(req, ["10.0.0.1"])
+        assert not _client_ip_matches_sources(ip, ["10.9.9.0/24"])
 
     def test_wildcard_trusted_proxy_uses_xff(self) -> None:
         from observe_kit.context_middleware import _resolve_remote_addr
