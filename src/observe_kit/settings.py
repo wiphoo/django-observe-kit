@@ -145,6 +145,15 @@ class ObserveKitSettings:
     to disable the cap. Default ``1000``.
     """
 
+    tenant_header_trusted: bool = False
+    """Honour the ``X-Tenant-ID`` request header as a tenant source. Default
+    ``False``: the header is client-controlled, so it is ignored unless this is
+    enabled AND ``REMOTE_ADDR`` is in :attr:`trusted_proxies` (the proxy must
+    set/overwrite the header). Accepted values must match ``[A-Za-z0-9._:-]{1,128}``;
+    anything else is treated as "no tenant". ``request.tenant`` and the host
+    subdomain are unaffected.
+    """
+
     @property
     def effective_pii_levels(self) -> Dict[str, str]:
         """Per-sink PII levels, expanding the global level when pii_levels is None."""
@@ -259,6 +268,11 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     else:
         metrics_max_label_cardinality = max(0, parsed_cap)
 
+    raw_tenant_header = _get(
+        "TENANT_HEADER_TRUSTED", "OBSERVE_KIT_TENANT_HEADER_TRUSTED", default=False
+    )
+    tenant_header_trusted = _as_strict_bool(raw_tenant_header, default=False)
+
     extra_drop_headers = _as_frozenset_lower(_get("EXTRA_DROP_HEADERS", default=None))
     extra_mask_fields = _as_frozenset_lower(_get("EXTRA_MASK_FIELDS", default=None))
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
@@ -300,6 +314,7 @@ def get_observe_kit_settings() -> ObserveKitSettings:
         trusted_trace_sources=trusted_trace_sources,
         validate_middleware_order=validate_middleware_order,
         metrics_max_label_cardinality=metrics_max_label_cardinality,
+        tenant_header_trusted=tenant_header_trusted,
     )
 
 

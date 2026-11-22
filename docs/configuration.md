@@ -71,6 +71,7 @@ See [`docs/pii.md`](pii.md) for the level/sink action matrix.
 |---|---|---|---|---|
 | `DB_TRACKING` | `bool` | `True` | — | Enable per-request DB query counting and timing. Disable to remove the connection-wrapping overhead. |
 | `TRUSTED_PROXIES` | `list[str]` | `[]` | — | Proxy IPs trusted for `X-Forwarded-For`. Use `["*"]` to trust any. When empty, `REMOTE_ADDR` is used directly. |
+| `TENANT_HEADER_TRUSTED` | `bool` | `False` | `OBSERVE_KIT_TENANT_HEADER_TRUSTED` | Honour the `X-Tenant-ID` header as the tenant source. Off by default because the header is client-controlled. When on, it is used only if `REMOTE_ADDR` is in `TRUSTED_PROXIES` (so your proxy must set/overwrite it) and the value matches `[A-Za-z0-9._:-]{1,128}`; otherwise it is ignored. `request.tenant` and subdomain resolution are unaffected. |
 
 ### Metrics endpoint access control
 
