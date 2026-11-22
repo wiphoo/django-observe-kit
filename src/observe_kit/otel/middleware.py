@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlencode
 
 from django.utils.deprecation import MiddlewareMixin
 from opentelemetry import trace
@@ -10,8 +11,9 @@ from opentelemetry.context import Context
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanContext, SpanKind, Status, StatusCode, TraceFlags
 
-from ..conf import cgi_header_name
+from ..conf import PII_SINK_OTEL, cgi_header_name
 from ..context import get_request_context, reset_request_context, set_request_context
+from ..pii_rules import PiiLevel, effective_sets, get_pii_config, sanitize_mapping
 from ..settings import get_observe_kit_settings
 from .config import SpanNamer, enrich_span
 
@@ -19,6 +21,47 @@ if TYPE_CHECKING:
     from django.http import HttpRequest, HttpResponse
 
 logger = logging.getLogger(__name__)
+
+# Query-string keys that routinely carry credentials. Their values are replaced by
+# ``REDACTED`` (key preserved, per the OTel HTTP semconv) at any PII level above NONE.
+# Covers the semconv default redaction keys plus common app-level secrets. Matching is
+# case-insensitive (deliberately stricter than the spec, which is case-sensitive).
+# Operators extend this via the existing ``EXTRA_DROP_HEADERS`` setting (merged below).
+_QUERY_SECRET_KEYS = frozenset(
+    {
+        "token", "password", "passwd", "secret", "api_key", "apikey", "access_token",
+        "refresh_token", "signature", "sig", "code", "session", "key",
+        "x-amz-signature", "x-amz-credential", "x-amz-security-token", "awsaccesskeyid",
+        "x-goog-signature",
+    }
+)  # fmt: skip
+_REDACTED = "REDACTED"
+
+
+def _sanitized_target(request: HttpRequest) -> str:
+    """Return ``http.target`` with the query string sanitised at the ``otel`` sink level."""
+    full: str = request.get_full_path()
+    path, sep, _ = full.partition("?")
+    if not sep:
+        return full
+    cfg = get_observe_kit_settings()
+    drop, mask, hsh = effective_sets(
+        cfg.extra_drop_headers | _QUERY_SECRET_KEYS, cfg.extra_mask_fields, cfg.extra_hash_fields
+    )
+    level = get_pii_config().get_level(PII_SINK_OTEL)
+    clean: list[tuple[str, str]] = []
+    # ``GET`` keys/values are already percent-decoded, so ``%74oken`` arrives as ``token``.
+    for key, values in request.GET.lists():
+        for value in values:  # one pair at a time so repeated keys survive
+            if level != PiiLevel.NONE and key.lower() in drop:
+                clean.append((key, _REDACTED))
+            else:
+                clean.extend(
+                    sanitize_mapping(
+                        {key: value}, level, set(), mask, hsh, cfg.pii_hash_salt
+                    ).items()
+                )
+    return f"{path}?{urlencode(clean)}"
 
 
 def _client_ip_matches_sources(client_ip: Optional[str], sources: list[str]) -> bool:
@@ -178,8 +221,8 @@ class TraceContextMiddleware(MiddlewareMixin):
                 span.set_attribute("server.address", request.get_host())
                 # Also set http.host for consistency (OTel semantic convention)
                 span.set_attribute("http.host", request.get_host())
-            # Set http.target (full path with query string if present)
-            span.set_attribute("http.target", request.get_full_path())
+            # Set http.target (path plus query string, sanitised at the otel sink level)
+            span.set_attribute("http.target", _sanitized_target(request))
             # Set http.route if available (will be updated later if route is detected)
             if route and route != "unknown":
                 span.set_attribute("http.route", route)
