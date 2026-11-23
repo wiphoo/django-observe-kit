@@ -11,6 +11,7 @@ def _observe_config(**overrides):
         "LOG_LEVEL": "INFO",
         "PII_HASH_SALT": "example-salt",
         "TRUSTED_PROXIES": ["10.0.0.1"],
+        "TENANT_HEADER_TRUSTED": True,
         "METRICS_MAX_LABEL_CARDINALITY": 1,
     }
     config.update(overrides)
@@ -18,7 +19,7 @@ def _observe_config(**overrides):
 
 
 def test_tenant_id_header_is_added_to_context(client):
-    response = client.get("/", HTTP_X_TENANT_ID="tenant-a")
+    response = client.get("/", HTTP_X_TENANT_ID="tenant-a", REMOTE_ADDR="10.0.0.1")
 
     assert response.status_code == 200
     assert response.json()["tenant_id"] == "tenant-a"
@@ -65,8 +66,8 @@ def test_trusted_source_can_continue_inbound_trace(client):
 def test_tenant_label_cardinality_overflows_after_cap(client):
     _reset_label_guards_for_tests()
 
-    client.get("/", HTTP_X_TENANT_ID="tenant-a")
-    client.get("/", HTTP_X_TENANT_ID="tenant-b")
+    client.get("/", HTTP_X_TENANT_ID="tenant-a", REMOTE_ADDR="10.0.0.1")
+    client.get("/", HTTP_X_TENANT_ID="tenant-b", REMOTE_ADDR="10.0.0.1")
     response = client.get("/metrics")
 
     assert response.status_code == 200

@@ -71,12 +71,13 @@ See [`docs/pii.md`](pii.md) for the level/sink action matrix.
 |---|---|---|---|---|
 | `DB_TRACKING` | `bool` | `True` | — | Enable per-request DB query counting and timing. Disable to remove the connection-wrapping overhead. |
 | `TRUSTED_PROXIES` | `list[str]` | `[]` | — | Proxy IPs trusted for `X-Forwarded-For`. Use `["*"]` to trust any. When empty, `REMOTE_ADDR` is used directly. |
+| `TENANT_HEADER_TRUSTED` | `bool` | `False` | `OBSERVE_KIT_TENANT_HEADER_TRUSTED` | Honour the `X-Tenant-ID` header as the tenant source. Off by default because the header is client-controlled. When on, it is used only if `REMOTE_ADDR` is in `TRUSTED_PROXIES` (so your proxy must set/overwrite it) and the value matches `[A-Za-z0-9._:-]{1,128}`; otherwise it is ignored. `request.tenant` and subdomain resolution are unaffected. |
 
 ### Metrics endpoint access control
 
 | Key | Type | Default | Env var | Notes |
 |---|---|---|---|---|
-| `METRICS_AUTH` | `str` | `"none"` | `OBSERVE_KIT_METRICS_AUTH` | Access mode for the `/metrics` endpoint. One of `"none"` (allow all), `"staff"` (require `request.user.is_staff`), or `"token"` (require `Authorization: Bearer <token>`). Invalid values fall back to `"none"`. When `"none"` and Django `DEBUG` is `False`, a `RuntimeWarning` is emitted once per process. |
+| `METRICS_AUTH` | `str` | `"none"` | `OBSERVE_KIT_METRICS_AUTH` | Access mode for the `/metrics` endpoint. One of `"none"` (allow all), `"staff"` (require `request.user.is_staff`), or `"token"` (require `Authorization: Bearer <token>`). Case and surrounding whitespace are ignored; any other value raises `ImproperlyConfigured` at runtime and is reported by `manage.py check` (`observe_kit.E001`; `observe_kit.W001` warns when `"token"` has no `METRICS_TOKEN`). When `"none"` and Django `DEBUG` is `False`, a `RuntimeWarning` is emitted once per process. |
 | `METRICS_TOKEN` | `str \| None` | `None` | `OBSERVE_KIT_METRICS_TOKEN` | Bearer token required when `METRICS_AUTH == "token"`. Compared with `hmac.compare_digest`. Empty / missing token rejects every request. |
 
 Recommended for production: configure `"token"` mode and pass the token to your Prometheus scrape config under `authorization.credentials`. Use `"staff"` mode when only humans on the Django admin should be able to scrape.
