@@ -19,9 +19,13 @@ Sentry is only initialised when SENTRY_DSN is set.
 from __future__ import annotations
 
 import os
-import warnings
 from dataclasses import dataclass
 from typing import Dict, FrozenSet, List, Optional, cast
+
+from django.core.exceptions import ImproperlyConfigured
+
+METRICS_AUTH_MODES = ("none", "staff", "token")
+"""Accepted ``METRICS_AUTH`` values (single source for resolver and system check)."""
 
 
 @dataclass
@@ -92,8 +96,8 @@ class ObserveKitSettings:
     One of ``"none"`` (allow all, warns when ``DEBUG`` is False), ``"staff"``
     (require ``request.user.is_staff``), or ``"token"`` (require an
     ``Authorization: Bearer <token>`` header matching :attr:`metrics_token`).
-    Defaults to ``"none"`` for backwards compatibility; invalid values are
-    coerced to ``"none"``.
+    Defaults to ``"none"`` for backwards compatibility; invalid values raise
+    :class:`~django.core.exceptions.ImproperlyConfigured` (fail closed).
     """
 
     metrics_token: Optional[str]
@@ -260,22 +264,14 @@ def get_observe_kit_settings() -> ObserveKitSettings:
     extra_hash_fields = _as_frozenset_lower(_get("EXTRA_HASH_FIELDS", default=None))
 
     raw_metrics_auth = _get("METRICS_AUTH", "OBSERVE_KIT_METRICS_AUTH", "none")
-    metrics_auth_input = str(raw_metrics_auth).lower() if raw_metrics_auth is not None else "none"
-    if metrics_auth_input in {"none", "staff", "token"}:
-        metrics_auth = metrics_auth_input
-    else:
-        # Surface misconfiguration immediately rather than waiting for the
-        # one-shot /metrics warning in `metrics/prometheus.py`. Python dedupes
-        # warnings by (message, category, file, line) so this fires once per
-        # distinct invalid value.
-        warnings.warn(
-            f"observe_kit: OBSERVE_KIT['METRICS_AUTH']={raw_metrics_auth!r} is "
-            "invalid (expected one of 'none', 'staff', 'token'); falling back "
-            "to 'none' — /metrics will be exposed without authentication.",
-            RuntimeWarning,
-            stacklevel=2,
+    # Normalise case and surrounding whitespace ("Token", " none "); anything else
+    # fails closed rather than silently disabling authentication.
+    metrics_auth = str(raw_metrics_auth).strip().lower() if raw_metrics_auth is not None else "none"
+    if metrics_auth not in METRICS_AUTH_MODES:
+        raise ImproperlyConfigured(
+            f"observe_kit: OBSERVE_KIT['METRICS_AUTH']={raw_metrics_auth!r} is invalid; "
+            f"expected one of {', '.join(repr(m) for m in METRICS_AUTH_MODES)}."
         )
-        metrics_auth = "none"
 
     raw_metrics_token = _get("METRICS_TOKEN", "OBSERVE_KIT_METRICS_TOKEN", None)
     metrics_token = str(raw_metrics_token) if raw_metrics_token else None

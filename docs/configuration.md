@@ -76,7 +76,7 @@ See [`docs/pii.md`](pii.md) for the level/sink action matrix.
 
 | Key | Type | Default | Env var | Notes |
 |---|---|---|---|---|
-| `METRICS_AUTH` | `str` | `"none"` | `OBSERVE_KIT_METRICS_AUTH` | Access mode for the `/metrics` endpoint. One of `"none"` (allow all), `"staff"` (require `request.user.is_staff`), or `"token"` (require `Authorization: Bearer <token>`). Invalid values fall back to `"none"`. When `"none"` and Django `DEBUG` is `False`, a `RuntimeWarning` is emitted once per process. |
+| `METRICS_AUTH` | `str` | `"none"` | `OBSERVE_KIT_METRICS_AUTH` | Access mode for the `/metrics` endpoint. One of `"none"` (allow all), `"staff"` (require `request.user.is_staff`), or `"token"` (require `Authorization: Bearer <token>`). Case and surrounding whitespace are ignored; any other value raises `ImproperlyConfigured` at runtime and is reported by `manage.py check` (`observe_kit.E001`; `observe_kit.W001` warns when `"token"` has no `METRICS_TOKEN`). When `"none"` and Django `DEBUG` is `False`, a `RuntimeWarning` is emitted once per process. |
 | `METRICS_TOKEN` | `str \| None` | `None` | `OBSERVE_KIT_METRICS_TOKEN` | Bearer token required when `METRICS_AUTH == "token"`. Compared with `hmac.compare_digest`. Empty / missing token rejects every request. |
 
 Recommended for production: configure `"token"` mode and pass the token to your Prometheus scrape config under `authorization.credentials`. Use `"staff"` mode when only humans on the Django admin should be able to scrape.

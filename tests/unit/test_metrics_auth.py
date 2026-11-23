@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import pytest
 from django.contrib.auth.models import AnonymousUser, User
+from django.core.exceptions import ImproperlyConfigured
 from django.test import RequestFactory, override_settings
 
 from observe_kit.metrics import prometheus as prom_module
@@ -38,26 +39,31 @@ def test_settings_parse_token_mode_uppercase() -> None:
     assert cfg.metrics_token == "secret-x"
 
 
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "garbage"})
-def test_settings_invalid_mode_falls_back_to_none() -> None:
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        cfg = get_observe_kit_settings()
-    assert cfg.metrics_auth == "none"
+@pytest.mark.parametrize("bad", ["garbage", "bearer", "basic", "", "none staff"])
+def test_settings_invalid_mode_raises(bad: str) -> None:
+    """Typos fail closed at resolve time instead of exposing /metrics."""
+    with override_settings(OBSERVE_KIT={"METRICS_AUTH": bad, "METRICS_TOKEN": "s3cret"}):
+        with pytest.raises(ImproperlyConfigured, match="METRICS_AUTH"):
+            get_observe_kit_settings()
 
 
-@override_settings(OBSERVE_KIT={"METRICS_AUTH": "garbage"})
-def test_settings_invalid_mode_emits_runtime_warning() -> None:
-    """Operator-visible warning at parse time when METRICS_AUTH is invalid."""
-    with warnings.catch_warnings(record=True) as captured:
-        warnings.simplefilter("always")
-        get_observe_kit_settings()
-    runtime = [w for w in captured if issubclass(w.category, RuntimeWarning)]
-    assert runtime, "expected a RuntimeWarning for invalid METRICS_AUTH"
-    msg = str(runtime[0].message)
-    assert "METRICS_AUTH" in msg
-    assert "invalid" in msg
-    assert "garbage" in msg
+@pytest.mark.parametrize(
+    ("raw", "expected"), [(" none ", "none"), ("Staff", "staff"), ("\tTOKEN\n", "token")]
+)
+def test_settings_mode_case_and_whitespace_normalised(raw: str, expected: str) -> None:
+    with override_settings(OBSERVE_KIT={"METRICS_AUTH": raw}):
+        assert get_observe_kit_settings().metrics_auth == expected
+
+
+def test_view_denies_with_403_if_invalid_mode_reaches_it(
+    rf: RequestFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Cfg:
+        metrics_auth = "bogus"
+        metrics_token = None
+
+    monkeypatch.setattr("observe_kit.settings.get_observe_kit_settings", lambda: _Cfg())
+    assert metrics_view.as_view()(rf.get("/metrics")).status_code == 403
 
 
 @override_settings(OBSERVE_KIT={"METRICS_AUTH": "none"})
@@ -189,3 +195,42 @@ def test_token_mode_matrix(
 def test_token_mode_uses_constant_time_compare() -> None:
     # Sanity check: we use hmac.compare_digest, not ==. Verified by importing the module.
     assert "hmac" in prom_module.__dict__ or hasattr(prom_module, "hmac")
+
+
+# ---------------------------------------------------------------------------
+# system checks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["garbage", "bearer", "basic", "", "none staff"])
+def test_system_check_errors_on_invalid_mode(bad: str) -> None:
+    from observe_kit.checks import check_metrics_auth
+
+    with override_settings(OBSERVE_KIT={"METRICS_AUTH": bad}):
+        msgs = check_metrics_auth(None)
+    assert [m.id for m in msgs] == ["observe_kit.E001"]
+    assert "METRICS_AUTH" in msgs[0].msg
+
+
+@pytest.mark.parametrize("mode", ["none", " Staff ", "token"])
+def test_system_check_silent_on_valid_mode(mode: str) -> None:
+    from observe_kit.checks import check_metrics_auth
+
+    with override_settings(OBSERVE_KIT={"METRICS_AUTH": mode, "METRICS_TOKEN": "t"}):
+        assert check_metrics_auth(None) == []
+
+
+@pytest.mark.parametrize("extra", [{}, {"METRICS_TOKEN": ""}])
+def test_system_check_warns_on_token_mode_without_token(extra: dict[str, str]) -> None:
+    from observe_kit.checks import check_metrics_auth
+
+    with override_settings(OBSERVE_KIT={"METRICS_AUTH": "token", **extra}):
+        msgs = check_metrics_auth(None)
+    assert [m.id for m in msgs] == ["observe_kit.W001"]
+
+
+def test_system_check_is_registered() -> None:
+    from django.core.checks import run_checks
+
+    with override_settings(OBSERVE_KIT={"METRICS_AUTH": "bearer"}):
+        assert "observe_kit.E001" in {m.id for m in run_checks()}
