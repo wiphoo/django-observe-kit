@@ -26,7 +26,7 @@ Levels are case-insensitive in `OBSERVE_KIT` (e.g. `"basic"` works), but stored 
 |---|---|---|
 | `logs` | `RequestContextMiddleware` (header & query-param sanitization), `RequestLoggingMiddleware`, `audit/` body sanitization for log events. | `BASIC` |
 | `otel` | OTEL span attribute enrichment. | `BASIC` |
-| `sentry` | Sentry scope tags and breadcrumbs. | `BASIC` |
+| `sentry` | `before_send` scrubbing of Sentry events: request headers, `query_string` + `request.url` query, parsed body (`data`), the `user` object, application `extra`, and breadcrumb `data` (honouring `EXTRA_*` fields). `request.cookies` is redacted wholesale. At `SENSITIVE`, the client IP (`request.env.REMOTE_ADDR`, `user.ip_address`) is hashed. | `BASIC` |
 | `audit` | `AuditLog` payload sanitization. | `BASIC` |
 
 Defaults are defined in `observe_kit.conf.DEFAULT_PII_LEVELS`.
