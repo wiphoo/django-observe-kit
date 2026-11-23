@@ -1,0 +1,798 @@
+{
+ "BASIC:['extra_drop', 'extra_hash']": {
+  "breadcrumbs": {
+   "values": [
+    {
+     "category": "a***@example.com",
+     "data": {
+      "phone": "08***",
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     },
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    }
+   ]
+  },
+  "contexts": {
+   "c": {
+    "email": "a***@example.com",
+    "ip": "192.0.2.1"
+   }
+  },
+  "exception": {
+   "values": [
+    {
+     "stacktrace": {
+      "frames": [
+       {
+        "vars": {
+         "e": "a***@b.co",
+         "phone": "08***"
+        }
+       }
+      ]
+     },
+     "value": "boom a***@example.com"
+    }
+   ]
+  },
+  "extra": {
+   "cc": [
+    "a***@example.com"
+   ],
+   "db.query.parameter.x": "[Filtered]",
+   "nested": {
+    "list": [
+     "/s?phone=08%2A%2A%2A",
+     3
+    ],
+    "params": {
+     "ip": "192.0.2.1"
+    }
+   },
+   "pairs": [
+    [
+     "phone",
+     "08***"
+    ],
+    [
+     "http.path",
+     "/s?phone=08%2A%2A%2A"
+    ]
+   ],
+   "raw": "a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+  },
+  "logentry": {
+   "message": "u=%s",
+   "params": [
+    "a***@example.com",
+    {
+     "db.statement": "[Filtered]",
+     "phone": "08***"
+    }
+   ]
+  },
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1",
+  "release": "1.0",
+  "request": {
+   "cookies": "[Filtered]",
+   "data": {
+    "items": [
+     {
+      "phone": "***"
+     }
+    ],
+    "k": "bytes",
+    "phone": "08***",
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   },
+   "env": {
+    "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
+    "QUERY_STRING": "phone=08%2A%2A%2A",
+    "REMOTE_ADDR": "192.0.2.1",
+    "REQUEST_URI": "/s?phone=08%2A%2A%2A"
+   },
+   "fragment": "[Filtered]",
+   "headers": {
+    "Referer": "https://h/p?phone=08%2A%2A%2A",
+    "X-Next": "/search?phone=08%2A%2A%2A",
+    "X-Real-IP": "192.0.2.1",
+    "phone": "08***"
+   },
+   "method": "POST",
+   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+  },
+  "server_name": "h***@example.com",
+  "spans": [
+   {
+    "data": {
+     "http.query": "phone=08%2A%2A%2A",
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    },
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1 a***@example.com",
+    "op": "http.client",
+    "tags": {
+     "phone": "08***"
+    }
+   },
+   {
+    "description": "[Filtered]",
+    "op": "db.query"
+   }
+  ],
+  "tags": {
+   "phone": "08***",
+   "who": "a***@example.com"
+  },
+  "transaction": "/search?phone=08%2A%2A%2A",
+  "user": {
+   "email": "a***@example.com",
+   "ip_address": "192.0.2.1"
+  }
+ },
+ "BASIC:['extra_mask']": {
+  "breadcrumbs": {
+   "values": [
+    {
+     "category": "a***@example.com",
+     "data": {
+      "phone": "08***",
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     },
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    }
+   ]
+  },
+  "contexts": {
+   "c": {
+    "email": "a***@example.com",
+    "ip": "192.0.2.1"
+   }
+  },
+  "exception": {
+   "values": [
+    {
+     "stacktrace": {
+      "frames": [
+       {
+        "vars": {
+         "e": "a***@b.co",
+         "phone": "08***"
+        }
+       }
+      ]
+     },
+     "value": "boom a***@example.com"
+    }
+   ]
+  },
+  "extra": {
+   "cc": [
+    "a***@example.com"
+   ],
+   "db.query.parameter.x": "[Filtered]",
+   "nested": {
+    "list": [
+     "/s?phone=08%2A%2A%2A",
+     3
+    ],
+    "params": {
+     "ip": "192.0.2.1"
+    }
+   },
+   "pairs": [
+    [
+     "phone",
+     "08***"
+    ],
+    [
+     "http.path",
+     "/s?phone=08%2A%2A%2A"
+    ]
+   ],
+   "raw": "a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+  },
+  "logentry": {
+   "message": "u=%s",
+   "params": [
+    "a***@example.com",
+    {
+     "db.statement": "[Filtered]",
+     "phone": "08***"
+    }
+   ]
+  },
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1",
+  "release": "1.0",
+  "request": {
+   "cookies": "[Filtered]",
+   "data": {
+    "items": [
+     {
+      "phone": "***"
+     }
+    ],
+    "k": "bytes",
+    "phone": "08***",
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   },
+   "env": {
+    "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
+    "QUERY_STRING": "phone=08%2A%2A%2A",
+    "REMOTE_ADDR": "192.0.2.1",
+    "REQUEST_URI": "/s?phone=08%2A%2A%2A"
+   },
+   "fragment": "[Filtered]",
+   "headers": {
+    "Referer": "https://h/p?phone=08%2A%2A%2A",
+    "X-Next": "/search?phone=08%2A%2A%2A",
+    "X-Real-IP": "192.0.2.1",
+    "phone": "08***"
+   },
+   "method": "POST",
+   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+  },
+  "server_name": "h***@example.com",
+  "spans": [
+   {
+    "data": {
+     "http.query": "phone=08%2A%2A%2A",
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    },
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1 a***@example.com",
+    "op": "http.client",
+    "tags": {
+     "phone": "08***"
+    }
+   },
+   {
+    "description": "[Filtered]",
+    "op": "db.query"
+   }
+  ],
+  "tags": {
+   "phone": "08***",
+   "who": "a***@example.com"
+  },
+  "transaction": "/search?phone=08%2A%2A%2A",
+  "user": {
+   "email": "a***@example.com",
+   "id": "1",
+   "ip_address": "192.0.2.1"
+  }
+ },
+ "BASIC:[]": {
+  "breadcrumbs": {
+   "values": [
+    {
+     "category": "a***@example.com",
+     "data": {
+      "phone": "08***",
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     },
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    }
+   ]
+  },
+  "contexts": {
+   "c": {
+    "email": "a***@example.com",
+    "ip": "192.0.2.1"
+   }
+  },
+  "exception": {
+   "values": [
+    {
+     "stacktrace": {
+      "frames": [
+       {
+        "vars": {
+         "e": "a***@b.co",
+         "phone": "08***"
+        }
+       }
+      ]
+     },
+     "value": "boom a***@example.com"
+    }
+   ]
+  },
+  "extra": {
+   "cc": [
+    "a***@example.com"
+   ],
+   "db.query.parameter.x": "[Filtered]",
+   "nested": {
+    "list": [
+     "/s?phone=08%2A%2A%2A",
+     3
+    ],
+    "params": {
+     "ip": "192.0.2.1"
+    }
+   },
+   "pairs": [
+    [
+     "phone",
+     "08***"
+    ],
+    [
+     "http.path",
+     "/s?phone=08%2A%2A%2A"
+    ]
+   ],
+   "raw": "a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+  },
+  "logentry": {
+   "message": "u=%s",
+   "params": [
+    "a***@example.com",
+    {
+     "db.statement": "[Filtered]",
+     "phone": "08***"
+    }
+   ]
+  },
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1",
+  "release": "1.0",
+  "request": {
+   "cookies": "[Filtered]",
+   "data": {
+    "items": [
+     {
+      "phone": "***"
+     }
+    ],
+    "k": "bytes",
+    "phone": "08***",
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   },
+   "env": {
+    "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
+    "QUERY_STRING": "phone=08%2A%2A%2A",
+    "REMOTE_ADDR": "192.0.2.1",
+    "REQUEST_URI": "/s?phone=08%2A%2A%2A"
+   },
+   "fragment": "[Filtered]",
+   "headers": {
+    "Referer": "https://h/p?phone=08%2A%2A%2A",
+    "X-Next": "/search?phone=08%2A%2A%2A",
+    "X-Real-IP": "192.0.2.1",
+    "phone": "08***"
+   },
+   "method": "POST",
+   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+  },
+  "server_name": "h***@example.com",
+  "spans": [
+   {
+    "data": {
+     "http.query": "phone=08%2A%2A%2A",
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    },
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1 a***@example.com",
+    "op": "http.client",
+    "tags": {
+     "phone": "08***"
+    }
+   },
+   {
+    "description": "[Filtered]",
+    "op": "db.query"
+   }
+  ],
+  "tags": {
+   "phone": "08***",
+   "who": "a***@example.com"
+  },
+  "transaction": "/search?phone=08%2A%2A%2A",
+  "user": {
+   "email": "a***@example.com",
+   "id": "1",
+   "ip_address": "192.0.2.1"
+  }
+ },
+ "SENSITIVE:['extra_drop', 'extra_hash']": {
+  "breadcrumbs": {
+   "values": [
+    {
+     "category": "a***@example.com",
+     "data": {
+      "phone": "08***",
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     },
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    }
+   ]
+  },
+  "contexts": {
+   "c": {
+    "email": "a***@example.com",
+    "ip": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   }
+  },
+  "exception": {
+   "values": [
+    {
+     "stacktrace": {
+      "frames": [
+       {
+        "vars": {
+         "e": "a***@b.co",
+         "phone": "08***"
+        }
+       }
+      ]
+     },
+     "value": "boom a***@example.com"
+    }
+   ]
+  },
+  "extra": {
+   "cc": [
+    "a***@example.com"
+   ],
+   "db.query.parameter.x": "[Filtered]",
+   "nested": {
+    "list": [
+     "/s?phone=08%2A%2A%2A",
+     3
+    ],
+    "params": {
+     "ip": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    }
+   },
+   "pairs": [
+    [
+     "phone",
+     "08***"
+    ],
+    [
+     "http.path",
+     "/s?phone=08%2A%2A%2A"
+    ]
+   ],
+   "raw": "a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  },
+  "logentry": {
+   "message": "u=%s",
+   "params": [
+    "a***@example.com",
+    {
+     "db.statement": "[Filtered]",
+     "phone": "08***"
+    }
+   ]
+  },
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+  "release": "c1274d14caad0dd6f5d840629fd6a1d164dc7778041296d82e6df9faa769e135",
+  "request": {
+   "cookies": "[Filtered]",
+   "data": {
+    "items": [
+     {
+      "phone": "***"
+     }
+    ],
+    "k": "bytes",
+    "phone": "08***",
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   },
+   "env": {
+    "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
+    "QUERY_STRING": "phone=08%2A%2A%2A",
+    "REMOTE_ADDR": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+    "REQUEST_URI": "/s?phone=08%2A%2A%2A"
+   },
+   "fragment": "[Filtered]",
+   "headers": {
+    "Referer": "https://h/p?phone=08%2A%2A%2A",
+    "X-Next": "/search?phone=08%2A%2A%2A",
+    "X-Real-IP": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+    "phone": "08***"
+   },
+   "method": "POST",
+   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  },
+  "server_name": "h***@example.com",
+  "spans": [
+   {
+    "data": {
+     "http.query": "phone=08%2A%2A%2A",
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    },
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
+    "op": "http.client",
+    "tags": {
+     "phone": "08***"
+    }
+   },
+   {
+    "description": "[Filtered]",
+    "op": "db.query"
+   }
+  ],
+  "tags": {
+   "phone": "08***",
+   "who": "a***@example.com"
+  },
+  "transaction": "/search?phone=08%2A%2A%2A",
+  "user": {
+   "email": "a***@example.com",
+   "ip_address": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  }
+ },
+ "SENSITIVE:['extra_mask']": {
+  "breadcrumbs": {
+   "values": [
+    {
+     "category": "a***@example.com",
+     "data": {
+      "phone": "08***",
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     },
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    }
+   ]
+  },
+  "contexts": {
+   "c": {
+    "email": "a***@example.com",
+    "ip": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   }
+  },
+  "exception": {
+   "values": [
+    {
+     "stacktrace": {
+      "frames": [
+       {
+        "vars": {
+         "e": "a***@b.co",
+         "phone": "08***"
+        }
+       }
+      ]
+     },
+     "value": "boom a***@example.com"
+    }
+   ]
+  },
+  "extra": {
+   "cc": [
+    "a***@example.com"
+   ],
+   "db.query.parameter.x": "[Filtered]",
+   "nested": {
+    "list": [
+     "/s?phone=08%2A%2A%2A",
+     3
+    ],
+    "params": {
+     "ip": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    }
+   },
+   "pairs": [
+    [
+     "phone",
+     "08***"
+    ],
+    [
+     "http.path",
+     "/s?phone=08%2A%2A%2A"
+    ]
+   ],
+   "raw": "a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  },
+  "logentry": {
+   "message": "u=%s",
+   "params": [
+    "a***@example.com",
+    {
+     "db.statement": "[Filtered]",
+     "phone": "08***"
+    }
+   ]
+  },
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+  "release": "1.0",
+  "request": {
+   "cookies": "[Filtered]",
+   "data": {
+    "items": [
+     {
+      "phone": "***"
+     }
+    ],
+    "k": "bytes",
+    "phone": "08***",
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   },
+   "env": {
+    "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
+    "QUERY_STRING": "phone=08%2A%2A%2A",
+    "REMOTE_ADDR": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+    "REQUEST_URI": "/s?phone=08%2A%2A%2A"
+   },
+   "fragment": "[Filtered]",
+   "headers": {
+    "Referer": "https://h/p?phone=08%2A%2A%2A",
+    "X-Next": "/search?phone=08%2A%2A%2A",
+    "X-Real-IP": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+    "phone": "08***"
+   },
+   "method": "POST",
+   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  },
+  "server_name": "h***@example.com",
+  "spans": [
+   {
+    "data": {
+     "http.query": "phone=08%2A%2A%2A",
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    },
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
+    "op": "http.client",
+    "tags": {
+     "phone": "08***"
+    }
+   },
+   {
+    "description": "[Filtered]",
+    "op": "db.query"
+   }
+  ],
+  "tags": {
+   "phone": "08***",
+   "who": "a***@example.com"
+  },
+  "transaction": "/search?phone=08%2A%2A%2A",
+  "user": {
+   "email": "a***@example.com",
+   "id": "1",
+   "ip_address": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  }
+ },
+ "SENSITIVE:[]": {
+  "breadcrumbs": {
+   "values": [
+    {
+     "category": "a***@example.com",
+     "data": {
+      "phone": "08***",
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     },
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    }
+   ]
+  },
+  "contexts": {
+   "c": {
+    "email": "a***@example.com",
+    "ip": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   }
+  },
+  "exception": {
+   "values": [
+    {
+     "stacktrace": {
+      "frames": [
+       {
+        "vars": {
+         "e": "a***@b.co",
+         "phone": "08***"
+        }
+       }
+      ]
+     },
+     "value": "boom a***@example.com"
+    }
+   ]
+  },
+  "extra": {
+   "cc": [
+    "a***@example.com"
+   ],
+   "db.query.parameter.x": "[Filtered]",
+   "nested": {
+    "list": [
+     "/s?phone=08%2A%2A%2A",
+     3
+    ],
+    "params": {
+     "ip": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    }
+   },
+   "pairs": [
+    [
+     "phone",
+     "08***"
+    ],
+    [
+     "http.path",
+     "/s?phone=08%2A%2A%2A"
+    ]
+   ],
+   "raw": "a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  },
+  "logentry": {
+   "message": "u=%s",
+   "params": [
+    "a***@example.com",
+    {
+     "db.statement": "[Filtered]",
+     "phone": "08***"
+    }
+   ]
+  },
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+  "release": "1.0",
+  "request": {
+   "cookies": "[Filtered]",
+   "data": {
+    "items": [
+     {
+      "phone": "***"
+     }
+    ],
+    "k": "bytes",
+    "phone": "08***",
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   },
+   "env": {
+    "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
+    "QUERY_STRING": "phone=08%2A%2A%2A",
+    "REMOTE_ADDR": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+    "REQUEST_URI": "/s?phone=08%2A%2A%2A"
+   },
+   "fragment": "[Filtered]",
+   "headers": {
+    "Referer": "https://h/p?phone=08%2A%2A%2A",
+    "X-Next": "/search?phone=08%2A%2A%2A",
+    "X-Real-IP": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+    "phone": "08***"
+   },
+   "method": "POST",
+   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  },
+  "server_name": "h***@example.com",
+  "spans": [
+   {
+    "data": {
+     "http.query": "phone=08%2A%2A%2A",
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    },
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
+    "op": "http.client",
+    "tags": {
+     "phone": "08***"
+    }
+   },
+   {
+    "description": "[Filtered]",
+    "op": "db.query"
+   }
+  ],
+  "tags": {
+   "phone": "08***",
+   "who": "a***@example.com"
+  },
+  "transaction": "/search?phone=08%2A%2A%2A",
+  "user": {
+   "email": "a***@example.com",
+   "id": "1",
+   "ip_address": "0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+  }
+ }
+}

@@ -170,6 +170,75 @@ def test_audit_with_user_agent_from_request(request_factory: RequestFactory) -> 
         assert call_args["user_agent"] == "test-agent/1.0"
 
 
+def test_audit_hashes_remote_addr_and_user_agent_at_sensitive(
+    request_factory: RequestFactory,
+) -> None:
+    """At audit=SENSITIVE the client IP / user-agent columns are hashed, not raw."""
+    from observe_kit.audit.utils import audit
+    from observe_kit.context import RequestContext, reset_request_context, set_request_context
+    from observe_kit.pii_rules import PiiConfig, get_pii_config, set_pii_config
+
+    reset_request_context()
+    set_request_context(RequestContext())
+    request = request_factory.get(
+        "/", REMOTE_ADDR="192.168.1.100", HTTP_USER_AGENT="test-agent/1.0"
+    )
+
+    previous = get_pii_config()
+    set_pii_config(PiiConfig(levels={"audit": "SENSITIVE"}))
+    try:
+        with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
+            mock_entry = Mock()
+            mock_entry.id = 1
+            mock_audit_log.objects.create.return_value = mock_entry
+
+            audit(actor=None, action="test", request=request)
+
+            call_args = mock_audit_log.objects.create.call_args[1]
+            assert call_args["remote_addr"] != "192.168.1.100"
+            assert len(call_args["remote_addr"]) == 64  # sha256 hex
+            assert call_args["user_agent"] != "test-agent/1.0"
+            assert len(call_args["user_agent"]) == 64
+    finally:
+        set_pii_config(previous)
+
+
+def test_audit_column_rules_honor_db_column_names(request_factory: RequestFactory) -> None:
+    """Operator EXTRA_* rules keyed by the DB column names win over the defaults.
+
+    ``EXTRA_DROP_HEADERS={"remote_addr"}`` / ``EXTRA_MASK_FIELDS={"user_agent"}``
+    target the AuditLog columns by their actual names (not the ``ip`` /
+    ``user-agent`` aliases), so the rule must still match.
+    """
+    from django.test import override_settings
+
+    from observe_kit.audit.utils import audit
+    from observe_kit.context import RequestContext, reset_request_context, set_request_context
+
+    reset_request_context()
+    set_request_context(RequestContext())
+    request = request_factory.get(
+        "/", REMOTE_ADDR="192.168.1.100", HTTP_USER_AGENT="test-agent/1.0"
+    )
+
+    with override_settings(
+        OBSERVE_KIT={"EXTRA_DROP_HEADERS": ["remote_addr"], "EXTRA_MASK_FIELDS": ["user_agent"]}
+    ):
+        with patch("observe_kit.audit.models.AuditLog") as mock_audit_log:
+            mock_entry = Mock()
+            mock_entry.id = 1
+            mock_audit_log.objects.create.return_value = mock_entry
+
+            audit(actor=None, action="test", request=request)
+
+            call_args = mock_audit_log.objects.create.call_args[1]
+            # remote_addr dropped by operator rule keyed on the column name.
+            assert call_args["remote_addr"] is None
+            # user_agent masked (not stored raw) by the column-name rule.
+            assert call_args["user_agent"] != "test-agent/1.0"
+            assert call_args["user_agent"].endswith("***")
+
+
 def test_audit_logs_event(request_factory: RequestFactory) -> None:
     """Test that audit logs the event."""
     from observe_kit.audit.utils import audit

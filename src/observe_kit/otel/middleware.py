@@ -10,6 +10,7 @@ from opentelemetry.context import Context
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanContext, SpanKind, Status, StatusCode, TraceFlags
 
+from ..conf import cgi_header_name
 from ..context import get_request_context, reset_request_context, set_request_context
 from ..settings import get_observe_kit_settings
 from .config import SpanNamer, enrich_span
@@ -104,8 +105,8 @@ class TraceContextMiddleware(MiddlewareMixin):
             # Convert Django header format (HTTP_X_TRACE_ID) to standard format (x-trace-id)
             headers = {}
             for key, value in request.META.items():
-                if key.startswith("HTTP_"):
-                    header_name = key[5:].replace("_", "-").lower()
+                header_name = cgi_header_name(key)
+                if header_name is not None:
                     headers[header_name] = value
                 elif key in ("traceparent", "tracestate"):
                     headers[key] = value
