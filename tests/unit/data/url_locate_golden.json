@@ -1,0 +1,250 @@
+{
+  "basic|": {
+    "text": "",
+    "urlish": ""
+  },
+  "basic|'https://a.test/p?phone=0812345678'": {
+    "text": "'https://a.test/p?phone=08%2A%2A%2A'",
+    "urlish": "'https://a.test/p?phone=08%2A%2A%2A'"
+  },
+  "basic|(https://a.test/p?phone=0812345678)": {
+    "text": "(https://a.test/p?phone=08%2A%2A%2A)",
+    "urlish": "(https://a.test/p?phone=08%2A%2A%2A)"
+  },
+  "basic|//h/p?next=%2Fa%3Ftoken%3Dabc": {
+    "text": "//h/p?next=%2Fa%3Ftoken%3Dabc",
+    "urlish": "//h/p?next=%2Fa%3Ftoken%3Dabc"
+  },
+  "basic|//user:secret@host/path": {
+    "text": "//[Filtered]@host/path",
+    "urlish": "//[Filtered]@host/path"
+  },
+  "basic|/a?x=1//h/p?token=abc": {
+    "text": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc",
+    "urlish": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc"
+  },
+  "basic|/callback#access_token=abc123": {
+    "text": "/callback#[Filtered]",
+    "urlish": "/callback#[Filtered]"
+  },
+  "basic|/just/a/path": {
+    "text": "/just/a/path",
+    "urlish": "/just/a/path"
+  },
+  "basic|?phone=0812345678": {
+    "text": "?phone=0812345678",
+    "urlish": "?phone=08%2A%2A%2A"
+  },
+  "basic|GET /search?phone=0812345678 HTTP/1.1": {
+    "text": "GET /search?phone=08%2A%2A%2A HTTP/1.1",
+    "urlish": "GET /search?phone=08%2A%2A%2A HTTP/1.1"
+  },
+  "basic|HTTPS://Example.com/p?email=a@b.co": {
+    "text": "https://Example.com/p?email=a***@b.co",
+    "urlish": "https://Example.com/p?email=a%2A%2A%2A%40b.co"
+  },
+  "basic|a?b=c#d=e": {
+    "text": "a?b=c#[Filtered]",
+    "urlish": "a?b=c#[Filtered]"
+  },
+  "basic|account/callback?phone=0812345678": {
+    "text": "account/callback?phone=08%2A%2A%2A",
+    "urlish": "account/callback?phone=08%2A%2A%2A"
+  },
+  "basic|connect https://user:secret@host/db now": {
+    "text": "connect https://[Filtered]@host/db now",
+    "urlish": "connect https://[Filtered]@host/db now"
+  },
+  "basic|https://[::1]:8000/p?token=abc": {
+    "text": "https://[::1]:8000/p?token=abc",
+    "urlish": "https://[::1]:8000/p?token=abc"
+  },
+  "basic|https://a.test/x;https://user:pw@b.test/y|ftp://u:p@c.test/": {
+    "text": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/",
+    "urlish": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/"
+  },
+  "basic|https://h/p?next=%2Fa%3Ftoken%3Dabc": {
+    "text": "https://h/p?next=%2Fa%3Ftoken%3Dabc",
+    "urlish": "https://h/p?next=%2Fa%3Ftoken%3Dabc"
+  },
+  "basic|https://safe.test then %252Fsearch%253Fphone%253D0812345678": {
+    "text": "https://safe.test then /search?phone=08%2A%2A%2A",
+    "urlish": "https://safe.test then /search?phone=08%2A%2A%2A"
+  },
+  "basic|https://safe.test,postgres://user:secret@host/db": {
+    "text": "https://safe.test,postgres://[Filtered]@host/db",
+    "urlish": "https://safe.test,postgres://[Filtered]@host/db"
+  },
+  "basic|https://safe.test,progress=100%25": {
+    "text": "https://safe.test,progress=100%25",
+    "urlish": "https://safe.test,progress=100%25"
+  },
+  "basic|https://safe.test?x=a,b&phone=0812345678": {
+    "text": "https://safe.test?x=a%2Cb&phone=08%2A%2A%2A",
+    "urlish": "https://safe.test?x=a%2Cb&phone=08%2A%2A%2A"
+  },
+  "basic|https://user%253Apass%2540host/x": {
+    "text": "https://[Filtered]@host/x",
+    "urlish": "https://[Filtered]@host/x"
+  },
+  "basic|mixed https://a.test/p?x=1 and /b?phone=0812345678 and cb?token=zzz": {
+    "text": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz",
+    "urlish": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz"
+  },
+  "basic|no url here, just prose; and/or maybe?": {
+    "text": "no url here, just prose; and/or maybe?",
+    "urlish": "no url here, just prose; and/or maybe?"
+  },
+  "basic|plain alice@example.com mail": {
+    "text": "plain a***@example.com mail",
+    "urlish": "plain a***@example.com mail"
+  },
+  "basic|postgres://user:secret@host/db": {
+    "text": "postgres://[Filtered]@host/db",
+    "urlish": "postgres://[Filtered]@host/db"
+  },
+  "basic|redirect callback?phone=0812345678": {
+    "text": "redirect callback?phone=08%2A%2A%2A",
+    "urlish": "redirect callback?phone=08%2A%2A%2A"
+  },
+  "basic|redirect:%2Fsearch%3Fphone%3D0812345678,hello%20world": {
+    "text": "redirect:/search?phone=08%2A%2A%2A,hello%20world",
+    "urlish": "redirect:%2Fsearch?phone=08%2A%2A%2A"
+  },
+  "basic|see #section and/or?maybe": {
+    "text": "see #section and/or?maybe",
+    "urlish": "see #section and/or?maybe"
+  },
+  "basic|url=https://x.test/p?token=abc&y=2": {
+    "text": "url=https://x.test/p?token=abc&y=2",
+    "urlish": "url=https://x.test/p?token=abc&y=2"
+  },
+  "basic|wss://u:p@h.test/ws?key=abc": {
+    "text": "wss://[Filtered]@h.test/ws?key=abc",
+    "urlish": "wss://[Filtered]@h.test/ws?key=abc"
+  },
+  "sensitive|": {
+    "text": "",
+    "urlish": ""
+  },
+  "sensitive|'https://a.test/p?phone=0812345678'": {
+    "text": "'https://a.test/p?phone=08%2A%2A%2A'",
+    "urlish": "'https://a.test/p?phone=08%2A%2A%2A'"
+  },
+  "sensitive|(https://a.test/p?phone=0812345678)": {
+    "text": "(https://a.test/p?phone=08%2A%2A%2A)",
+    "urlish": "(https://a.test/p?phone=08%2A%2A%2A)"
+  },
+  "sensitive|//h/p?next=%2Fa%3Ftoken%3Dabc": {
+    "text": "//h/p?next=%2Fa%3Ftoken%3Dabc",
+    "urlish": "//h/p?next=%2Fa%3Ftoken%3Dabc"
+  },
+  "sensitive|//user:secret@host/path": {
+    "text": "//[Filtered]@host/path",
+    "urlish": "//[Filtered]@host/path"
+  },
+  "sensitive|/a?x=1//h/p?token=abc": {
+    "text": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc",
+    "urlish": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc"
+  },
+  "sensitive|/callback#access_token=abc123": {
+    "text": "/callback#[Filtered]",
+    "urlish": "/callback#[Filtered]"
+  },
+  "sensitive|/just/a/path": {
+    "text": "/just/a/path",
+    "urlish": "/just/a/path"
+  },
+  "sensitive|?phone=0812345678": {
+    "text": "?phone=0812345678",
+    "urlish": "?phone=08%2A%2A%2A"
+  },
+  "sensitive|GET /search?phone=0812345678 HTTP/1.1": {
+    "text": "GET /search?phone=08%2A%2A%2A HTTP/1.1",
+    "urlish": "GET /search?phone=08%2A%2A%2A HTTP/1.1"
+  },
+  "sensitive|HTTPS://Example.com/p?email=a@b.co": {
+    "text": "https://Example.com/p?email=a***@b.co",
+    "urlish": "https://Example.com/p?email=a%2A%2A%2A%40b.co"
+  },
+  "sensitive|a?b=c#d=e": {
+    "text": "a?b=c#[Filtered]",
+    "urlish": "a?b=c#[Filtered]"
+  },
+  "sensitive|account/callback?phone=0812345678": {
+    "text": "account/callback?phone=08%2A%2A%2A",
+    "urlish": "account/callback?phone=08%2A%2A%2A"
+  },
+  "sensitive|connect https://user:secret@host/db now": {
+    "text": "connect https://[Filtered]@host/db now",
+    "urlish": "connect https://[Filtered]@host/db now"
+  },
+  "sensitive|https://[::1]:8000/p?token=abc": {
+    "text": "https://[::1]:8000/p?token=abc",
+    "urlish": "https://[::1]:8000/p?token=abc"
+  },
+  "sensitive|https://a.test/x;https://user:pw@b.test/y|ftp://u:p@c.test/": {
+    "text": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/",
+    "urlish": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/"
+  },
+  "sensitive|https://h/p?next=%2Fa%3Ftoken%3Dabc": {
+    "text": "https://h/p?next=%2Fa%3Ftoken%3Dabc",
+    "urlish": "https://h/p?next=%2Fa%3Ftoken%3Dabc"
+  },
+  "sensitive|https://safe.test then %252Fsearch%253Fphone%253D0812345678": {
+    "text": "https://safe.test then /search?phone=08%2A%2A%2A",
+    "urlish": "https://safe.test then /search?phone=08%2A%2A%2A"
+  },
+  "sensitive|https://safe.test,postgres://user:secret@host/db": {
+    "text": "https://safe.test,postgres://[Filtered]@host/db",
+    "urlish": "https://safe.test,postgres://[Filtered]@host/db"
+  },
+  "sensitive|https://safe.test,progress=100%25": {
+    "text": "https://safe.test,progress=100%25",
+    "urlish": "https://safe.test,progress=100%25"
+  },
+  "sensitive|https://safe.test?x=a,b&phone=0812345678": {
+    "text": "https://safe.test?x=a%2Cb&phone=08%2A%2A%2A",
+    "urlish": "https://safe.test?x=a%2Cb&phone=08%2A%2A%2A"
+  },
+  "sensitive|https://user%253Apass%2540host/x": {
+    "text": "https://[Filtered]@host/x",
+    "urlish": "https://[Filtered]@host/x"
+  },
+  "sensitive|mixed https://a.test/p?x=1 and /b?phone=0812345678 and cb?token=zzz": {
+    "text": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz",
+    "urlish": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz"
+  },
+  "sensitive|no url here, just prose; and/or maybe?": {
+    "text": "no url here, just prose; and/or maybe?",
+    "urlish": "no url here, just prose; and/or maybe?"
+  },
+  "sensitive|plain alice@example.com mail": {
+    "text": "plain a***@example.com mail",
+    "urlish": "plain a***@example.com mail"
+  },
+  "sensitive|postgres://user:secret@host/db": {
+    "text": "postgres://[Filtered]@host/db",
+    "urlish": "postgres://[Filtered]@host/db"
+  },
+  "sensitive|redirect callback?phone=0812345678": {
+    "text": "redirect callback?phone=08%2A%2A%2A",
+    "urlish": "redirect callback?phone=08%2A%2A%2A"
+  },
+  "sensitive|redirect:%2Fsearch%3Fphone%3D0812345678,hello%20world": {
+    "text": "redirect:/search?phone=08%2A%2A%2A,hello%20world",
+    "urlish": "redirect:%2Fsearch?phone=08%2A%2A%2A"
+  },
+  "sensitive|see #section and/or?maybe": {
+    "text": "see #section and/or?maybe",
+    "urlish": "see #section and/or?maybe"
+  },
+  "sensitive|url=https://x.test/p?token=abc&y=2": {
+    "text": "url=https://x.test/p?token=abc&y=2",
+    "urlish": "url=https://x.test/p?token=abc&y=2"
+  },
+  "sensitive|wss://u:p@h.test/ws?key=abc": {
+    "text": "wss://[Filtered]@h.test/ws?key=abc",
+    "urlish": "wss://[Filtered]@h.test/ws?key=abc"
+  }
+}
