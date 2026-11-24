@@ -790,7 +790,9 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
         if rule_key is None:
             scrubbed.append((_REDACTED, _REDACTED))
             continue
-        if "?" in rule_key or "#" in rule_key:
+        if ("?" in rule_key or "#" in rule_key) and _apply_key_rules(
+            key, rule_key, value, opts
+        ) == (True, value):  # an operator rule on the whole key (drop / mask) wins
             # A nested query lives *inside* the key (``?a:/search?phone=…`` splits at
             # the first ``=`` into key ``a:/search?phone``; ``%2Fp%3Fx%3Dy%26phone``
             # decodes to one): re-join and scrub the whole thing as a URL so the value

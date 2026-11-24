@@ -160,6 +160,17 @@ def test_operator_rule_on_whole_structured_key_still_applies(wrap: Any, rule: st
         assert "supersecret" not in repr(out)
 
 
+@pytest.mark.parametrize("depth", [1, 2, 3])
+def test_operator_drop_on_whole_key_applies_to_raw_string_and_url(depth: int) -> None:
+    key = _nest("/p?x=supersecret&phone", depth)
+    for event in (
+        {"request": {"query_string": f"{key}={PHONE}"}},
+        {"request": {"url": f"https://h.test/x?{key}={PHONE}"}},
+    ):
+        out = _scrub_with(event, extra_drop=frozenset({"/p?x=supersecret&phone"}))
+        assert "supersecret" not in _decoded(repr(out))
+
+
 @pytest.mark.parametrize("key", ["tok", "t%6fk", "t%256fk"])
 @pytest.mark.parametrize("wrap", [lambda k: f"{k}=secret", lambda k: {k: "secret"}])
 def test_hashed_key_is_hashed_once_in_every_form(key: str, wrap: Any) -> None:
