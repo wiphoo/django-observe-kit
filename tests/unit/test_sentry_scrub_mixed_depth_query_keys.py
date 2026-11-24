@@ -250,3 +250,14 @@ def test_operator_rule_on_whole_hidden_delimiter_key_still_applies(qs: str) -> N
 def test_email_key_with_hidden_delimiter_keeps_whole_key_mask(sep: str) -> None:
     out = _scrub({"request": {"query_string": f"alice{sep}bob%40example.com=1"}})
     assert "alice" not in repr(out)
+
+
+def test_operator_rule_on_literal_percent_key_still_applies() -> None:
+    out = _scrub(
+        {"request": {"query_string": "a%2520b=supersecret"}}, extra_drop=frozenset({"a%20b"})
+    )
+    assert "supersecret" not in repr(out)
+    out = _scrub(
+        {"request": {"query_string": {"a%20b": "supersecret"}}}, extra_drop=frozenset({"a%20b"})
+    )
+    assert "supersecret" not in repr(out)

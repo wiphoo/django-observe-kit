@@ -704,17 +704,33 @@ def _rule_key(key: str) -> Optional[str]:
     return None if exhausted else decoded
 
 
-def _key_untouched(rule_key: str, value: str, opts: _PiiOpts) -> bool:
-    """True when no field rule or email mask acts on the whole key as written.
+def _apply_key_rules(key: Any, rule_key: Any, value: Any, opts: _PiiOpts) -> Tuple[bool, Any]:
+    """Run the field rules on the key as written *and* its decoded alias.
+
+    ``(False, None)`` when either spelling is dropped, else ``(True, value')`` where
+    ``value'`` is the changed value if any rule masked/hashed it. An operator rule
+    naming the literal key (``a%20b``) must keep applying after the decode.
+    """
+    probe = {key: value, rule_key: value}
+    out = opts.mapping(probe)
+    if any(k not in out for k in probe):
+        return False, None
+    for k in probe:
+        if out[k] != value:
+            return True, out[k]
+    return True, value
+
+
+def _key_untouched(key: str, rule_key: str, value: str, opts: _PiiOpts) -> bool:
+    """True when no field rule or email mask acts on the key (either spelling).
 
     A key that embeds ``&`` / ``=`` is re-parsed as a query only when the key itself
     is unprotected: an operator rule naming it (drop/mask) or an email in it
     (``alice&bob@example.com``) must keep applying to the *original* key, not be
     bypassed by the inner pairs it would split into.
     """
-    return opts.mapping({rule_key: value}) == {rule_key: value} and (
-        _mask_emails(rule_key) == rule_key
-    )
+    kept, sv = _apply_key_rules(key, rule_key, value, opts)
+    return kept and sv == value and _mask_emails(rule_key) == rule_key
 
 
 def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> str:
@@ -748,7 +764,7 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
         if rule_key is None:
             scrubbed.append((_REDACTED, _REDACTED))
             continue
-        if ("=" in rule_key or "&" in rule_key) and _key_untouched(rule_key, value, opts):
+        if ("=" in rule_key or "&" in rule_key) and _key_untouched(key, rule_key, value, opts):
             # Hidden pair structure. ``rule_key`` is fully decoded, so the re-parse
             # cannot find another layer; the value is re-quoted to stay as parsed.
             # A pair the rules leave alone (a bare base64 token ``?dG9rZW4%3D``)
@@ -758,9 +774,8 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
             if inner != parse_qsl(hidden, keep_blank_values=True):
                 scrubbed.extend(inner)
                 continue
-        for k, v in opts.mapping({rule_key: value}).items():
-            if k == rule_key:
-                k = key  # re-emit the key as written
+        kept, masked = _apply_key_rules(key, rule_key, value, opts)
+        for k, v in [(key, masked)] if kept else []:
             if isinstance(v, str):
                 if v != value:
                     # An operator mask/hash rule matched. ``_mask_value`` leaves a
@@ -2199,10 +2214,9 @@ def _scrub_single_param(key: str, value: Any, opts: _PiiOpts) -> Optional[Any]:
     rule_key = _rule_key(key) if isinstance(key, str) else key
     if rule_key is None:
         return _REDACTED
-    sanitized = opts.mapping({rule_key: value})
-    if rule_key not in sanitized:
+    kept, sv = _apply_key_rules(key, rule_key, value, opts)
+    if not kept:
         return None
-    sv = sanitized[rule_key]
     if sv != value:  # a mask/hash rule matched — redact a partial email mask
         return _redact_partial_email_mask(value, sv)
     if isinstance(value, (dict, list, tuple)):
