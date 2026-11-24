@@ -2264,12 +2264,21 @@ def _scrub_structured_pair(key: Any, value: Any, opts: _PiiOpts) -> Optional[Tup
     return "&".join(f"{k}={v}" for k, v in pairs), ""
 
 
-def _rekey_param(key: Any, value: Any, opts: _PiiOpts) -> Tuple[Any, Any]:
+def _rekey_param(key: Any, value: Any, opts: _PiiOpts) -> Tuple[Any, Any, bool]:
     """Apply :func:`_scrub_structured_pair` to one dict / pair-list entry.
 
-    A list value cannot be re-split, so each element that changes is redacted (fail
-    closed) and the key takes the scrubbed spelling.
+    Returns ``(key', value', done)``; ``done`` means the field rules already ran inside
+    the query scrub, so the caller must not apply them again (a hash would be hashed
+    twice). An entry whose *original* key an operator rule acts on is left alone
+    (``done=False``) so the whole-key drop / mask / hash wins. A list value cannot be
+    re-split, so each element that changes is redacted (fail closed) and the key takes
+    the scrubbed spelling.
     """
+    if isinstance(key, str):
+        rule_key = _rule_key(key)
+        probe = value if not isinstance(value, (list, tuple)) else ""
+        if rule_key is not None and _apply_key_rules(key, rule_key, probe, opts) != (True, probe):
+            return key, value, False
     if isinstance(value, (list, tuple)) and not _is_pair_list(value):
         new_key, items = key, []
         for item in value:
@@ -2277,8 +2286,9 @@ def _rekey_param(key: Any, value: Any, opts: _PiiOpts) -> Tuple[Any, Any]:
             if changed:
                 new_key, item = changed[0], _REDACTED
             items.append(item)
-        return new_key, items
-    return _scrub_structured_pair(key, value, opts) or (key, value)
+        return new_key, items, False
+    changed = _scrub_structured_pair(key, value, opts)
+    return (changed[0], changed[1], True) if changed else (key, value, False)
 
 
 def _scrub_single_param(key: str, value: Any, opts: _PiiOpts) -> Optional[Any]:
@@ -2516,7 +2526,6 @@ def _scrub_request(
             request["query_string"] = result
         elif isinstance(query_string, dict):
             _apply_bytes_key_rules(query_string, opts)
-            query_string = dict(_rekey_param(k, v, opts) for k, v in query_string.items())
             # Apply the field rules to each entry. A value that is a list
             # (repeated params like ``?token=a&token=b``) has each element
             # scrubbed individually via ``_scrub_single_param`` instead of
@@ -2524,8 +2533,12 @@ def _scrub_request(
             # stringifies it and masks the repr, leaking individual elements
             # that survive ``_mask_value``).
             cleaned: Dict[str, Any] = {}
-            for qk, orig in query_string.items():
-                if isinstance(orig, (list, tuple)) and not _is_pair_list(orig):
+            for qk, orig in list(query_string.items()):
+                qk, orig, done = _rekey_param(qk, orig, opts)
+                if done:
+                    if qk or orig:  # every inner pair dropped: nothing left to emit
+                        cleaned[qk] = orig
+                elif isinstance(orig, (list, tuple)) and not _is_pair_list(orig):
                     scrubbed_list: List[Any] = []
                     for v in orig:
                         sv = _scrub_single_param(qk, v, opts)
@@ -2546,8 +2559,11 @@ def _scrub_request(
             qs_list = list(query_string) if isinstance(query_string, tuple) else query_string
             for pair in qs_list:
                 if isinstance(pair, (list, tuple)) and len(pair) == 2:
-                    k, v = _rekey_param(pair[0], pair[1], opts)
-                    if isinstance(v, (list, tuple)) and not _is_pair_list(v):
+                    k, v, done = _rekey_param(pair[0], pair[1], opts)
+                    if done:
+                        if k or v:
+                            cleaned_pairs.append([k, v])
+                    elif isinstance(v, (list, tuple)) and not _is_pair_list(v):
                         scrubbed_vals: List[Any] = []
                         for val in v:
                             sv = _scrub_single_param(k, val, opts)

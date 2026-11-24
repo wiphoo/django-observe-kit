@@ -142,3 +142,29 @@ def test_scrubbing_stays_linear() -> None:
     run(10)
     small, large = run(200), run(1600)
     assert large < max(small * 40, 3.0)
+
+
+def _scrub_with(event: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
+    return scrub_event(
+        copy.deepcopy(event), None, level=PiiLevel.SENSITIVE, hash_salt="s", **kwargs
+    )
+
+
+@pytest.mark.parametrize("wrap", [lambda k, v: {k: v}, lambda k, v: [[k, v]]])
+@pytest.mark.parametrize("rule", ["extra_drop", "extra_mask", "extra_hash"])
+def test_operator_rule_on_whole_structured_key_still_applies(wrap: Any, rule: str) -> None:
+    key = "/p?x=supersecret&phone"
+    out = _scrub_with({"request": {"query_string": wrap(key, PHONE)}}, **{rule: frozenset({key})})
+    assert PHONE not in repr(out)
+    if rule == "extra_drop":  # mask / hash act on the value; the key stays as written
+        assert "supersecret" not in repr(out)
+
+
+@pytest.mark.parametrize("key", ["tok", "t%6fk", "t%256fk"])
+@pytest.mark.parametrize("wrap", [lambda k: f"{k}=secret", lambda k: {k: "secret"}])
+def test_hashed_key_is_hashed_once_in_every_form(key: str, wrap: Any) -> None:
+    ref = _scrub_with({"request": {"query_string": "tok=secret"}}, extra_hash=frozenset({"tok"}))
+    digest = ref["request"]["query_string"].split("=", 1)[1]
+    out = _scrub_with({"request": {"query_string": wrap(key)}}, extra_hash=frozenset({"tok"}))
+    assert repr(out).count(digest) == 1
+    assert "secret" not in repr(out)
