@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import importlib.util
 import ipaddress
 import logging
@@ -12,6 +11,7 @@ from .conf import PII_SINK_LOGS
 from .context import RequestContext, RequestTiming, get_request_context, set_request_context
 from .metrics.db import QueryRecorder, wrap_connections
 from .pii_rules import PiiLevel, effective_sets, get_pii_config, sanitize_mapping
+from .proxies import _is_trusted_proxy, _parse_trusted_proxies
 from .settings import get_observe_kit_settings
 from .tenant import resolve_tenant_id
 from .typing import DjangoRequest, DjangoResponse
@@ -189,34 +189,6 @@ def _safe_str(value: Optional[object]) -> Optional[str]:
     return value_str or None
 
 
-@functools.lru_cache(maxsize=16)
-def _parse_trusted_proxies(entries: tuple[str, ...]) -> tuple[Any, ...]:
-    """Parse TRUSTED_PROXIES entries (IPs or CIDRs) into networks, once per distinct setting.
-
-    Invalid entries are ignored with a warning: dropping an entry can only narrow
-    trust, never widen it.
-    """
-    nets = []
-    for index, entry in enumerate(entries):
-        try:
-            nets.append(ipaddress.ip_network(entry.strip(), strict=False))
-        except ValueError:
-            # Log the position, not the value: keeps config text out of logs.
-            logger.warning("Ignoring invalid TRUSTED_PROXIES entry at index %d", index)
-    return tuple(nets)
-
-
-def _is_trusted_proxy(ip: Optional[str], nets: tuple[Any, ...]) -> bool:
-    """Compare on the parsed address (so ``::1`` equals ``0:0:0:0:0:0:0:1``), not the string."""
-    if not ip:
-        return False
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    return any(addr.version == n.version and addr in n for n in nets)
-
-
 def _resolve_remote_addr(request: DjangoRequest, trusted_proxies: list[str]) -> Optional[str]:
     """Return the originating client IP, honouring X-Forwarded-For for trusted proxies.
 
@@ -224,8 +196,9 @@ def _resolve_remote_addr(request: DjangoRequest, trusted_proxies: list[str]) -> 
     Appending proxies put the peer they saw LAST, so the leftmost entry is
     client-controlled. Walk right-to-left and return the first address that is
     not itself a trusted proxy. With ``["*"]`` the hop count is unknown, so the
-    rightmost entry is used. An unparsable entry stops the walk and falls back
-    to ``REMOTE_ADDR`` (never trust anything to the left of garbage).
+    rightmost entry is used. An unparsable entry stops the walk and resolves
+    to ``None`` (unresolved): never trust anything to the left of garbage, and never
+    report the proxy itself as the client, which would pass a trusted-source allow-list.
     """
     remote_addr: Optional[str] = request.META.get("REMOTE_ADDR") or None
     if not trusted_proxies:
@@ -234,12 +207,12 @@ def _resolve_remote_addr(request: DjangoRequest, trusted_proxies: list[str]) -> 
     nets = () if wildcard else _parse_trusted_proxies(tuple(trusted_proxies))
     if wildcard or _is_trusted_proxy(remote_addr, nets):
         xff: str = request.META.get("HTTP_X_FORWARDED_FOR") or ""
-        for token in reversed(xff.split(",")):
+        for token in reversed(xff.split(",")) if xff else ():
             hop = token.strip()
             try:
                 ipaddress.ip_address(hop)
             except ValueError:
-                return remote_addr
+                return None
             if wildcard or not _is_trusted_proxy(hop, nets):
                 return hop
     return remote_addr

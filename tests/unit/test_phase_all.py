@@ -275,13 +275,21 @@ class TestTrustedProxyIpResolution:
         req = self._make_request("192.168.1.1", xff="10.9.9.9, 203.0.113.7")
         assert _resolve_remote_addr(req, ["*"]) == "203.0.113.7"
 
-    @pytest.mark.parametrize("xff", ["garbage", "1.2.3.4, not-an-ip", "1.2.3.4,", "unknown"])
-    def test_garbage_entries_fall_back_to_remote_addr(self, xff: str) -> None:
+    @pytest.mark.parametrize(
+        "xff",
+        ["garbage", "1.2.3.4, not-an-ip", "1.2.3.4,", "unknown", "203.0.113.7:54321", "[::1]:80"],
+    )
+    def test_garbage_entries_resolve_to_none(self, xff: str) -> None:
         from observe_kit.context_middleware import _resolve_remote_addr
+        from observe_kit.otel.middleware import _client_ip_matches_sources
 
         req = self._make_request("10.0.0.1", xff=xff)
-        assert _resolve_remote_addr(req, ["10.0.0.1"]) == "10.0.0.1"
-        assert _resolve_remote_addr(req, ["*"]) == "10.0.0.1"
+        assert _resolve_remote_addr(req, ["10.0.0.1"]) is None
+        assert _resolve_remote_addr(req, ["*"]) is None
+        # Fail closed: the proxy's own address must not satisfy a trusted-source allow-list.
+        assert not _client_ip_matches_sources(
+            _resolve_remote_addr(req, ["10.0.0.1"]), ["10.0.0.0/8"]
+        )
 
     @pytest.mark.parametrize(
         ("remote", "xff", "proxies", "expected"),
@@ -308,7 +316,7 @@ class TestTrustedProxyIpResolution:
     def test_invalid_proxy_entry_warning_omits_value(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from observe_kit.context_middleware import _parse_trusted_proxies
+        from observe_kit.proxies import _parse_trusted_proxies
 
         with caplog.at_level("WARNING"):
             _parse_trusted_proxies(("not-an-ip-xyzzy", "10.0.0.1"))
