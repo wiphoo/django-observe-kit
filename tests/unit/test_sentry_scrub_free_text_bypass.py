@@ -81,7 +81,7 @@ _LEAKS = [
     # both: encoded whitespace then a prefixed URL
     (
         {"message": "/a%3Fphone%3D0812345678%20redirect:/s?phone=0812345678"},
-        {"message": f"/a?phone={_MASKED} redirect:/s?phone={_MASKED}"},
+        {"message": f"/a?phone={_MASKED}"},  # whole tail sits inside one visible URL
     ),
     # controls that already worked
     ({"message": "/s%3Fphone%3D0812345678"}, {"message": f"/s?phone={_MASKED}"}),
@@ -176,3 +176,38 @@ def test_scrub_event_message_scales_linearly_by_shape(shape: str) -> None:
 
     half, full = timed(n // 2), timed(n)
     assert full < 2.0 or full < 3.0 * half, (half, full)
+
+
+def test_encoded_whitespace_inside_relative_url_keeps_query_boundaries() -> None:
+    out = _scrub({"message": "/s?x=%3Fphone=0812345678%20ok&phone=0899999999"})
+    assert out == {"message": f"/s?x=%3Fphone%3D{_MASKED}+ok&phone={_MASKED}"}
+
+
+def test_nested_encoded_query_under_prefixed_url_is_hashed_once() -> None:
+    def scrub(text: str) -> str:
+        out = config.scrub_event(
+            {"message": text},
+            None,
+            level=PiiLevel.SENSITIVE,
+            hash_salt="s",
+            extra_hash=frozenset({"tok"}),
+        )
+        return str(out["message"])
+
+    digest = scrub("/b?tok=abc").partition("tok=")[2]
+    assert scrub("redirect:/s?next=%3Ftok%3Dabc") == f"redirect:/s?next=%3Ftok%3D{digest}"
+    assert scrub("redirect:%2Fs?tok=abc") == f"redirect:/s?tok={digest}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://h/%3Fphone=0812345678%20ok&phone=0899999999",
+        "GET /s%3Fphone%3D0812345678%20HTTP/1.1",
+        "redirect:/s?phone=0812345678",
+        "redirect:/s?next=%3Fphone%3D0812345678",
+    ],
+)
+def test_scrub_is_idempotent(text: str) -> None:
+    once = _scrub({"message": text})
+    assert _scrub(once) == once

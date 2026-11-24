@@ -15,6 +15,7 @@ from typing import (
     Mapping,
     MutableMapping,
     Optional,
+    Sequence,
     Set,
     Tuple,
     TypeGuard,
@@ -23,6 +24,7 @@ from typing import (
 from urllib.parse import (
     SplitResult,
     parse_qsl,
+    quote,
     unquote,
     unquote_plus,
     urlencode,
@@ -1672,7 +1674,9 @@ def _hides_nested_authority(part: str) -> bool:
     return "//" in decoded
 
 
-def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str:
+def _scrub_hidden_encoded_urls(
+    text: str, opts: _PiiOpts, depth: int = 0, owned: Sequence[Tuple[int, int]] = ()
+) -> str:
     """Scrub percent-encoded URLs / nested queries hidden in free text.
 
     A *visible* URL in a leaf must not shadow an *encoded* redirect elsewhere in
@@ -1697,7 +1701,19 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
     # slice that falls inside one of these belongs to the absolute-URL pass, which
     # scrubs the whole URL as a unit; anything outside is a genuinely hidden slice
     # we own.
-    url_spans = [(s.start, s.end) for s in find_url_spans(text, kinds=("absolute",))]
+    all_spans = find_url_spans(text)
+    url_spans = [(s.start, s.end) for s in all_spans if s.kind == "absolute"]
+    # Non-absolute located URLs (relative / rootless): the located-URL pass scrubs
+    # them as a unit, so a candidate inside one must not be whitespace-tokenised.
+    rel_spans = [(s.start, s.end) for s in all_spans if s.kind != "absolute"]
+    rel_starts = [a for a, _ in rel_spans]
+    # ``owned``: sorted disjoint ranges an earlier pass already scrubbed.
+    owned_starts = [a for a, _ in owned]
+
+    def _inside(spans: Sequence[Tuple[int, int]], starts: List[int], a: int, b: int) -> bool:
+        i = bisect_right(starts, a) - 1
+        return i >= 0 and b <= spans[i][1]
+
     span_starts = [start for start, _ in url_spans]
     layouts: Dict[int, "_UrlLayout"] = {}
     handled_ranges: Dict[Tuple[int, int], bool] = {}
@@ -1751,6 +1767,8 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
         # authority and run on into a path holding a nested authority
         # (``https://u%3Ap%40host/https%3A%2F%2Falice%3As%40dest/x``).
         candidate = text[start:end]
+        if _inside(owned, owned_starts, start, end):
+            return candidate  # scrubbed once already; a second pass would re-hash
         idx = bisect_right(span_starts, start) - 1
         if idx >= 0 and start < url_spans[idx][1] and end <= url_spans[idx][1]:
             if _covered_components_handled(idx, start, end):
@@ -1762,11 +1780,13 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
                 # redacts as a unit; scrubbing it here would strand the username) and
                 # scrub the rest in this pass.
                 head = candidate[: auth_end - start]
-                return head + _scrub_candidate(candidate[auth_end - start :], False)
-            return _scrub_candidate(candidate, False)
-        return _scrub_candidate(candidate)
+                return head + _scrub_candidate(candidate[auth_end - start :], "keep")
+            return _scrub_candidate(candidate, "keep")
+        return _scrub_candidate(
+            candidate, "quote" if _inside(rel_spans, rel_starts, start, end) else "split"
+        )
 
-    def _scrub_candidate(candidate: str, split_ws: bool = True) -> str:
+    def _scrub_candidate(candidate: str, ws: str = "split") -> str:
         decoded, exhausted = _bounded_unquote(candidate)
         if decoded == candidate:
             return candidate
@@ -1774,13 +1794,17 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             return _REDACTED
         # Encoded whitespace (``%3Fphone%3D…%20HTTP/1.1``) glues prose onto the URL
         # token, which then isn't recognised as a URL as a whole: scrub per token.
-        # Inside a visible URL (``split_ws`` False) the outer pass keeps the query
-        # boundaries: tokenising would emit a space ahead of unscrubbed ``&k=v``.
-        scrubbed = (
-            _scrub_whitespace_tokens(decoded, opts, depth)
-            if split_ws and any(c.isspace() for c in decoded)
-            else _scrub_carried_url(decoded, opts, depth)
-        )
+        # Inside a visible URL the outer pass must keep the query boundaries, so a
+        # decoded space may not precede an unscrubbed ``&k=v``: an absolute URL is
+        # left whole (``ws="keep"``), a relative one is scrubbed per token with the
+        # whitespace re-encoded (``ws="quote"``).
+        requote = ws == "quote"
+        if ws != "keep" and any(c.isspace() for c in decoded):
+            scrubbed: Optional[str] = _scrub_whitespace_tokens(decoded, opts, depth, requote)
+            if requote:
+                decoded = _quote_whitespace(decoded)
+        else:
+            scrubbed = _scrub_carried_url(decoded, opts, depth)
         if scrubbed is not None:
             # ``scrubbed == decoded`` means the URL was isolated but contained
             # no values requiring scrubbing — keep the original candidate rather
@@ -1804,17 +1828,29 @@ def _whitespace_runs(text: str) -> List[str]:
     return ["".join(run) for _, run in groupby(text, str.isspace)]
 
 
-def _scrub_whitespace_tokens(text: str, opts: _PiiOpts, depth: int) -> str:
-    """Scrub each whitespace-separated token of ``text`` that is / carries a URL."""
+def _quote_whitespace(text: str) -> str:
+    return "".join(quote(p, safe="") if p[0].isspace() else p for p in _whitespace_runs(text))
+
+
+def _scrub_whitespace_tokens(text: str, opts: _PiiOpts, depth: int, requote: bool = False) -> str:
+    """Scrub each whitespace-separated token of ``text`` that is / carries a URL.
+
+    ``requote`` re-encodes the whitespace runs (for a candidate inside a visible URL).
+    """
     parts = _whitespace_runs(text)
     for i, token in enumerate(parts):
-        scrubbed = None if token[0].isspace() else _scrub_carried_url(token, opts, depth)
+        if token[0].isspace():
+            parts[i] = quote(token, safe="") if requote else token
+            continue
+        scrubbed = _scrub_carried_url(token, opts, depth)
         if scrubbed is not None:
             parts[i] = scrubbed
     return "".join(parts)
 
 
-def _scrub_prefixed_urls(text: str, opts: _PiiOpts, depth: int) -> str:
+def _scrub_prefixed_urls(
+    text: str, opts: _PiiOpts, depth: int
+) -> Tuple[str, List[Tuple[int, int]]]:
     """Scrub ``prefix:/path?key=value`` relative URLs (``redirect:/search?phone=…``).
 
     The relative-URL locator rejects a ``/`` that follows ``:`` (it would otherwise
@@ -1832,20 +1868,26 @@ def _scrub_prefixed_urls(text: str, opts: _PiiOpts, depth: int) -> str:
             pos = colon + 1
         colon = text.find(":/", colon + 1)
     if not chunks:
-        return text
+        return text, []
     chunks.append(text[pos:])
     seen = find_url_spans(text)
     seen_starts = [span.start for span in seen]
     out: List[str] = []
+    done: List[Tuple[int, int]] = []  # output ranges of the URLs scrubbed here
     pos = 0
+    written = 0
     for span in find_url_spans("".join(chunks), kinds=("relative",)):
         i = bisect_right(seen_starts, span.end - 1) - 1  # last seen span starting before the end
         if i >= 0 and seen[i].end > span.start:
             continue
-        out.extend((text[pos : span.start], _scrub_url(text[span.start : span.end], opts, depth)))
+        new = _scrub_url(text[span.start : span.end], opts, depth)
+        out.extend((text[pos : span.start], new))
+        written += span.start - pos
+        done.append((written, written + len(new)))
+        written += len(new)
         pos = span.end
     out.append(text[pos:])
-    return "".join(out)
+    return "".join(out), done
 
 
 def _scrub_located_urls(text: str, opts: _PiiOpts, depth: int) -> str:
@@ -1915,8 +1957,8 @@ def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     """
     # Prefixed first: the encoded pass emits decoded ``redirect:/s?tok=...`` text that
     # a later prefixed pass would scrub (and hash) a second time.
-    text = _scrub_prefixed_urls(text, opts, depth)
-    text = _scrub_hidden_encoded_urls(text, opts, depth)
+    text, owned = _scrub_prefixed_urls(text, opts, depth)
+    text = _scrub_hidden_encoded_urls(text, opts, depth, owned)
     text = _scrub_located_urls(text, opts, depth)
     return cast(str, _mask_emails(text))
 
