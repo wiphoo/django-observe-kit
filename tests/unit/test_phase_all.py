@@ -305,6 +305,16 @@ class TestTrustedProxyIpResolution:
         req = self._make_request(remote, xff=xff)
         assert _resolve_remote_addr(req, proxies) == expected
 
+    def test_invalid_proxy_entry_warning_omits_value(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from observe_kit.context_middleware import _parse_trusted_proxies
+
+        with caplog.at_level("WARNING"):
+            _parse_trusted_proxies(("not-an-ip-xyzzy", "10.0.0.1"))
+        assert "index 0" in caplog.text
+        assert "not-an-ip-xyzzy" not in caplog.text
+
     def test_each_xff_hop_checked_against_trusted_list(self) -> None:
         from observe_kit.context_middleware import _resolve_remote_addr
 

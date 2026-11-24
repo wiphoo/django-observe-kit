@@ -197,11 +197,12 @@ def _parse_trusted_proxies(entries: tuple[str, ...]) -> tuple[Any, ...]:
     trust, never widen it.
     """
     nets = []
-    for entry in entries:
+    for index, entry in enumerate(entries):
         try:
             nets.append(ipaddress.ip_network(entry.strip(), strict=False))
         except ValueError:
-            logger.warning("Ignoring invalid TRUSTED_PROXIES entry: %r", entry)
+            # Log the position, not the value: keeps config text out of logs.
+            logger.warning("Ignoring invalid TRUSTED_PROXIES entry at index %d", index)
     return tuple(nets)
 
 
