@@ -261,3 +261,15 @@ def test_operator_rule_on_literal_percent_key_still_applies() -> None:
         {"request": {"query_string": {"a%20b": "supersecret"}}}, extra_drop=frozenset({"a%20b"})
     )
     assert "supersecret" not in repr(out)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "%2Fp%23access_token%3Dsupersecret%26phone",
+        "%252Fp%2523access_token%253Dsupersecret%2526phone",
+    ],
+)
+def test_url_shaped_key_keeps_whole_key_url_scrub(key: str) -> None:
+    out = _scrub({"request": {"query_string": f"{key}={PHONE}"}})
+    assert "supersecret" not in _fully_decoded(repr(out))

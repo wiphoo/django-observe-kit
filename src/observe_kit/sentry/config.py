@@ -721,16 +721,22 @@ def _apply_key_rules(key: Any, rule_key: Any, value: Any, opts: _PiiOpts) -> Tup
     return True, value
 
 
-def _key_untouched(key: str, rule_key: str, value: str, opts: _PiiOpts) -> bool:
+def _key_untouched(key: str, rule_key: str, value: str, opts: _PiiOpts, depth: int = 0) -> bool:
     """True when no field rule or email mask acts on the key (either spelling).
 
     A key that embeds ``&`` / ``=`` is re-parsed as a query only when the key itself
     is unprotected: an operator rule naming it (drop/mask) or an email in it
     (``alice&bob@example.com``) must keep applying to the *original* key, not be
-    bypassed by the inner pairs it would split into.
+    bypassed by the inner pairs it would split into. A key that is itself a URL (or
+    carries one) keeps the whole-key URL scrub for the same reason.
     """
     kept, sv = _apply_key_rules(key, rule_key, value, opts)
-    return kept and sv == value and _mask_emails(rule_key) == rule_key
+    return (
+        kept
+        and sv == value
+        and _mask_emails(rule_key) == rule_key
+        and _scrub_url_if_carries(key, opts, depth) is None
+    )
 
 
 def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> str:
@@ -764,7 +770,9 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
         if rule_key is None:
             scrubbed.append((_REDACTED, _REDACTED))
             continue
-        if ("=" in rule_key or "&" in rule_key) and _key_untouched(key, rule_key, value, opts):
+        if ("=" in rule_key or "&" in rule_key) and _key_untouched(
+            key, rule_key, value, opts, depth
+        ):
             # Hidden pair structure. ``rule_key`` is fully decoded, so the re-parse
             # cannot find another layer; the value is re-quoted to stay as parsed.
             # A pair the rules leave alone (a bare base64 token ``?dG9rZW4%3D``)
