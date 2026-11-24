@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Optional, TypeAlias
+
+from .settings import get_observe_kit_settings
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -10,15 +13,32 @@ else:
     RequestType: TypeAlias = object
 
 
+_TENANT_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 128 = AuditLog.tenant_id max_length
+
+
+def _header_tenant(request: RequestType) -> Optional[str]:
+    """Return ``X-Tenant-ID`` only when opted in, sent by a trusted proxy, and well-formed."""
+    cfg = get_observe_kit_settings()
+    if not cfg.tenant_header_trusted:
+        return None
+    peer = request.META.get("REMOTE_ADDR")
+    if cfg.trusted_proxies != ["*"] and peer not in cfg.trusted_proxies:
+        return None
+    value = request.META.get("HTTP_X_TENANT_ID")
+    if value and _TENANT_ID_RE.fullmatch(value):
+        return str(value)
+    return None
+
+
 def resolve_tenant_id(request: RequestType) -> Optional[str]:
     tenant = getattr(request, "tenant", None)
     if tenant:
         tenant_id = getattr(tenant, "id", None)
         if tenant_id is not None:
             return str(tenant_id)
-    header_value = request.META.get("HTTP_X_TENANT_ID")
-    if header_value:
-        return str(header_value)
+    header_tenant = _header_tenant(request)
+    if header_tenant:
+        return header_tenant
     host = request.get_host() if hasattr(request, "get_host") else None
     if host and "." in host:
         parts = host.split(".")

@@ -1,9 +1,11 @@
 """Hypothesis property-based tests for tenant resolution."""
 
+import re
 from typing import Union
 from unittest.mock import Mock
 
 import pytest
+from django.test import override_settings
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -34,16 +36,19 @@ def test_resolve_tenant_id_from_tenant_object(tenant_id: Union[int, str]) -> Non
 @given(
     header_value=st.text(
         min_size=1, max_size=100, alphabet=st.characters(min_codepoint=48, max_codepoint=122)
-    )
+    ).filter(lambda v: re.fullmatch(r"[A-Za-z0-9._:-]+", v) is not None)
 )
 def test_resolve_tenant_id_from_header(header_value: str) -> None:
-    """Property: Tenant ID from header is returned as-is."""
+    """Property: with opt-in and a trusted peer, a well-formed header is returned as-is."""
     request = Mock()
     request.tenant = None
-    request.META = {"HTTP_X_TENANT_ID": header_value}
+    request.META = {"HTTP_X_TENANT_ID": header_value, "REMOTE_ADDR": "10.0.0.1"}
     request.get_host.return_value = "example.com"
 
-    result = resolve_tenant_id(request)
+    with override_settings(
+        OBSERVE_KIT={"TENANT_HEADER_TRUSTED": True, "TRUSTED_PROXIES": ["10.0.0.1"]}
+    ):
+        result = resolve_tenant_id(request)
     assert result == header_value
 
 

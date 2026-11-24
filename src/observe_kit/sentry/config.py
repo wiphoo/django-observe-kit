@@ -51,6 +51,7 @@ from .scrub.constants import REDACTED
 from .scrub.decode import bounded_unquote as _bounded_unquote
 from .scrub.decode import decode_scan, still_encoded
 from .scrub.emails import _dedupe_masked_key, _mask_email_key, _mask_emails, _mask_emails_in_leaves
+from .scrub.locate import _USERINFO_SLASHES_RE as _NESTED_USERINFO_RE
 from .scrub.locate import (
     ALL_KINDS,
     UrlSpan,
@@ -793,7 +794,21 @@ def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
     # its ``a%2Fb`` segment intact. ``redact_on_exhaust=False`` masks a deeply
     # encoded path email in place (via :func:`_mask_emails_basic`) instead of
     # redacting the whole path, redacting only when even that finds nothing.
-    path = _mask_emails(parts.path, redact_on_exhaust=False)
+    path = parts.path
+    if _NESTED_USERINFO_RE.search(path):
+        # A credentialed URL nested in the path (``/r/https://user:pw@10.0.0.5/p``),
+        # or the whole value behind a non-URL prefix (``'https://user:pw@…``, which
+        # ``urlsplit`` parses as all path): scrub each located URL as its own URL so
+        # redacting its userinfo doesn't depend on the email grammar below (which
+        # misses a numeric / non-domain host).
+        pieces: List[str] = []
+        pos = 0
+        for span in find_url_spans(path, kinds=("absolute",)):
+            nested = _scrub_url_token(path[span.start : span.end], opts, depth + 1)
+            pieces.extend((path[pos : span.start], nested))
+            pos = span.end
+        path = "".join(pieces) + path[pos:]
+    path = _mask_emails(path, redact_on_exhaust=False)
     query = parts.query
     if query:
         # A repaired (originally unparseable) URL has no trustworthy host, so its
