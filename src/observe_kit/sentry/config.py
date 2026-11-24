@@ -1762,10 +1762,11 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
                 # redacts as a unit; scrubbing it here would strand the username) and
                 # scrub the rest in this pass.
                 head = candidate[: auth_end - start]
-                return head + _scrub_candidate(candidate[auth_end - start :])
+                return head + _scrub_candidate(candidate[auth_end - start :], False)
+            return _scrub_candidate(candidate, False)
         return _scrub_candidate(candidate)
 
-    def _scrub_candidate(candidate: str) -> str:
+    def _scrub_candidate(candidate: str, split_ws: bool = True) -> str:
         decoded, exhausted = _bounded_unquote(candidate)
         if decoded == candidate:
             return candidate
@@ -1773,9 +1774,11 @@ def _scrub_hidden_encoded_urls(text: str, opts: _PiiOpts, depth: int = 0) -> str
             return _REDACTED
         # Encoded whitespace (``%3Fphone%3D…%20HTTP/1.1``) glues prose onto the URL
         # token, which then isn't recognised as a URL as a whole: scrub per token.
+        # Inside a visible URL (``split_ws`` False) the outer pass keeps the query
+        # boundaries: tokenising would emit a space ahead of unscrubbed ``&k=v``.
         scrubbed = (
             _scrub_whitespace_tokens(decoded, opts, depth)
-            if any(c.isspace() for c in decoded)
+            if split_ws and any(c.isspace() for c in decoded)
             else _scrub_carried_url(decoded, opts, depth)
         )
         if scrubbed is not None:
@@ -1910,9 +1913,11 @@ def _scrub_text(text: str, opts: _PiiOpts, depth: int = 0) -> str:
     :func:`_mask_emails`. Other patterns (phone/SSN) are too false-positive-prone
     to detect in bare prose and are left alone, mirroring the key-based model.
     """
+    # Prefixed first: the encoded pass emits decoded ``redirect:/s?tok=...`` text that
+    # a later prefixed pass would scrub (and hash) a second time.
+    text = _scrub_prefixed_urls(text, opts, depth)
     text = _scrub_hidden_encoded_urls(text, opts, depth)
     text = _scrub_located_urls(text, opts, depth)
-    text = _scrub_prefixed_urls(text, opts, depth)
     return cast(str, _mask_emails(text))
 
 

@@ -138,6 +138,13 @@ def test_prefixed_url_nested_in_a_located_url_is_hashed_once() -> None:
     assert scrub("redirect:/b?tok=abc") == f"redirect:/b?tok={digest}"
     assert digest in unquote(scrub("GET /a?next=x:/b?tok=abc"))
     assert digest in unquote(scrub("https://h/p?next=x:/b?tok=abc"))
+    # encoded and literal spellings pseudonymise identically
+    assert scrub("redirect:%2Fb?tok=abc") == f"redirect:/b?tok={digest}"
+
+
+def test_encoded_whitespace_inside_visible_url_keeps_query_boundaries() -> None:
+    out = _scrub({"message": "https://h/%3Fphone=0812345678%20ok&phone=0899999999"})
+    assert out == {"message": f"https://h/?phone={_MASKED}&phone={_MASKED}"}
 
 
 @pytest.mark.parametrize("text", _BENIGN)
