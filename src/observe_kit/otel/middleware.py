@@ -50,8 +50,13 @@ def _sanitized_target(request: HttpRequest) -> str:
     )
     level = get_pii_config().get_level(PII_SINK_OTEL)
     clean: list[tuple[str, str]] = []
-    # ``GET`` keys/values are already percent-decoded, so ``%74oken`` arrives as ``token``.
-    for key, values in request.GET.lists():
+    try:
+        # ``GET`` keys/values are already percent-decoded, so ``%74oken`` arrives as ``token``.
+        query_items = list(request.GET.lists())
+    except Exception:  # noqa: BLE001 - e.g. TooManyFieldsSent / malformed query
+        # Parsing must never abort span setup; fail closed by redacting the whole query.
+        return f"{path}?{_REDACTED}"
+    for key, values in query_items:
         for value in values:  # one pair at a time so repeated keys survive
             if level != PiiLevel.NONE and key.lower() in drop:
                 clean.append((key, _REDACTED))

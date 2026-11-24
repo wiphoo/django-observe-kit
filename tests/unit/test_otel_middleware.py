@@ -402,3 +402,12 @@ def test_http_target_redacts_aws_and_google_signature_keys(
     target, everything = _target_and_attrs(request_factory, mock_get_response, f"/f?q=ok&{query}")
     assert "sekret" not in everything
     assert target == "/f?q=ok&" + "&".join(f"{k}=REDACTED" for k in keys)
+
+
+def test_http_target_too_many_fields_redacts_query_without_aborting_span(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    query = "&".join(f"f{i}=v{i}" for i in range(1001)) + "&token=SECRETTOKEN"
+    target, everything = _target_and_attrs(request_factory, mock_get_response, f"/big?{query}")
+    assert target == "/big?REDACTED"
+    assert "SECRETTOKEN" not in everything
