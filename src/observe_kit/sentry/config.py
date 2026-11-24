@@ -704,6 +704,19 @@ def _rule_key(key: str) -> Optional[str]:
     return None if exhausted else decoded
 
 
+def _key_untouched(rule_key: str, value: str, opts: _PiiOpts) -> bool:
+    """True when no field rule or email mask acts on the whole key as written.
+
+    A key that embeds ``&`` / ``=`` is re-parsed as a query only when the key itself
+    is unprotected: an operator rule naming it (drop/mask) or an email in it
+    (``alice&bob@example.com``) must keep applying to the *original* key, not be
+    bypassed by the inner pairs it would split into.
+    """
+    return opts.mapping({rule_key: value}) == {rule_key: value} and (
+        _mask_emails(rule_key) == rule_key
+    )
+
+
 def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> str:
     """Apply the per-key PII rules to a raw url-encoded query string.
 
@@ -735,7 +748,7 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
         if rule_key is None:
             scrubbed.append((_REDACTED, _REDACTED))
             continue
-        if "=" in rule_key or "&" in rule_key:
+        if ("=" in rule_key or "&" in rule_key) and _key_untouched(rule_key, value, opts):
             # Hidden pair structure. ``rule_key`` is fully decoded, so the re-parse
             # cannot find another layer; the value is re-quoted to stay as parsed.
             # A pair the rules leave alone (a bare base64 token ``?dG9rZW4%3D``)

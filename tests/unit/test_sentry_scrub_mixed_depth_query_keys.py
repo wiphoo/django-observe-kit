@@ -192,7 +192,9 @@ def test_encoded_space_in_benign_key_is_not_redacted() -> None:
 def test_hidden_pair_keeps_value_data_intact() -> None:
     """Re-parsing a hidden pair must not decode the pair's value a second time."""
     out = _scrub({"request": {"query_string": "alice%40b.test%26q=c%2526d%2Be%26f"}})
-    assert out == {"request": {"query_string": "a***@b.test=&q=c%2526d%2Be%26f"}}
+    assert out == {
+        "request": {"query_string": "***=c%2526d%2Be%26f"}
+    }  # whole key masked, value intact
 
 
 @pytest.mark.parametrize(
@@ -235,3 +237,16 @@ def test_hidden_pair_hash_key_is_hashed_exactly_once() -> None:
         extra_hash=frozenset({"token"}),
     )
     assert out == reference
+
+
+@pytest.mark.parametrize("qs", ["a%26phone=0812345678", "a%3Dphone=0812345678"])
+def test_operator_rule_on_whole_hidden_delimiter_key_still_applies(qs: str) -> None:
+    key = unquote(qs.split("=0812", 1)[0])
+    out = _scrub({"request": {"query_string": qs}}, extra_drop=frozenset({key}))
+    assert out["request"]["query_string"] == ""
+
+
+@pytest.mark.parametrize("sep", ["%26", "%3D"])
+def test_email_key_with_hidden_delimiter_keeps_whole_key_mask(sep: str) -> None:
+    out = _scrub({"request": {"query_string": f"alice{sep}bob%40example.com=1"}})
+    assert "alice" not in repr(out)
