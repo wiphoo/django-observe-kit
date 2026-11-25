@@ -343,3 +343,71 @@ def test_process_response_handles_exception(
 
         mock_logger.warning.assert_called_once()
         assert result == response
+
+
+def _target_and_attrs(
+    request_factory: RequestFactory, mock_get_response: Mock, url: str
+) -> tuple[str, str]:
+    middleware = TraceContextMiddleware(mock_get_response)
+    request = request_factory.get(url)
+    with patch("observe_kit.otel.middleware.trace.get_tracer") as get_tracer:
+        span = MagicMock()
+        get_tracer.return_value.start_as_current_span.return_value.__enter__.return_value = span
+        middleware.process_request(request)
+    attrs = {c.args[0]: c.args[1] for c in span.set_attribute.call_args_list}
+    return attrs["http.target"], repr(attrs)
+
+
+def test_http_target_does_not_leak_query_secrets(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    target, everything = _target_and_attrs(
+        request_factory,
+        mock_get_response,
+        "/ok?email=alice@example.com&token=SECRETTOKEN&password=hunter2&page=2",
+    )
+    for leaked in ("SECRETTOKEN", "hunter2", "alice@example.com"):
+        assert leaked not in everything
+    assert target == "/ok?email=a%2A%2A%2A%40example.com&token=REDACTED&password=REDACTED&page=2"
+
+
+def test_http_target_without_query_unchanged(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    target, _ = _target_and_attrs(request_factory, mock_get_response, "/plain/path/")
+    assert target == "/plain/path/"
+
+
+def test_http_target_repeated_keys_and_encoded_values(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    target, everything = _target_and_attrs(
+        request_factory,
+        mock_get_response,
+        "/s?tag=a&tag=b&q=hello%20world&email=bob%40example.com&TOKEN=x%2Fy&token=z&%74oken=enc",
+    )
+    assert target == (
+        "/s?tag=a&tag=b&q=hello+world&email=b%2A%2A%2A%40example.com"
+        "&TOKEN=REDACTED&token=REDACTED&token=REDACTED"
+    )
+    assert "x%2Fy" not in everything
+
+
+def test_http_target_redacts_aws_and_google_signature_keys(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    keys = ["X-Amz-Signature", "X-Amz-Credential", "X-Amz-Security-Token", "AWSAccessKeyId",
+            "Signature", "sig", "X-Goog-Signature"]  # fmt: skip
+    query = "&".join(f"{k}=sekret{i}" for i, k in enumerate(keys))
+    target, everything = _target_and_attrs(request_factory, mock_get_response, f"/f?q=ok&{query}")
+    assert "sekret" not in everything
+    assert target == "/f?q=ok&" + "&".join(f"{k}=REDACTED" for k in keys)
+
+
+def test_http_target_too_many_fields_redacts_query_without_aborting_span(
+    request_factory: RequestFactory, mock_get_response: Mock, reset_context: None
+) -> None:
+    query = "&".join(f"f{i}=v{i}" for i in range(1001)) + "&token=SECRETTOKEN"
+    target, everything = _target_and_attrs(request_factory, mock_get_response, f"/big?{query}")
+    assert target == "/big?REDACTED"
+    assert "SECRETTOKEN" not in everything

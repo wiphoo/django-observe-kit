@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from django.test import RequestFactory
 
@@ -33,12 +35,15 @@ def test_audit_uses_request_context_tenant_when_available(rf: RequestFactory) ->
     assert entry.tenant_id == "ctx-tenant"
 
 
-def test_audit_falls_back_to_xtenantid_header_via_resolve_tenant_id(rf: RequestFactory) -> None:
+def test_audit_falls_back_to_xtenantid_header_via_resolve_tenant_id(
+    rf: RequestFactory, observe_kit_settings: Any
+) -> None:
     """When no request-scoped context exists, the audit path must honour the
     ``HTTP_X_TENANT_ID`` header (resolve_tenant_id) — previously this was
     missed because the audit path only inspected ``request.tenant.id``."""
-    request = rf.get("/x", HTTP_X_TENANT_ID="header-tenant")
-    entry: AuditLog = audit(action="x", request=request)
+    request = rf.get("/x", HTTP_X_TENANT_ID="header-tenant", REMOTE_ADDR="10.0.0.1")
+    with observe_kit_settings({"TENANT_HEADER_TRUSTED": True, "TRUSTED_PROXIES": ["10.0.0.1"]}):
+        entry: AuditLog = audit(action="x", request=request)
     assert entry.tenant_id == "header-tenant"
 
 
