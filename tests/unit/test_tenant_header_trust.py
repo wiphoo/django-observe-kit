@@ -87,3 +87,19 @@ def test_junk_headers_do_not_consume_label_cap(observe_kit_settings: Any) -> Non
                 guard_tenant_label(tenant)
         assert guard_tenant_label("real-tenant") == "real-tenant"
     _reset_label_guards_for_tests()
+
+
+@pytest.mark.parametrize(
+    ("addr", "proxies", "expected"),
+    [
+        ("10.1.2.3", ["10.0.0.0/8"], "victim"),
+        ("2001:db8::7", ["2001:db8::/32"], "victim"),
+        ("0:0:0:0:0:0:0:1", ["::1"], "victim"),
+        ("11.0.0.1", ["10.0.0.0/8"], None),
+    ],
+)
+def test_header_trust_honours_cidr_and_ipv6(
+    observe_kit_settings: Any, addr: str, proxies: list[str], expected: Optional[str]
+) -> None:
+    with observe_kit_settings({"TENANT_HEADER_TRUSTED": True, "TRUSTED_PROXIES": proxies}):
+        assert resolve_tenant_id(_req(addr=addr)) == expected
