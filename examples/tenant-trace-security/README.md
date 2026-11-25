@@ -4,7 +4,7 @@ Goal: verify tenant extraction and inbound W3C trace-context trust controls.
 
 This example shows:
 
-- tenant resolution from `X-Tenant-Id`
+- tenant resolution from `X-Tenant-Id` (opt-in via `TENANT_HEADER_TRUSTED`, trusted proxy only)
 - tenant resolution from subdomains
 - default rejection of inbound `traceparent`
 - trusted-proxy and trusted-source trace propagation
