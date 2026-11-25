@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Optional, TypeAlias
 
+from .proxies import is_trusted_peer
 from .settings import get_observe_kit_settings
 
 if TYPE_CHECKING:
@@ -22,7 +23,7 @@ def _header_tenant(request: RequestType) -> Optional[str]:
     if not cfg.tenant_header_trusted:
         return None
     peer = request.META.get("REMOTE_ADDR")
-    if cfg.trusted_proxies != ["*"] and peer not in cfg.trusted_proxies:
+    if not is_trusted_peer(peer, cfg.trusted_proxies):
         return None
     value = request.META.get("HTTP_X_TENANT_ID")
     if value and _TENANT_ID_RE.fullmatch(value):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import logging
 from typing import Any, Optional
 
@@ -10,6 +11,7 @@ from .conf import PII_SINK_LOGS
 from .context import RequestContext, RequestTiming, get_request_context, set_request_context
 from .metrics.db import QueryRecorder, wrap_connections
 from .pii_rules import PiiLevel, effective_sets, get_pii_config, sanitize_mapping
+from .proxies import _is_trusted_proxy, _parse_trusted_proxies
 from .settings import get_observe_kit_settings
 from .tenant import resolve_tenant_id
 from .typing import DjangoRequest, DjangoResponse
@@ -188,14 +190,31 @@ def _safe_str(value: Optional[object]) -> Optional[str]:
 
 
 def _resolve_remote_addr(request: DjangoRequest, trusted_proxies: list[str]) -> Optional[str]:
-    """Return the originating client IP, honouring X-Forwarded-For for trusted proxies."""
+    """Return the originating client IP, honouring X-Forwarded-For for trusted proxies.
+
+    ``trusted_proxies`` entries are IPs or CIDR networks, or ``["*"]``.
+    Appending proxies put the peer they saw LAST, so the leftmost entry is
+    client-controlled. Walk right-to-left and return the first address that is
+    not itself a trusted proxy. With ``["*"]`` the hop count is unknown, so the
+    rightmost entry is used. An unparsable entry stops the walk and resolves
+    to ``None`` (unresolved): never trust anything to the left of garbage, and never
+    report the proxy itself as the client, which would pass a trusted-source allow-list.
+    """
     remote_addr: Optional[str] = request.META.get("REMOTE_ADDR") or None
     if not trusted_proxies:
         return remote_addr
-    if trusted_proxies == ["*"] or remote_addr in trusted_proxies:
-        xff: Optional[str] = request.META.get("HTTP_X_FORWARDED_FOR") or None
-        if xff:
-            return xff.split(",")[0].strip() or None
+    wildcard = trusted_proxies == ["*"]
+    nets = () if wildcard else _parse_trusted_proxies(tuple(trusted_proxies))
+    if wildcard or _is_trusted_proxy(remote_addr, nets):
+        xff: str = request.META.get("HTTP_X_FORWARDED_FOR") or ""
+        for token in reversed(xff.split(",")) if xff else ():
+            hop = token.strip()
+            try:
+                ipaddress.ip_address(hop)
+            except ValueError:
+                return None
+            if wildcard or not _is_trusted_proxy(hop, nets):
+                return hop
     return remote_addr
 
 
