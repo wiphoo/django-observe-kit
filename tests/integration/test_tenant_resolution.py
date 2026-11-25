@@ -3,9 +3,11 @@
 from typing import Optional
 
 import pytest
-from django.test import Client, RequestFactory
+from django.test import Client, RequestFactory, override_settings
 
 pytestmark = pytest.mark.integration
+
+_TRUST_HEADER = {"TENANT_HEADER_TRUSTED": True, "TRUSTED_PROXIES": ["10.0.0.1"]}
 
 from observe_kit.tenant import resolve_tenant_id  # noqa: E402
 
@@ -18,11 +20,12 @@ def request_factory(django_client: Client) -> RequestFactory:
 
 def test_resolve_tenant_from_header(request_factory: RequestFactory) -> None:
     """Test tenant resolution from X-Tenant-ID header."""
-    request = request_factory.get("/test/", HTTP_X_TENANT_ID="tenant-123")
+    request = request_factory.get("/test/", HTTP_X_TENANT_ID="tenant-123", REMOTE_ADDR="10.0.0.1")
     request.tenant = None
     request.get_host = lambda: "example.com"
 
-    tenant_id = resolve_tenant_id(request)
+    with override_settings(OBSERVE_KIT=_TRUST_HEADER):
+        tenant_id = resolve_tenant_id(request)
     assert tenant_id == "tenant-123"
 
 
@@ -76,9 +79,12 @@ def test_resolve_tenant_priority_tenant_object(request_factory: RequestFactory) 
 
 def test_resolve_tenant_priority_header_over_subdomain(request_factory: RequestFactory) -> None:
     """Test that header takes priority over subdomain."""
-    request = request_factory.get("/test/", HTTP_X_TENANT_ID="tenant-from-header")
+    request = request_factory.get(
+        "/test/", HTTP_X_TENANT_ID="tenant-from-header", REMOTE_ADDR="10.0.0.1"
+    )
     request.tenant = None
     request.get_host = lambda: "tenant-from-subdomain.example.com"
 
-    tenant_id = resolve_tenant_id(request)
+    with override_settings(OBSERVE_KIT=_TRUST_HEADER):
+        tenant_id = resolve_tenant_id(request)
     assert tenant_id == "tenant-from-header"

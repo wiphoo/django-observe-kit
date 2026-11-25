@@ -72,6 +72,7 @@ OBSERVE_KIT = {
     "LOG_LEVEL": "INFO",
     "PII_HASH_SALT": "example-salt",
     "TRUSTED_PROXIES": ["10.0.0.1"],
+    "TENANT_HEADER_TRUSTED": True,
     "METRICS_MAX_LABEL_CARDINALITY": 1,
 }
 

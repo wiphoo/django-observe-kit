@@ -238,8 +238,8 @@ def _check_metrics_auth(request: Any) -> Optional[Any]:
             return None
         return HttpResponse(status=401)
 
-    # Unreachable: settings.py coerces unknown modes to "none".
-    return None
+    # Defence in depth: settings.py rejects unknown modes; never fail open.
+    return HttpResponse(status=403)
 
 
 class metrics_view:  # noqa: N801 - align with Django-style class-based view
