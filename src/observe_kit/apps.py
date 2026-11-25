@@ -107,6 +107,7 @@ class ObserveKitConfig(AppConfig):
         ``configure_logging()``, ``init_tracing()``, and ``init_sentry()``
         themselves — this method is a no-op when ``OBSERVE_KIT`` is absent.
         """
+        from . import checks  # noqa: F401  (registers system checks)
         from .settings import get_observe_kit_settings
 
         cfg = get_observe_kit_settings()
