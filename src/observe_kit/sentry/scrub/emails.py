@@ -118,12 +118,20 @@ def _mask_emails(value: Any, redact_on_exhaust: bool = True) -> Any:
                 if contains_encoded_email(token):
                     parts[i] = replace_encoded_email_spans(token, _decode_mask)[0]
                 else:
-                    # Decode one level at a time until an encoded email surfaces,
-                    # then mask it; if none surfaces within the cap, keep the
-                    # fully-decoded token. Shares the single bounded-decode seam.
+                    # Decode one level at a time until an encoded email surfaces
+                    # (else to the cap) and mask the emails that exposes. Shares
+                    # the single bounded-decode seam.
                     decoded, matched = _decode_until(token, contains_encoded_email)
                     if matched:
                         decoded = replace_encoded_email_spans(decoded, _decode_mask)[0]
+                    decoded = replace_email_spans(decoded, _mask_value)[0]
+                    # Never emit a decoded token this backstop did not scrub: a
+                    # decoded ``@`` that is not a masked email is some other
+                    # hidden structure (a nested ``scheme://user:pass@host``
+                    # credential) that only the encoding was hiding. Keep the
+                    # ORIGINAL token; the still-encoded check below redacts it.
+                    if len(_UNMASKED_AT_RE.findall(decoded)) > len(_UNMASKED_AT_RE.findall(token)):
+                        continue
                     parts[i] = decoded
                 masked = True
                 changed = True
