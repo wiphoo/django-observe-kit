@@ -28,7 +28,6 @@ from urllib.parse import (
     quote_plus,
     unquote,
     unquote_plus,
-    urlencode,
     urlparse,
     urlsplit,
     urlunsplit,
@@ -593,6 +592,29 @@ def _outer_scrub_handles(raw: str) -> bool:
     return _prefixed_url_split(decoded) is not None
 
 
+def _leads_with_query(value: str) -> bool:
+    """A value that starts with ``?`` / ``#`` and holds a ``=`` (``?phone=0812345678 ok``).
+
+    :func:`_value_carries_url` skips these when they contain whitespace (prose); the
+    free-text scrubber finds the query run inside and leaves the prose untouched.
+    """
+    return value[:1] in "?#" and "=" in value
+
+
+def _scrub_leading_query(value: str, opts: _PiiOpts, depth: int) -> str:
+    """Free-text scrub of a :func:`_leads_with_query` value.
+
+    The URL locators need a path to anchor the query on, so a throwaway ``/`` is
+    prefixed for the scrub and stripped again.
+    """
+    out = _scrub_text("/" + value, opts, depth)
+    if not out.startswith("/"):
+        return _REDACTED  # lost its anchor: fail closed
+    # The caller re-quotes the value, so drop the scrubber's own escapes (``%2A``
+    # masks) unless the value carried literal ``%`` data of its own.
+    return out[1:] if "%" in value else unquote(out[1:])
+
+
 def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optional[str]:
     """Return the scrubbed value if it is / carries a URL, else ``None``.
 
@@ -608,9 +630,15 @@ def _scrub_url_if_carries(value: str, opts: _PiiOpts, depth: int = 0) -> Optiona
     """
     if _value_carries_url(value):
         return _scrub_urlish_value(value, opts, depth)
-    decoded, matched, capped = decode_scan(value, _value_carries_url, check_original=False)
+    if _leads_with_query(value):
+        return _scrub_leading_query(value, opts, depth)
+    decoded, matched, capped = decode_scan(
+        value, lambda v: _value_carries_url(v) or _leads_with_query(v), check_original=False
+    )
     if matched:
-        return _scrub_urlish_value(decoded, opts, depth)
+        if _value_carries_url(decoded):
+            return _scrub_urlish_value(decoded, opts, depth)
+        return _scrub_leading_query(decoded, opts, depth)
     if capped and still_encoded(decoded):
         return _REDACTED
     # Only once fully decoded: a prefixed nested URL (``redirect:/search?…``) —
@@ -756,20 +784,24 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
     ``&`` (``phone%3D…``, ``x%26phone=…``) is re-parsed as a query, and a key still
     encoded at the decode cap has its pair redacted.
     """
-    scrubbed: List[Tuple[str, str]] = []
+    scrubbed: List[Tuple[str, Optional[str]]] = []
     for key, value in parse_qsl(query_string, keep_blank_values=True):
-        if "?" in key:
-            # A nested query lives *inside* the key (``?a:/search?phone=…`` splits at
-            # the first ``=`` into key ``a:/search?phone``): re-join and scrub the
-            # whole thing as a URL so the value gets the field rules.
-            joined = _scrub_carried_url(f"{key}={value}", opts, depth)
-            if joined is not None:
-                scrubbed.append((joined, ""))
-                continue
         rule_key = _rule_key(key)
         if rule_key is None:
             scrubbed.append((_REDACTED, _REDACTED))
             continue
+        if ("?" in rule_key or "#" in rule_key) and _apply_key_rules(
+            key, rule_key, value, opts
+        ) == (True, value):  # an operator rule on the whole key (drop / mask) wins
+            # A nested query lives *inside* the key (``?a:/search?phone=…`` splits at
+            # the first ``=`` into key ``a:/search?phone``; ``%2Fp%3Fx%3Dy%26phone``
+            # decodes to one): re-join and scrub the whole thing as a URL so the value
+            # gets the field rules. Re-emitted as a bare key (no stray ``=``).
+            text = f"{rule_key}={value}" if value else rule_key
+            joined = _scrub_carried_url(text, opts, depth)
+            if joined is not None and (joined != text or not value):
+                scrubbed.append((joined, None))
+                continue
         if ("=" in rule_key or "&" in rule_key) and _key_untouched(
             key, rule_key, value, opts, depth
         ):
@@ -805,8 +837,12 @@ def _scrub_query_string(query_string: str, opts: _PiiOpts, depth: int = 0) -> st
             scrubbed_key = _scrub_url_if_carries(k, opts, depth)
             if scrubbed_key is None:
                 scrubbed_key = cast(str, _mask_emails(k))
-            scrubbed.append((scrubbed_key, v))
-    return urlencode(scrubbed)
+            # A URL-shaped key stays a bare key (no ``=``), as the first pass emitted it.
+            bare = not v and ("?" in scrubbed_key or "#" in scrubbed_key)
+            scrubbed.append((scrubbed_key, None if bare else v))
+    return "&".join(
+        quote_plus(k) if v is None else f"{quote_plus(k)}={quote_plus(v)}" for k, v in scrubbed
+    )
 
 
 def _scrub_url(url: str, opts: _PiiOpts, depth: int = 0) -> str:
@@ -2208,6 +2244,55 @@ def _hash_ip_fields(event: Dict[str, Any], hash_salt: str, masked: FrozenSet[str
         user["ip_address"] = _hash_value(str(user["ip_address"]), hash_salt)
 
 
+def _scrub_structured_pair(key: Any, value: Any, opts: _PiiOpts) -> Optional[Tuple[str, str]]:
+    """``(key', value')`` when a dict / pair-list param key hides query structure and the
+    query scrub changed it (``{"phone=0812345678": ""}``, ``{"%2Fp%3Fx%3Dy%26phone": …}``).
+
+    The entry is run through :func:`_scrub_query_string` as the query it stands for, so
+    the key gets exactly the string-form treatment; a pair that scrubs to itself is left
+    alone (``None``). When the result splits into several pairs they are folded into
+    the key (a dict entry cannot become several).
+    """
+    if not (isinstance(key, str) and isinstance(value, str)):
+        return None
+    if "%" not in key and not any(c in key for c in "?#&="):
+        return None
+    query = f"{quote_plus(key)}={quote_plus(value)}"
+    pairs = parse_qsl(_scrub_query_string(query, opts), keep_blank_values=True)
+    if pairs == parse_qsl(query, keep_blank_values=True):
+        return None
+    if len(pairs) == 1:
+        return pairs[0]
+    return "&".join(f"{k}={v}" for k, v in pairs), ""
+
+
+def _rekey_param(key: Any, value: Any, opts: _PiiOpts) -> Tuple[Any, Any, bool]:
+    """Apply :func:`_scrub_structured_pair` to one dict / pair-list entry.
+
+    Returns ``(key', value', done)``; ``done`` means the field rules already ran inside
+    the query scrub, so the caller must not apply them again (a hash would be hashed
+    twice). An entry whose *original* key an operator rule acts on is left alone
+    (``done=False``) so the whole-key drop / mask / hash wins. A list value cannot be
+    re-split, so each element that changes is redacted (fail closed) and the key takes
+    the scrubbed spelling.
+    """
+    if isinstance(key, str):
+        rule_key = _rule_key(key)
+        probe = value if not isinstance(value, (list, tuple)) else ""
+        if rule_key is not None and _apply_key_rules(key, rule_key, probe, opts) != (True, probe):
+            return key, value, False
+    if isinstance(value, (list, tuple)) and not _is_pair_list(value):
+        new_key, items = key, []
+        for item in value:
+            changed = None if item == _REDACTED else _scrub_structured_pair(key, item, opts)
+            if changed:
+                new_key, item = changed[0], _REDACTED
+            items.append(item)
+        return new_key, items, False
+    changed = _scrub_structured_pair(key, value, opts)
+    return (changed[0], changed[1], True) if changed else (key, value, False)
+
+
 def _scrub_single_param(key: str, value: Any, opts: _PiiOpts) -> Optional[Any]:
     """Apply field rules to a single query param value, returning ``None`` if dropped.
 
@@ -2450,8 +2535,12 @@ def _scrub_request(
             # stringifies it and masks the repr, leaking individual elements
             # that survive ``_mask_value``).
             cleaned: Dict[str, Any] = {}
-            for qk, orig in query_string.items():
-                if isinstance(orig, (list, tuple)) and not _is_pair_list(orig):
+            for qk, orig in list(query_string.items()):
+                qk, orig, done = _rekey_param(qk, orig, opts)
+                if done:
+                    if qk or orig:  # every inner pair dropped: nothing left to emit
+                        cleaned[qk] = orig
+                elif isinstance(orig, (list, tuple)) and not _is_pair_list(orig):
                     scrubbed_list: List[Any] = []
                     for v in orig:
                         sv = _scrub_single_param(qk, v, opts)
@@ -2472,8 +2561,11 @@ def _scrub_request(
             qs_list = list(query_string) if isinstance(query_string, tuple) else query_string
             for pair in qs_list:
                 if isinstance(pair, (list, tuple)) and len(pair) == 2:
-                    k, v = pair
-                    if isinstance(v, (list, tuple)) and not _is_pair_list(v):
+                    k, v, done = _rekey_param(pair[0], pair[1], opts)
+                    if done:
+                        if k or v:
+                            cleaned_pairs.append([k, v])
+                    elif isinstance(v, (list, tuple)) and not _is_pair_list(v):
                         scrubbed_vals: List[Any] = []
                         for val in v:
                             sv = _scrub_single_param(k, val, opts)
