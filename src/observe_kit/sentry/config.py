@@ -51,7 +51,7 @@ from ..pii_rules import (
 from ..pii_rules import _is_pair_list as _pii_is_pair_list
 from .scrub.constants import REDACTED
 from .scrub.decode import bounded_unquote as _bounded_unquote
-from .scrub.decode import decode_scan, still_encoded
+from .scrub.decode import decode_scan, still_encoded, unquote_n
 from .scrub.emails import _dedupe_masked_key, _mask_email_key, _mask_emails, _mask_emails_in_leaves
 from .scrub.locate import _USERINFO_SLASHES_RE as _NESTED_USERINFO_RE
 from .scrub.locate import (
@@ -447,8 +447,8 @@ def _repair_url(value: str) -> Optional[str]:
     # while a more deeply encoded octet inside a value stays encoded.
     if hidden_query:
         qspan = next(find_encoded_delims(orig_parts.path, "?"), None)
-        for _ in range((qspan[1] - qspan[0] - 3) // 2 + 1 if qspan else 1):
-            hidden_query = unquote(hidden_query)
+        levels = (qspan[1] - qspan[0] - 3) // 2 + 1 if qspan else 1
+        hidden_query = unquote_n(hidden_query, levels)
     query = (
         f"{hidden_query}&{orig_parts.query}"
         if hidden_query and orig_parts.query
