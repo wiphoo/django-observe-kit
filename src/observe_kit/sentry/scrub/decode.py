@@ -82,3 +82,18 @@ def decode_until(value: str, predicate: Callable[[str], bool]) -> Tuple[str, boo
     """
     decoded, matched, _ = decode_scan(value, predicate)
     return decoded, matched
+
+
+def unquote_n(value: str, levels: int) -> str:
+    """Percent-decode exactly ``levels`` passes (stopping early once stable).
+
+    For callers that must decode by a known encoding depth rather than until
+    stable, so deeper-encoded octets stay encoded. ``levels`` is capped at
+    :data:`MAX_DECODE_PASSES`, the same budget as the other seam helpers.
+    """
+    for _ in range(min(levels, MAX_DECODE_PASSES)):
+        nxt = unquote(value)
+        if nxt == value:
+            break
+        value = nxt
+    return value
