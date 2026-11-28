@@ -28,8 +28,8 @@ By participating you agree to uphold it. Please report unacceptable behavior to
 
 ## What can I contribute?
 
-- Bug reports and reproduction cases — open a [Bug report](https://github.com/wiphoo/Django-Observe_Kit/issues/new?template=bug_report.yml) issue.
-- Feature proposals — open a [Feature request](https://github.com/wiphoo/Django-Observe_Kit/issues/new?template=feature_request.yml) issue.
+- Bug reports and reproduction cases — open a [Bug report](https://github.com/wiphoo/django-observe-kit/issues/new?template=bug_report.yml) issue.
+- Feature proposals — open a [Feature request](https://github.com/wiphoo/django-observe-kit/issues/new?template=feature_request.yml) issue.
 - Library code (context, logging, OTel, metrics, Sentry, DRF, audit, Wagtail) — see the workflow below.
 - Documentation improvements — PRs welcome.
 - Test coverage — especially for PII-sanitization edge cases.
@@ -46,9 +46,9 @@ reported privately — see [SECURITY.md](SECURITY.md), not a public issue.
 (for integration tests)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/Django-Observe_Kit.git
-cd Django-Observe_Kit
-git remote add upstream https://github.com/wiphoo/Django-Observe_Kit.git
+git clone https://github.com/YOUR_USERNAME/django-observe-kit.git
+cd django-observe-kit
+git remote add upstream https://github.com/wiphoo/django-observe-kit.git
 make init   # installs dependencies (uv sync --dev) and sets up pre-commit hooks
 ```
 
@@ -80,7 +80,7 @@ internals.
 
 ## Testing
 
-Pytest is the test runner, with coverage enforced at `--cov-fail-under=85`.
+Pytest is the test runner, with coverage enforced at `--cov-fail-under=90`.
 
 | Suite | Command |
 | --- | --- |
@@ -88,7 +88,7 @@ Pytest is the test runner, with coverage enforced at `--cov-fail-under=85`.
 | Integration (Docker-backed) | `make integration-up` then `make test-int` |
 | End-to-end | `make test-e2e` |
 | Everything | `make test-all` |
-| Coverage gate | `pytest --cov=observe_kit --cov-fail-under=85` (HTML report in `htmlcov/`) |
+| Coverage gate | `pytest --cov=observe_kit --cov-fail-under=90` (HTML report in `htmlcov/`) |
 
 Name tests `test_*.py` and keep them close to the behavior they cover. Use
 `@pytest.mark.integration` for Docker-backed tests and `@pytest.mark.e2e` for

@@ -17,7 +17,7 @@ released minor version. We recommend always running the most recent release.
 Instead, report them privately through one of the following channels:
 
 1. **GitHub Security Advisories** (preferred): open a report via the
-   ["Report a vulnerability"](https://github.com/wiphoo/Django-Observe_Kit/security/advisories/new)
+   ["Report a vulnerability"](https://github.com/wiphoo/django-observe-kit/security/advisories/new)
    button on the repository's Security tab.
 2. **Email**: <wiphoo.m@toffoli.co.th>
 

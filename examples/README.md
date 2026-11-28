@@ -116,7 +116,7 @@ uv sync
 
 ## Shared Notes
 
-- All examples use Python 3.12 and Django 4.x.
+- All examples use Python 3.12 and Django 5.2+.
 - The API-focused examples use Django REST Framework.
 - Examples that need local dependency services include a `docker/compose/` directory.
 - Each example has its own `README.md` with focused setup steps and verification points.

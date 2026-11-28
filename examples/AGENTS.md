@@ -22,7 +22,7 @@ Each example is self-contained and follows the same layout:
 - `pyproject.toml`: dependencies and pytest config
 - `uv.lock`: locked dependencies
 
-The examples use Python 3.12, Django 4.x, `uv`, `pytest`, and `pytest-django`. API-focused examples use Django REST Framework.
+The examples use Python 3.12, Django 5.2+, `uv`, `pytest`, and `pytest-django`. API-focused examples use Django REST Framework.
 
 Keep shared repo docs at the root and example-specific instructions inside each example’s `README.md`.
 
