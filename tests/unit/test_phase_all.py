@@ -473,8 +473,7 @@ class TestSanitizeBody:
         from observe_kit.pii_rules import PiiLevel, sanitize_body
 
         result = sanitize_body({"email": "alice@example.com"}, PiiLevel.BASIC)
-        assert result["email"].startswith("a***")
-        assert "example.com" in result["email"]
+        assert result["email"] == "a***@example.com"
 
     def test_nested_dict_sanitized(self) -> None:
         from observe_kit.pii_rules import PiiLevel, sanitize_body
