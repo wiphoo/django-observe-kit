@@ -94,7 +94,7 @@ metrics. That makes its `process_response()` run first, so `duration_ms`, `db_qu
 `configure_logging()`, `init_tracing()`, and optionally `init_sentry()` automatically —
 no manual `init_*()` calls needed.
 
-If you prefer manual control, omit `OBSERVE_KIT` and call the functions yourself from an `AppConfig.ready()`, not from `settings.py` (see the [README](../README.md#manual-initialisation)):
+If you prefer manual control, omit `OBSERVE_KIT` and call the functions yourself from an `AppConfig.ready()` (see the [README](../README.md#manual-initialisation)):
 
 ```python
 from observe_kit.logging import configure_logging

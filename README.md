@@ -11,9 +11,12 @@ Drop-in observability toolkit for Django/DRF/Wagtail: request context, structure
 
 ## What is not sanitized
 
-PII scrubbing is a safety net, not a guarantee. In particular:
+PII scrubbing is a safety net, not a guarantee. Keep secrets and personal data out of what you log or send. In particular:
 
-- **Your own log calls are not sanitized.** Messages and `extra={...}` fields are written, and exported through OpenTelemetry, exactly as you pass them.
+- **Log records are only partly cleaned.** On the outputs Observe Kit configures (its JSON console output and its OpenTelemetry log handler), listed field names are dropped, masked or redacted, emails are masked and URL credentials are scrubbed. Other free text is written as given: `password=hunter2` in a sentence, bare tokens, phone numbers, names, positional arguments such as `"password %s"`, and names not on the list such as `client_secret`.
+- **Other handlers get the original record.** This includes your own handlers and Django's `django` and `django.server` handlers.
+- **Do not log `request.META` or large or sensitive objects.** Only some `META` entries are treated, and under `runserver` it also holds the process environment. Sequences are opened, so logging a Django paginator `Page` runs its query (and in `extra`, writes every row).
+- **Sanitizing costs CPU.** In our microbenchmarks a record took roughly 5 to 11 times the CPU time of unsanitized JSON console output, and each output pays it again. There is no limit on the total text size.
 - **The audit log redacts only some credential names.** `audit()` stores values under names such as `password` and `token` as `[Filtered]`, but other names such as `client_secret`, and credentials inside strings, are stored as given.
 - **Sentry scrubbing has gaps**, including attachments, phone numbers and bare `token=...` in free text, and parameter names such as `client_secret`.
 
@@ -106,7 +109,7 @@ The server prints a JSON `request_complete` log line for the request.
 
 ### Manual initialisation
 
-To initialise from code instead, leave out the whole `OBSERVE_KIT` dict and call the functions from an `AppConfig.ready()`. **Do not call them from `settings.py`:** Django configures logging afterwards, and with an unreachable collector the process may then never exit. Other options come from [environment variables or defaults](https://github.com/wiphoo/django-observe-kit/blob/main/docs/configuration.md), so set `OBSERVE_KIT_METRICS_AUTH=token` and `OBSERVE_KIT_METRICS_TOKEN` to keep `/metrics` protected.
+To initialise from code instead, leave out the whole `OBSERVE_KIT` dict and call the functions from an `AppConfig.ready()`, which runs after Django has configured its logging. Other options come from [environment variables or defaults](https://github.com/wiphoo/django-observe-kit/blob/main/docs/configuration.md), so set `OBSERVE_KIT_METRICS_AUTH=token` and `OBSERVE_KIT_METRICS_TOKEN` to keep `/metrics` protected.
 
 ```python
 # mysite/apps.py
@@ -131,6 +134,14 @@ class MySiteConfig(AppConfig):
 # manual initialisation (append to settings.py)
 INSTALLED_APPS += ["mysite"]
 ```
+
+### Exporting logs at shutdown
+
+For the log handler that `init_tracing()` adds, **`handler.flush()`, `logging.shutdown()` and `logging.config.dictConfig()` do not export queued records.** (Flushing there could keep a process from ever exiting.)
+
+- Queued records are still exported periodically.
+- A `LoggerProvider` with `shutdown_on_exit=True` (the default, including the one `init_tracing()` creates) also exports them at a normal exit. With no collector listening, that can delay the exit by about `OTEL_EXPORTER_OTLP_TIMEOUT` (default 10 seconds).
+- A process that ends without running `atexit` handlers **loses its queued records**, for example a `multiprocessing` fork child (which leaves through `os._exit`) or a process killed by an unhandled `SIGTERM`.
 
 ## Optional integrations
 

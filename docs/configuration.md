@@ -126,7 +126,7 @@ OBSERVE_KIT = {"ENABLED": False}
 
 ### Manual initialization (no auto-init)
 
-Omit `OBSERVE_KIT` entirely from settings and call the init functions yourself, from an `AppConfig.ready()` as in the [README](../README.md#manual-initialisation). Do not call them from `settings.py`: Django configures logging afterwards, and with an unreachable collector the process may then never exit.
+Omit `OBSERVE_KIT` entirely from settings and call the init functions yourself, from an `AppConfig.ready()` as in the [README](../README.md#manual-initialisation). Calling `flush()` on the OpenTelemetry log handler does not export queued records; see [Exporting logs at shutdown](../README.md#exporting-logs-at-shutdown).
 
 ```python
 from observe_kit.logging import configure_logging
