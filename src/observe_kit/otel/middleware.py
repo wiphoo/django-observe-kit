@@ -95,8 +95,9 @@ def _client_ip_matches_sources(client_ip: Optional[str], sources: list[str]) -> 
 class TraceContextMiddleware(MiddlewareMixin):
     """Ensure every request has an OpenTelemetry span and response header.
 
-    Extracts W3C Trace-Context headers from incoming requests to support
-    distributed tracing across services.
+    Extracts W3C Trace-Context headers from incoming requests, only when
+    ``TRUST_INCOMING_TRACE_CONTEXT`` is on, to support distributed tracing
+    across services.
     """
 
     def __init__(self, get_response: Optional[Any] = None) -> None:

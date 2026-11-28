@@ -35,7 +35,7 @@ Django middleware semantics:
 
 | # | Middleware | `process_request` | `process_view` | `process_response` | Reads from context | Writes to context |
 |---|---|---|---|---|---|---|
-| 1 | `TraceContextMiddleware` | Extracts W3C `traceparent`, starts a `SERVER` span, sets HTTP attributes, stores span on request. | — | Sets `http.response.status_code`, span status, adds `X-Trace-Id` response header, ends span, resets context. | `route` (from later DRF detection) | `trace_id`, `span_id` |
+| 1 | `TraceContextMiddleware` | Extracts W3C `traceparent` (only when [`TRUST_INCOMING_TRACE_CONTEXT`](configuration.md#request-handling) is on), starts a `SERVER` span, sets HTTP attributes, stores span on request. | — | Sets `http.response.status_code`, span status, adds `X-Trace-Id` response header, ends span, resets context. | `route` (from later DRF detection) | `trace_id`, `span_id` |
 | 2 | `RequestLoggingMiddleware` | — | — | Emits the JSON `request_complete` log via `observe_kit.request`. | `status` | — |
 | 3 | `PrometheusRequestMiddleware` | — | — | Records HTTP & DB Prometheus metrics for the request. | `method`, `route`, `path`, `status`, `duration_ms`, `tenant_id`, `db_queries`, `db_time_ms` | — |
 | 4 | `RequestContextMiddleware` | Builds a fresh `RequestContext` (method, path, sanitized headers/query params, user, tenant, framework). Starts the request timer and optional `QueryRecorder`. | Populates `route` from `resolver_match`. | Finalizes `status`, `duration_ms`, `db_queries`, `db_time_ms`. Removes DB wrappers. | — | All the above |
@@ -50,7 +50,7 @@ Django middleware semantics:
 ### Request phase (top-to-bottom)
 
 ```
-TraceContext         → start span, parse traceparent, set trace_id/span_id
+TraceContext         → start span (traceparent only if trusted), set trace_id/span_id
 RequestLogging       → (no-op on request)
 PrometheusRequest    → (no-op on request)
 RequestContext       → build RequestContext, start timer, wrap DB connections

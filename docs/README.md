@@ -19,7 +19,7 @@ DRF, and Wagtail — with PII-aware defaults.
 ## Feature overview
 
 - **Context & tracing** — request-scoped `contextvars`, W3C trace-context
-  propagation (opt-in from untrusted edges), and an `X-Trace-Id` response header.
+  propagation (incoming trace headers only when you opt in), and an `X-Trace-Id` response header.
 - **Per-sink PII control** — `PiiConfig` sets independent sanitization levels for
   logs, OTEL, Sentry, and the audit sink.
 - **DRF integration** — automatic ViewSet action detection and span renaming to

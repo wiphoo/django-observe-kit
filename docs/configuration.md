@@ -44,6 +44,8 @@ When `INSTALLED_APPS` includes `observe_kit`, `ObserveKitConfig.ready()` auto-ca
 |---|---|---|---|---|
 | `LOG_LEVEL` | `str` | `"INFO"` | `LOG_LEVEL` | Python logging level. Uppercased automatically. |
 
+In production, do not use `DEBUG` together with OpenTelemetry log export: with a reachable collector, exporting creates `urllib3` debug records that are exported in turn, so output continues even when the app is idle.
+
 ### Sentry
 
 | Key | Type | Default | Env var | Notes |
@@ -51,6 +53,8 @@ When `INSTALLED_APPS` includes `observe_kit`, `ObserveKitConfig.ready()` auto-ca
 | `SENTRY_DSN` | `str \| None` | `None` | `SENTRY_DSN` | Required to enable Sentry. |
 | `SENTRY_ENVIRONMENT` | `str` | `"production"` | `SENTRY_ENVIRONMENT` | Sentry environment tag. |
 | `SENTRY_TRACES_SAMPLE_RATE` | `float` (0.0–1.0) | `0.0` | — | Sentry performance tracing sample rate. Invalid input falls back to `0.0`. |
+
+Stack-frame local variables are not sent with Sentry events. No `OBSERVE_KIT` key changes this: to send them, call `init_sentry(..., include_local_variables=True)` yourself, and leave the DSN out of `OBSERVE_KIT` and the `SENTRY_DSN` environment variable so that Sentry is not initialised twice. Scrubbing does not catch every value in local variables, so read the [Sentry limitations](pii.md#sentry) first. Note that `init_sentry()` called directly defaults `traces_sample_rate` to `0.1`.
 
 ### PII
 
@@ -72,6 +76,10 @@ See [`docs/pii.md`](pii.md) for the level/sink action matrix.
 | `DB_TRACKING` | `bool` | `True` | — | Enable per-request DB query counting and timing. Disable to remove the connection-wrapping overhead. |
 | `TRUSTED_PROXIES` | `list[str]` | `[]` | — | Proxy IPs or CIDR ranges (e.g. `"10.0.0.0/8"`, `"2001:db8::/32"`) trusted for `X-Forwarded-For`. `X-Forwarded-For` is read from the right, skipping trusted proxies, and the first untrusted address is the client. Invalid entries are ignored with a warning. An unparsable `X-Forwarded-For` hop (e.g. `ip:port`) leaves the client IP unresolved. The same matcher gates `TENANT_HEADER_TRUSTED`. Use `["*"]` to trust any peer. When empty, `REMOTE_ADDR` is used directly. |
 | `TENANT_HEADER_TRUSTED` | `bool` | `False` | `OBSERVE_KIT_TENANT_HEADER_TRUSTED` | Honour the `X-Tenant-ID` header as the tenant source. Off by default because the header is client-controlled. When on, it is used only if `REMOTE_ADDR` is in `TRUSTED_PROXIES` (so your proxy must set/overwrite it) and the value matches `[A-Za-z0-9._:-]{1,128}`; otherwise it is ignored. `request.tenant` and subdomain resolution are unaffected. |
+| `TRUST_INCOMING_TRACE_CONTEXT` | `bool` | `False` | `OBSERVE_KIT_TRUST_INCOMING_TRACE_CONTEXT` | Honour incoming W3C `traceparent` / `tracestate` headers. When off, they are ignored whatever `TRUSTED_TRACE_SOURCES` says. Turn it on only if callers can be trusted. As a string, `true`, `1`, `yes`, `y`, `on` and `t` are true; anything unrecognised is false. |
+| `TRUSTED_TRACE_SOURCES` | `list[str]` | `[]` | `OBSERVE_KIT_TRUSTED_TRACE_SOURCES` (comma-separated) | Only **narrows** `TRUST_INCOMING_TRACE_CONTEXT`: when not empty, headers are honoured only if the client IP (resolved with `TRUSTED_PROXIES`) matches one of these IPs or CIDR ranges. Empty means every source. Malformed entries are ignored. |
+
+Without `request.tenant.id` or a trusted `X-Tenant-ID`, the tenant ID is the first label of the host name, if the host has three or more dot-separated labels, that label is not `www` or `localhost`, and the host is not an IP address. Its case is kept and neither pattern nor length is checked (`AuditLog.tenant_id` is declared with a maximum of 128). The client controls the host within `ALLOWED_HOSTS`, so do not use this tenant ID for authorization.
 
 > **Warning:** with `["*"]` the proxy hop count is unknown, so the nearest (rightmost) `X-Forwarded-For` entry is returned. This is only safe when the app is reachable exclusively through your proxy. List your proxies explicitly to resolve the real client IP across multiple hops.
 

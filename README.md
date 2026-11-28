@@ -17,15 +17,18 @@ PII scrubbing is a safety net, not a guarantee. Keep secrets and personal data o
 - **Other handlers get the original record.** This includes your own handlers and Django's `django` and `django.server` handlers.
 - **Do not log `request.META` or large or sensitive objects.** Only some `META` entries are treated, and under `runserver` it also holds the process environment. Sequences are opened, so logging a Django paginator `Page` runs its query (and in `extra`, writes every row).
 - **Sanitizing costs CPU.** In our microbenchmarks a record took roughly 5 to 11 times the CPU time of unsanitized JSON console output, and each output pays it again. There is no limit on the total text size.
-- **The audit log redacts only some credential names.** `audit()` stores values under names such as `password` and `token` as `[Filtered]`, but other names such as `client_secret`, and credentials inside strings, are stored as given.
-- **Sentry scrubbing has gaps**, including attachments, phone numbers and bare `token=...` in free text, and parameter names such as `client_secret`.
+- **The audit log redacts only some credential names.** `audit()` stores values under names such as `password` and `token` as `[Filtered]`, but other names such as `client_secret` or `csrfmiddlewaretoken`, and credentials inside strings (including a URL query in a header value such as `Referer`), are stored as given.
+- **Sentry scrubbing has gaps**, including attachments, phone numbers and bare `token=...` in free text, and parameter names such as `client_secret` or `csrfmiddlewaretoken`. Source code lines around each stack frame are sent. Cron check-ins (`sentry_sdk.monitor`) are still sent.
+- **Clean console logs do not mean clean Sentry breadcrumbs.** The SDK's logging integration records the original log call, not the sanitized output. In our tests, values that were absent from the console reached Sentry: headers and cookies from `request.META` passed in `extra` or from a formatted header dump, a nested password in an `extra` dict, and a `QueryDict` value.
+- **Stack-frame local variables are not sent by default.** If you turn them on with `init_sentry(..., include_local_variables=True)`, values such as names, `client_secret`, and `password` / `token` keys nested inside a local are sent as is. If your app calls `sentry_sdk.init()` itself after `init_sentry()`, that client replaces it: Observe Kit's scrubbing is gone and the SDK's defaults apply, which send local variables.
+- **Trace spans are only partly cleaned.** On the spans Observe Kit writes, emails are masked and credential query values in URLs and paths are redacted. Among what is exported as is: tokens in path segments (`/reset/<token>/`), `token=...` and `?token=...` in text with no URL or path before it, secrets written as literals in source lines that appear in exception stack traces, and the spans, attributes and events your own code creates (including exceptions the OpenTelemetry SDK records on your child spans).
 
 Read all [known limitations](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#known-limitations) before relying on it.
 
 ## Features
 
 - **Request context and logging:** JSON logs with request fields, including a `request_complete` event.
-- **Tracing:** OpenTelemetry traces and log export over OTLP/HTTP, and an `X-Trace-Id` response header. Incoming trace headers are ignored unless you trust them.
+- **Tracing:** OpenTelemetry traces and log export over OTLP/HTTP, and an `X-Trace-Id` response header. Incoming trace headers are ignored unless `TRUST_INCOMING_TRACE_CONTEXT` is on.
 - **Metrics:** Prometheus request, latency and database metrics on `/metrics`.
 - **Sentry:** error and transaction scrubbing at a configurable PII level. Sentry metrics and logs are disabled because they would bypass it.
 - **DRF, audit log and Wagtail:** optional integrations.
@@ -105,7 +108,9 @@ In another terminal:
 curl -H "Authorization: Bearer change-me" http://127.0.0.1:8000/metrics
 ```
 
-The server prints a JSON `request_complete` log line for the request.
+The server prints a JSON `request_complete` log line for the request. Its `tenant_id` is `null`, because an IP-address host never gives a [tenant](#tenant-ids).
+
+> **In production, do not use log level `DEBUG` with OpenTelemetry log export.** In our test with a reachable collector, exporting produced `urllib3` debug records, which were exported in turn, so output and exports continued at a steady rate in an idle process. The default level is `INFO`.
 
 ### Manual initialisation
 
@@ -140,8 +145,18 @@ INSTALLED_APPS += ["mysite"]
 For the log handler that `init_tracing()` adds, **`handler.flush()`, `logging.shutdown()` and `logging.config.dictConfig()` do not export queued records.** (Flushing there could keep a process from ever exiting.)
 
 - Queued records are still exported periodically.
-- A `LoggerProvider` with `shutdown_on_exit=True` (the default, including the one `init_tracing()` creates) also exports them at a normal exit. With no collector listening, that can delay the exit by about `OTEL_EXPORTER_OTLP_TIMEOUT` (default 10 seconds).
+- A `LoggerProvider` with `shutdown_on_exit=True` (the default, including the one `init_tracing()` creates) also exports them at a normal exit. With an unreachable collector, exit can take about `OTEL_EXPORTER_OTLP_TIMEOUT` (default 10 seconds) or longer. That **may exceed a 10-second container stop timeout**, so that the process is killed before it finishes: lower `OTEL_EXPORTER_OTLP_TIMEOUT` or allow more time to stop.
 - A process that ends without running `atexit` handlers **loses its queued records**, for example a `multiprocessing` fork child (which leaves through `os._exit`) or a process killed by an unhandled `SIGTERM`.
+
+## Tenant IDs
+
+Observe Kit attaches a tenant ID to logs, spans, metric labels and audit rows. It is `request.tenant.id` if your code set `request.tenant` before Observe Kit reads it, otherwise the `X-Tenant-ID` header when you [trust it](https://github.com/wiphoo/django-observe-kit/blob/main/docs/configuration.md#request-handling), otherwise **the first label of the host name**:
+
+- only if the host has three or more dot-separated labels (`acme.example.com` gives `acme`, but `example.co.uk` also gives `example`) and that label is not `www` or `localhost`;
+- never from an IP-address host;
+- with its case kept, and with no pattern or length check.
+
+The host is **controlled by the client** (within what `ALLOWED_HOSTS` allows), so **do not use this tenant ID for authorization**. A host-derived tenant can be longer than the declared maximum of `AuditLog.tenant_id`, 128 characters.
 
 ## Optional integrations
 
@@ -164,7 +179,7 @@ REST_FRAMEWORK = {"EXCEPTION_HANDLER": "observe_kit.drf.observed_exception_handl
 INSTALLED_APPS += ["observe_kit.audit"]
 ```
 
-Logins and logouts are then recorded, and you can record your own events with `from observe_kit.audit import audit`.
+Audit rows are protected only against [ordinary ORM calls](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#audit-sink). Logins and logouts are then recorded, and you can record your own events with `from observe_kit.audit import audit`.
 
 **Wagtail.** In an existing Wagtail project with the audit log enabled, add `"observe_kit.wagtail_integration"` to `INSTALLED_APPS` to audit and count page publish, unpublish and delete.
 

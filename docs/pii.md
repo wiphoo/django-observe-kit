@@ -25,7 +25,7 @@ Levels are case-insensitive in `OBSERVE_KIT` (e.g. `"basic"` works), but stored 
 | Sink | Used by | Default level |
 |---|---|---|
 | `logs` | [Log records](#log-record-sanitization-logs-sink) on the outputs Observe Kit configures, and the headers and query params that `RequestContextMiddleware` stores in the request context. | `BASIC` |
-| `otel` | OTEL span attribute enrichment. | `BASIC` |
+| `otel` | The [spans Observe Kit writes](#span-sanitization-otel-sink): names, string attributes, exception events and status descriptions. | `BASIC` |
 | `sentry` | `before_send` scrubbing of Sentry events: request headers, `query_string` + `request.url` query, parsed body (`data`), the `user` object, application `extra`, and breadcrumb `data` (honouring `EXTRA_*` fields). `request.cookies` is redacted wholesale. At `SENSITIVE`, the client IP (`request.env.REMOTE_ADDR`, `user.ip_address`) is hashed. | `BASIC` |
 | `audit` | `AuditLog` payload sanitization, including [credential redaction](#credential-redaction-otel-sentry-and-audit-sinks). | `BASIC` |
 
@@ -67,7 +67,7 @@ For a key/value pair where the key falls into a built-in set:
 
 > **Do not put credentials such as `password`, `token` or `client_secret` in `EXTRA_HASH_FIELDS`.** The hash is one fast, salted SHA-256, meant for pseudonymisation, not for protecting secrets: anyone who has the salt can test guesses against it, and with an empty `PII_HASH_SALT` (the default) anyone who sees the hash can. What such a rule does depends on the level and on whether the name is on the [credential redaction list](#credential-redaction-otel-sentry-and-audit-sinks):
 >
-> - **At `SENSITIVE`**, a listed name is hashed instead of redacted in the `sentry` and `audit` sinks and in [log records](#log-record-sanitization-logs-sink) (`otel` keeps `REDACTED` in `http.target`). A name that is not listed is stored or sent as the guessable hash.
+> - **At `SENSITIVE`**, a listed name is hashed instead of redacted in the `sentry` and `audit` sinks, in [log records](#log-record-sanitization-logs-sink) and in URL queries in `otel` span text such as exception messages (the `otel` attribute `http.target` keeps `REDACTED`). A name that is not listed is stored or sent as the guessable hash.
 > - **At `BASIC`**, nothing is hashed. Listed names are still redacted where redaction applies, but the rule gives a name that is not listed no protection: it stays raw.
 >
 > To remove a credential, use `EXTRA_DROP_HEADERS`.
@@ -76,14 +76,25 @@ For a key/value pair where the key falls into a built-in set:
 
 At any level above `NONE`, the `otel` and `sentry` sinks redact the values of credential-style **query keys** by default (`observe_kit.conf.QUERY_SECRET_KEYS`, matched case-insensitively): `token`, `password`, `passwd`, `secret`, `api_key`, `apikey`, `access_token`, `refresh_token`, `signature`, `sig`, `code`, `session`, `key`, `x-amz-signature`, `x-amz-credential`, `x-amz-security-token`, `awsaccesskeyid`, `x-goog-signature`. The key is kept and the value becomes `REDACTED`.
 
-- **`otel`** applies this to the server span `http.target` attribute.
+- **`otel`** applies this to the server span `http.target` attribute, and to URLs and paths with a query in the other [span text](#span-sanitization-otel-sink) Observe Kit writes.
 - **`sentry`** applies this wherever the event carries a query: `request.url`, `query_string` (string, dict, pair list), `QUERY_STRING` and URI entries in `request.env`, URL-valued headers (`Referer`, ...), spans, the transaction name, breadcrumbs, URLs in messages and exception values, URL-encoded form bodies, and percent-encoded or nested redirect URLs. URL fragments that look like a query (`#access_token=...`, including `http.fragment` / `url.fragment` data) are redacted wholesale.
 - **`sentry` request bodies** (`request.data` as a parsed dict or pair list, or a JSON string, nested at any depth) replace the value with `[Filtered]`, but only for the unambiguous subset `BODY_SECRET_KEYS`: the list above **without** `code`, `key`, `session` and `sig`, which are usually ordinary data in a body. A URL-encoded string body is treated as a query and uses the full list.
 - **`audit`** applies the same `BODY_SECRET_KEYS` subset to the `extra`, `before` and `after` payloads of `audit()`. A value under a listed name is stored as `[Filtered]`, whatever its type (a whole nested structure included), at any depth in dicts, lists, tuples and `[key, value]` pair lists. Names are matched exactly but case-insensitively; empty strings and `None` are kept. It does not look inside string values.
 - **Not covered in Sentry events:** dict keys in `extra`, `contexts`, `user`, `tags` and other non-request data (URLs stored there are still scrubbed), and bare `token=...` prose that is not part of a URL. Add `EXTRA_MASK_FIELDS` / `EXTRA_DROP_HEADERS` rules for those. The Sentry SDK's own `EventScrubber` separately filters some of these keys.
-- **Operator rules win in `sentry` and `audit`.** If an `EXTRA_DROP_HEADERS`, `EXTRA_MASK_FIELDS` or active (`SENSITIVE` only) `EXTRA_HASH_FIELDS` rule matches the key, that rule is applied instead. Both can be weaker than the redaction: a mask keeps the first two characters, and a hash can be guessed. In `otel`, names on the list stay `REDACTED` whatever the mask or hash rules say, and `EXTRA_DROP_HEADERS` extends the list.
+- **Operator rules win in `sentry`, `audit` and most `otel` span text.** If an `EXTRA_DROP_HEADERS`, `EXTRA_MASK_FIELDS` or active (`SENSITIVE` only) `EXTRA_HASH_FIELDS` rule matches the key, that rule is applied instead. Both can be weaker than the redaction: a mask keeps the first two characters, and a hash can be guessed. In the `otel` attribute `http.target`, names on the list stay `REDACTED` whatever the mask or hash rules say, and `EXTRA_DROP_HEADERS` extends the list. That does **not** hold for URL queries elsewhere in span text (such as exception messages and stack traces): there an `EXTRA_MASK_FIELDS` rule, or at `SENSITIVE` an `EXTRA_HASH_FIELDS` rule, for a listed name replaces `REDACTED`.
 - At `NONE` Observe Kit redacts nothing, and `EXTRA_*` rules do not apply either.
 - [Log records](#log-record-sanitization-logs-sink) use both lists in their own way. The headers and query params kept in the request context get **no credential redaction**.
+
+## Span sanitization (`otel` sink)
+
+At `BASIC` (the default) and `SENSITIVE`, Observe Kit cleans what **it** writes to spans: span names (including DRF renames), the string attributes it sets (such as `url.path`, `http.target`, `http.path`, `http.route`, `server.address`, `tenant.id` and `enduser.id`), exception events (type, message and the rendered stack trace) and status descriptions, on its request spans and Wagtail hook spans.
+
+- Emails (also percent-encoded) are masked, credential query values in URLs and paths (the [credential list](#credential-redaction-otel-sentry-and-audit-sinks)) become `REDACTED`, and `user:password@` in a URL is replaced by `[Filtered]@`. `http.target` query parameters also get the field rules.
+- A value that cannot be sanitized is exported as `[Filtered]`.
+- Only the exported copy changes: your code still receives the original exception.
+- `PII_LEVELS["otel"] = "NONE"` turns it off.
+
+This is a safety net: read the [tracing limitations](#tracing).
 
 ## Log record sanitization (`logs` sink)
 
@@ -178,7 +189,24 @@ The same request can land in `logs` and `sentry` at the same time with different
 
 Scrubbing works on field names and recognisable patterns. Treat it as a safety net, not a guarantee, and keep secrets out of what you send. The following are **not** protected, checked with default settings in 0.1.0.
 
+### Tracing
+
+- **Tokens in path segments**, such as `/reset/<token>/`, are exported as is.
+- **`token=...` or `?token=...` in free text** that is not attached to a URL or path (for example in an exception message) is not redacted. Neither are other free-text secrets and personal data (names, phone numbers, bare tokens) or unlisted query names such as `client_secret`.
+- **Source lines in stack traces.** `exception.stacktrace` includes lines of source code, so a secret written there as a literal is exported unless it matches a pattern that is redacted.
+- **Your own telemetry** is not sanitized: spans, attributes and events your code creates, including those you add to the current request span. When an exception leaves one of your own child spans, the OpenTelemetry SDK records it there **unsanitized** by default. Observe Kit does not sanitize spans from other instrumentation either.
+- **Over-masking:** `logo@2x.png` is masked like an email, and a percent-encoded value that also has an `@` (such as the path `/@user/a%20b`) can become `[Filtered]`.
+- **Span names and routes:** a request span for a non-DRF view is named after the **raw path** (`GET /users/42/`), even when `http.route` holds the route pattern, and for an unmatched URL `http.route` is the raw path too. Both have high cardinality.
+- **`NONE`** leaves spans unsanitized.
+
 ### Sentry
+
+- **Source code lines** around each stack frame are sent, so a secret written as a literal in source can reach Sentry.
+- **Stack-frame local variables** are not sent by default (`init_sentry(include_local_variables=False)`; the `OBSERVE_KIT["SENTRY_DSN"]` auto-initialisation has no setting to turn them on). To send them, call `init_sentry(..., include_local_variables=True)` yourself, and leave the DSN out of `OBSERVE_KIT` and the `SENTRY_DSN` environment variable. The usual scrubbing then applies but **misses a lot**: for example names, a phone number in a variable not named `phone`, `client_secret`, and `password` / `token` keys nested inside a local are sent as is.
+- **Breadcrumbs from logging are not log-sanitized.** The SDK's logging integration captures the original record, so [log record sanitization](#log-record-sanitization-logs-sink) does not apply to breadcrumbs, which get the Sentry scrubbing only: **clean console logs do not mean clean breadcrumbs**. In tests where the console output did not contain the value, Sentry still received `Authorization` and cookie values (from `request.META` header entries passed in `extra`, and from request headers passed as a log argument), a nested `password` in an `extra` dict, and a password in a `QueryDict` passed in `extra`.
+- **`csrfmiddlewaretoken`** is not on the credential list, so a submitted form's CSRF token is sent in the request body. The log and audit sinks keep it too.
+- **Cron check-ins** (`sentry_sdk.monitor`, `capture_checkin`) are still sent. They pass through your `before_send` hook (returning `None` drops them) and then the event scrubbing, which has the gaps listed here.
+- **Your own `sentry_sdk.init()` call** made after `init_sentry()`, with or without `data_collection`, replaces its client: neither Observe Kit's scrubbing nor the metrics and logs drop applies, and the SDK's defaults apply, which send local variables.
 
 - **Attachments** (for example `scope.add_attachment(...)`) are sent as given.
 - **Bare credentials in free text.** `token=...` or `password=...` in a message is not redacted, and neither is a `?token=...` with no URL or path before it. A URL or path such as `/cb?token=...` is redacted.
@@ -193,7 +221,7 @@ Log sanitization is the narrowest safety net here. **Do not log secrets, persona
 **Not cleaned**
 
 - **Free text**, apart from emails and URLs: `password=hunter2` or `client_secret: ...` in a sentence, bare tokens, phone numbers, names, and `?token=...` with no URL or path before it. This covers positional arguments (`logger.info("password %s", value)`), the `str()` of any object, and a dict inside an exception message.
-- **Names that are not listed:** `client_secret`, `id_token`, `user[password]` or an `x-auth-token` key keep their values, as do `code`, `key`, `session` and `sig` outside URL queries and `QUERY_STRING`. Names and addresses under any other key are not recognised.
+- **Names that are not listed:** `client_secret`, `csrfmiddlewaretoken`, `id_token`, `user[password]` or an `x-auth-token` key keep their values, as do `code`, `key`, `session` and `sig` outside URL queries and `QUERY_STRING`. Names and addresses under any other key are not recognised.
 - **Mixed collections:** a list or set that mixes `[key, value]` pairs with other items is not read as pairs.
 - **A cookie dict** under another name, or passed as the message or an argument (`request.COOKIES`), keeps `sessionid`.
 - **The rest of `request.META`.** Only header, cookie and `QUERY_STRING` entries are treated. Under `runserver`, `META` includes the process environment, so its secrets are written unless their names are listed.
@@ -218,16 +246,18 @@ Log sanitization is the narrowest safety net here. **Do not log secrets, persona
 
 `audit()` [redacts only the listed names](#credential-redaction-otel-sentry-and-audit-sinks). With default settings these are **still stored as given**:
 
-- credentials under other names, such as `client_secret`, `id_token`, `user[password]` or `x_password`;
+- credentials under other names, such as `client_secret`, `csrfmiddlewaretoken`, `id_token`, `user[password]` or `x_password`;
 - values under `code`, `key`, `session` and `sig`;
-- credentials inside a string value: free text, URLs such as `?token=...`, or serialized JSON;
+- credentials inside a string value: free text, URLs with `?token=...` or `user:password@` (also in header values such as `Referer`), or serialized JSON;
 - `action`, `object_id`, and the `user_agent` column;
 - `[key, value]` pairs in a list that mixes them with other items, or in a `set` or `frozenset` of pairs;
 - `request.META` passed as data: `HTTP_AUTHORIZATION`, `HTTP_COOKIE` and `QUERY_STRING` get no special handling.
 
 For a `QueryDict` such as `extra=request.POST`, one value is stored per key (the last one) at any level above `NONE`.
 
-Audit rows are immutable, so a secret stored this way cannot be cleaned up through the ORM. Remove secrets before calling `audit()`, or add the exact name of a payload field to `EXTRA_DROP_HEADERS`.
+Ordinary ORM calls refuse to change or delete audit rows (see below), so do not count on cleaning up such a secret later. Remove secrets before calling `audit()`, or add the exact name of a payload field to `EXTRA_DROP_HEADERS`.
+
+**Immutability is a guard against ordinary ORM calls, not a guarantee.** `save()` and `delete()` on a loaded row, and `update()`, `bulk_update()` and `delete()` through `AuditLog.objects`, raise `AuditLogImmutableError`, and the admin does not allow changes or deletes. Rows can still be changed or removed, for example by `update()` and `delete()` on `AuditLog._base_manager`, by `bulk_create(..., update_conflicts=True)`, by deleting the actor's user (`on_delete=SET_NULL` clears `actor`), and by direct SQL. If you need more, also restrict `UPDATE` and `DELETE` on the table in the database (note that `SET_NULL` is itself an `UPDATE`).
 
 ### Wagtail extra on older Python
 
