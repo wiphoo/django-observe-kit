@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import logging
 from collections.abc import Mapping, Sequence
@@ -19,36 +20,12 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased, TraceIdRati
 from opentelemetry.trace import Span
 
 from ..context import get_request_context
+from ..log_sanitize import LOG_RECORD_CORE_FIELDS, redacted_record, sanitize_record, sanitizing
 
 logger = logging.getLogger(__name__)
 _TRACING_INITIALIZED = False
 _LOG_EXPORT_INITIALIZED = False
 _OTEL_LOG_HANDLER_ATTR = "_observe_kit_otel_handler"
-_LOG_RECORD_CORE_FIELDS = {
-    "name",
-    "msg",
-    "args",
-    "levelname",
-    "levelno",
-    "pathname",
-    "filename",
-    "module",
-    "exc_info",
-    "exc_text",
-    "stack_info",
-    "lineno",
-    "funcName",
-    "created",
-    "msecs",
-    "relativeCreated",
-    "thread",
-    "threadName",
-    "processName",
-    "process",
-    "message",
-    "asctime",
-    "taskName",
-}
 
 
 class ConfigurationError(ValueError):
@@ -100,16 +77,33 @@ def _is_otel_log_attribute_value(value: Any) -> bool:
 
 
 class _SafeOTelLogHandler(LoggingHandler):
-    """LoggingHandler that coerces unsupported extras into OTEL-safe values.
+    """LoggingHandler that sanitizes records and coerces extras into OTEL-safe values.
 
-    Works on a shallow copy of the LogRecord so that other handlers in the
-    logging chain receive the original, unmodified record.
+    Works on a copy of the LogRecord so that other handlers in the logging chain
+    receive the original, unmodified record. The copy is sanitized at the ``logs``
+    PII level (see :mod:`observe_kit.log_sanitize`).
     """
 
     def emit(self, record: logging.LogRecord) -> None:
+        if not sanitizing():
+            self._emit_coerced(record)
+            return
+        try:
+            clean = sanitize_record(
+                record,
+                format_exception=logging.Formatter().formatException,
+                exception_attributes=True,
+            )
+            self._emit_coerced(clean)
+        except Exception:  # noqa: BLE001 - never raise into the caller's log call
+            # ``handleError`` would print the raw record, so send a placeholder or nothing.
+            with contextlib.suppress(Exception):
+                super().emit(redacted_record(record))
+
+    def _emit_coerced(self, record: logging.LogRecord) -> None:
         record = copy.copy(record)
         for key, value in list(vars(record).items()):
-            if key.startswith("_") or key in _LOG_RECORD_CORE_FIELDS:
+            if key.startswith("_") or key in LOG_RECORD_CORE_FIELDS:
                 continue
             if not _is_otel_log_attribute_value(value):
                 setattr(record, key, repr(value))
@@ -143,7 +137,7 @@ class OTelLogRecordSanitizer(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         for key, value in list(vars(record).items()):
-            if key.startswith("_") or key in _LOG_RECORD_CORE_FIELDS:
+            if key.startswith("_") or key in LOG_RECORD_CORE_FIELDS:
                 continue
             if not _is_otel_log_attribute_value(value):
                 setattr(record, key, repr(value))

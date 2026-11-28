@@ -440,6 +440,7 @@ def sanitize_body(
     extra_hash: Optional[FrozenSet[str]] = None,
     hash_salt: str = "",
     redact_keys: FrozenSet[str] = frozenset(),
+    key_alias: Optional[Callable[[str], Optional[str]]] = None,
 ) -> Any:
     """Recursively sanitize a parsed body structure according to PII rules.
 
@@ -454,11 +455,14 @@ def sanitize_body(
     names, matched case-insensitively) is replaced by ``[Filtered]``. An active
     drop/mask/hash rule on the same key wins and sees the original value. Like the
     field rules, this does nothing at ``NONE``.
+
+    ``key_alias`` may name a second spelling of a key (``HTTP_AUTHORIZATION`` is the
+    ``authorization`` header); a rule or redaction fires when either name matches.
     """
     if level == PiiLevel.NONE:
         return body
     drop, mask, hsh = effective_sets(extra_drop, extra_mask, extra_hash)
-    return _sanitize_node(body, level, drop, mask, hsh, hash_salt, redact_keys)
+    return _sanitize_node(body, level, drop, mask, hsh, hash_salt, redact_keys, key_alias)
 
 
 def _is_pair_list(node: Any) -> bool:
@@ -488,19 +492,23 @@ def _sanitize_node(
     hsh: Set[str],
     hash_salt: str,
     redact: FrozenSet[str],
+    key_alias: Optional[Callable[[str], Optional[str]]],
 ) -> Any:
     def _child(item: Any) -> Any:
-        return _sanitize_node(item, level, drop, mask, hsh, hash_salt, redact)
+        return _sanitize_node(item, level, drop, mask, hsh, hash_salt, redact, key_alias)
 
     def _entry(key: Any, value: Any) -> Tuple[bool, Any]:
-        key_lower = str(key).lower()
-        if key_lower in drop:
+        names = {str(key).lower()}
+        alias = key_alias(str(key)) if key_alias else None
+        if alias:
+            names.add(alias.lower())
+        if names & drop:
             return False, None
-        if level in _MASK_LEVELS and key_lower in mask:
+        if level in _MASK_LEVELS and names & mask:
             return True, _mask_value(str(value)) if isinstance(value, str) else "***"
-        if level == PiiLevel.SENSITIVE and key_lower in hsh:
+        if level == PiiLevel.SENSITIVE and names & hsh:
             return True, _hash_value(str(value), hash_salt)
-        if key_lower in redact and value not in ("", None):
+        if names & redact and value not in ("", None):
             return True, BODY_REDACTED
         return True, _child(value)
 

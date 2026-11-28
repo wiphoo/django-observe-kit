@@ -1091,8 +1091,9 @@ def _walk_named_entries(
     """
     if isinstance(obj, dict):
         rebuilt: Dict[Any, Any] = {}
+        suffixes: Dict[str, int] = {}
         for key, value in list(obj.items()):
-            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key))
+            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key), suffixes)
             key_lower = str(masked_key).lower()
             rebuilt[masked_key] = entry(key_lower, value, opts)
         obj.clear()
@@ -1510,8 +1511,9 @@ def _fused_walk(node: Any, bopts: _PiiOpts, opts: _PiiOpts) -> Any:
         for key, value in node.items():
             norm[_decode_key(key, node)] = value
         rebuilt: Dict[Any, Any] = {}
+        suffixes: Dict[str, int] = {}
         for key, raw in norm.items():
-            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key))
+            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key), suffixes)
             keep, value = _fused_child(key, raw, str(masked_key).lower(), bopts, opts)
             if keep:
                 rebuilt[masked_key] = value
