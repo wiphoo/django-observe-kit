@@ -59,7 +59,8 @@ def resolve_tenant_id(request: RequestType) -> Optional[str]:
         # or if it's clearly a subdomain pattern (not just domain.tld)
         if len(parts) >= 3:
             subdomain = parts[0]
-            if subdomain not in {"www", "localhost"}:
+            # Same rule as the trusted header; ignore, never truncate (two could collide).
+            if subdomain not in {"www", "localhost"} and _TENANT_ID_RE.fullmatch(subdomain):
                 return str(subdomain)
         # For domain.tld format (2 parts), don't treat as tenant
         # This handles cases like "example.com" -> None
