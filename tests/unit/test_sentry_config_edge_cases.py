@@ -112,4 +112,5 @@ def test_init_sentry_with_before_send() -> None:
 
         mock_sentry.init.assert_called_once()
         call_kwargs = mock_sentry.init.call_args[1]
-        assert call_kwargs["before_send"] == custom_before_send
+        # Composed with the PII scrubber, never installed as-is.
+        assert call_kwargs["before_send"] != custom_before_send

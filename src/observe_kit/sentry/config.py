@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from bisect import bisect_right
@@ -2878,7 +2879,7 @@ def init_sentry(
     environment: str,
     traces_sample_rate: float = 0.1,
     before_send: Optional[
-        Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Dict[str, Any]]
+        Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Optional[Dict[str, Any]]]
     ] = None,
     pii_level: Optional[PiiLevel] = None,
 ) -> None:
@@ -2888,7 +2889,10 @@ def init_sentry(
         dsn: Sentry DSN (required, must be valid Sentry DSN URL)
         environment: Environment name (required, max 64 chars, e.g., 'dev', 'prod')
         traces_sample_rate: Sample rate for traces (0.0 to 1.0, default 0.1)
-        before_send: Optional custom before_send callback
+        before_send: Optional ``(event, hint)`` hook for error events. It does not
+            replace PII scrubbing: it runs first, on the unscrubbed event, and
+            whatever it returns is then scrubbed, so data it adds is covered.
+            Returning ``None`` (or a non-dict) drops the event, as does raising.
         pii_level: Optional PII level for Sentry. If None, uses per-sink PII configuration.
 
     Raises:
@@ -2932,12 +2936,25 @@ def init_sentry(
     def _scrubber(event: Dict[str, Any], hint: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return scrub_event(event, hint, pii_level, hash_salt, extra_drop, extra_mask, extra_hash)
 
+    def _before_send(
+        event: Dict[str, Any], hint: Optional[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        # No try/except: sentry-sdk drops the event when before_send raises.
+        if before_send is not None:
+            result = before_send(event, hint)
+            if not isinstance(result, dict):
+                return None
+            # The scrubber mutates nested containers in place, and the hook may have
+            # attached app-owned ones.
+            event = copy.deepcopy(result)
+        return _scrubber(event, hint)
+
     sentry_sdk.init(
         dsn=dsn,
         environment=environment,
         integrations=[DjangoIntegration()],
         traces_sample_rate=traces_sample_rate,
-        before_send=before_send or _scrubber,  # type: ignore[arg-type]
+        before_send=_before_send,  # type: ignore[arg-type]
         # Transaction (trace) events go through a separate hook; scrub them too,
         # otherwise transaction names / span data would bypass PII_LEVELS["sentry"].
         before_send_transaction=_scrubber,  # type: ignore[arg-type]
