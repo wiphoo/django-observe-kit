@@ -6,6 +6,7 @@ Observe Kit ships several middlewares that share state via a single `RequestCont
 
 ```python
 MIDDLEWARE = [
+    # ...Django's own middleware, up to and including AuthenticationMiddleware...
     "observe_kit.otel.middleware.TraceContextMiddleware",
     "observe_kit.logging.middleware.RequestLoggingMiddleware",
     "observe_kit.metrics.middleware.PrometheusRequestMiddleware",
@@ -13,11 +14,11 @@ MIDDLEWARE = [
     "observe_kit.context_middleware.UserLoggingContextMiddleware",
     # "observe_kit.drf.integration.DRFIntegrationMiddleware",  # optional, when using DRF
     "observe_kit.sentry.middleware.SentryContextMiddleware",
-    # ...rest of your Django/DRF/Wagtail middleware...
+    # ...rest of your middleware...
 ]
 ```
 
-This is the order used by every app in `examples/` and by `docs/HYPERDX_QUICKSTART.md`. Treat it as authoritative.
+The order of the Observe Kit entries relative to each other is the one used by the apps in `examples/` and by `docs/HYPERDX_QUICKSTART.md`; treat it as authoritative. Put the block after Django's `AuthenticationMiddleware`: `RequestContextMiddleware` reads `request.user` when the request comes in, so placed earlier it never records `user_id`.
 
 ## Why this order
 
