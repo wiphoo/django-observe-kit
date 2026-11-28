@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
 from ..context import get_request_context
+from ..otel.sanitize import scrub_span_text
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,6 @@ class DRFIntegrationMiddleware(MiddlewareMixin):
                 # Update span name if it exists
                 span = getattr(request, "_observe_kit_span", None)
                 if span:
-                    span.update_name(drf_route)
+                    span.update_name(scrub_span_text(drf_route))
         except Exception as e:
             logger.warning("Failed to detect DRF action", extra={"error": str(e)}, exc_info=True)
