@@ -27,7 +27,7 @@ Levels are case-insensitive in `OBSERVE_KIT` (e.g. `"basic"` works), but stored 
 | `logs` | Headers and query params that `RequestContextMiddleware` stores in the request context. Log records themselves are [not sanitized](#known-limitations). | `BASIC` |
 | `otel` | OTEL span attribute enrichment. | `BASIC` |
 | `sentry` | `before_send` scrubbing of Sentry events: request headers, `query_string` + `request.url` query, parsed body (`data`), the `user` object, application `extra`, and breadcrumb `data` (honouring `EXTRA_*` fields). `request.cookies` is redacted wholesale. At `SENSITIVE`, the client IP (`request.env.REMOTE_ADDR`, `user.ip_address`) is hashed. | `BASIC` |
-| `audit` | `AuditLog` payload sanitization. | `BASIC` |
+| `audit` | `AuditLog` payload sanitization, including [credential redaction](#credential-redaction-otel-sentry-and-audit-sinks). | `BASIC` |
 
 A custom `before_send` passed to `init_sentry()` does not replace this scrubbing. It runs first and receives the unscrubbed event; whatever it returns is then scrubbed, so don't call `scrub_event()` inside it (hashed fields would be hashed twice). Returning `None` drops the event, as does an exception in the hook or the scrubber.
 
@@ -65,18 +65,25 @@ For a key/value pair where the key falls into a built-in set:
   - Otherwise: first two characters + `***`. Example: `5551234567` → `55***`. Short values (≤2 chars) become `***`.
 - **Hashing** (`_hash_value`, `pii_rules.py:98-99`): `sha256((PII_HASH_SALT + value).utf-8).hexdigest()`. Set `OBSERVE_KIT["PII_HASH_SALT"]` per-environment to a non-empty secret to make hashes unstable across environments and resist rainbow tables.
 
-> **Do not put credentials such as `password` or `token` in `EXTRA_HASH_FIELDS`.** The hash is one fast, salted SHA-256, meant for pseudonymisation, not for protecting secrets: anyone who has the salt can test guesses against it, and with an empty `PII_HASH_SALT` (the default) anyone who sees the hash can. At `SENSITIVE`, such a rule also replaces the [default credential redaction](#credential-redaction-otel-and-sentry-sinks) with the hash; at `BASIC` it does not hash anything. To remove a credential, use `EXTRA_DROP_HEADERS`.
+> **Do not put credentials such as `password`, `token` or `client_secret` in `EXTRA_HASH_FIELDS`.** The hash is one fast, salted SHA-256, meant for pseudonymisation, not for protecting secrets: anyone who has the salt can test guesses against it, and with an empty `PII_HASH_SALT` (the default) anyone who sees the hash can. What such a rule does depends on the level and on whether the name is on the [credential redaction list](#credential-redaction-otel-sentry-and-audit-sinks):
+>
+> - **At `SENSITIVE`**, a listed name is hashed instead of redacted in the `sentry` and `audit` sinks (`otel` keeps `REDACTED`). A name that is not listed is stored or sent as the guessable hash.
+> - **At `BASIC`**, nothing is hashed. Listed names are still redacted where redaction applies, but the rule gives a name that is not listed no protection: it stays raw.
+>
+> To remove a credential, use `EXTRA_DROP_HEADERS`.
 
-## Credential redaction (`otel` and `sentry` sinks)
+## Credential redaction (`otel`, `sentry` and `audit` sinks)
 
 At any level above `NONE`, the `otel` and `sentry` sinks redact the values of credential-style **query keys** by default (`observe_kit.conf.QUERY_SECRET_KEYS`, matched case-insensitively): `token`, `password`, `passwd`, `secret`, `api_key`, `apikey`, `access_token`, `refresh_token`, `signature`, `sig`, `code`, `session`, `key`, `x-amz-signature`, `x-amz-credential`, `x-amz-security-token`, `awsaccesskeyid`, `x-goog-signature`. The key is kept and the value becomes `REDACTED`.
 
 - **`otel`** applies this to the server span `http.target` attribute.
 - **`sentry`** applies this wherever the event carries a query: `request.url`, `query_string` (string, dict, pair list), `QUERY_STRING` and URI entries in `request.env`, URL-valued headers (`Referer`, ...), spans, the transaction name, breadcrumbs, URLs in messages and exception values, URL-encoded form bodies, and percent-encoded or nested redirect URLs. URL fragments that look like a query (`#access_token=...`, including `http.fragment` / `url.fragment` data) are redacted wholesale.
 - **`sentry` request bodies** (`request.data` as a parsed dict or pair list, or a JSON string, nested at any depth) replace the value with `[Filtered]`, but only for the unambiguous subset `BODY_SECRET_KEYS`: the list above **without** `code`, `key`, `session` and `sig`, which are usually ordinary data in a body. A URL-encoded string body is treated as a query and uses the full list.
-- **Not covered by this rule:** dict keys in `extra`, `contexts`, `user`, `tags` and other non-request data (URLs stored there are still scrubbed), and bare `token=...` prose that is not part of a URL. Add `EXTRA_MASK_FIELDS` / `EXTRA_DROP_HEADERS` rules for those. The Sentry SDK's own `EventScrubber` separately filters some of these keys.
-- **Operator rules win.** If an `EXTRA_DROP_HEADERS`, `EXTRA_MASK_FIELDS` or active `EXTRA_HASH_FIELDS` rule matches the key, that rule is applied instead (note that a mask keeps the first two characters). In `otel`, `EXTRA_DROP_HEADERS` extends the redaction list.
-- The `logs` and `audit` sinks do **not** apply this rule.
+- **`audit`** applies the same `BODY_SECRET_KEYS` subset to the `extra`, `before` and `after` payloads of `audit()`. A value under a listed name is stored as `[Filtered]`, whatever its type (a whole nested structure included), at any depth in dicts, lists, tuples and `[key, value]` pair lists. Names are matched exactly but case-insensitively; empty strings and `None` are kept. It does not look inside string values.
+- **Not covered in Sentry events:** dict keys in `extra`, `contexts`, `user`, `tags` and other non-request data (URLs stored there are still scrubbed), and bare `token=...` prose that is not part of a URL. Add `EXTRA_MASK_FIELDS` / `EXTRA_DROP_HEADERS` rules for those. The Sentry SDK's own `EventScrubber` separately filters some of these keys.
+- **Operator rules win in `sentry` and `audit`.** If an `EXTRA_DROP_HEADERS`, `EXTRA_MASK_FIELDS` or active (`SENSITIVE` only) `EXTRA_HASH_FIELDS` rule matches the key, that rule is applied instead. Both can be weaker than the redaction: a mask keeps the first two characters, and a hash can be guessed. In `otel`, names on the list stay `REDACTED` whatever the mask or hash rules say, and `EXTRA_DROP_HEADERS` extends the list.
+- At `NONE` Observe Kit redacts nothing, and `EXTRA_*` rules do not apply either.
+- The `logs` sink does **not** apply this rule.
 
 ## Sentry metrics and logs are disabled
 
@@ -116,7 +123,7 @@ OBSERVE_KIT = {
         "logs":   "BASIC",      # keep operational debuggability
         "otel":   "BASIC",      # spans stay readable
         "sentry": "SENSITIVE",  # external service: hash user-agent and IP
-        "audit":  "NONE",       # internal audit trail keeps raw values
+        "audit":  "NONE",       # keeps raw values, including passwords and tokens
     },
     "PII_HASH_SALT": os.environ["PII_HASH_SALT"],
 }
@@ -159,7 +166,7 @@ Scrubbing works on field names and recognisable patterns. Treat it as a safety n
 - **Attachments** (for example `scope.add_attachment(...)`) are sent as given.
 - **Bare credentials in free text.** `token=...` or `password=...` in a message is not redacted, and neither is a `?token=...` with no URL or path before it. A URL or path such as `/cb?token=...` is redacted.
 - **Phone numbers in free text** are not redacted, including `phone=0812345678` written in prose. Email addresses in free text are masked.
-- **Credential names not on the list.** Names are matched exactly against the [list above](#credential-redaction-otel-and-sentry-sinks), so `client_secret`, `id_token`, and bracketed names such as `token[]` or `user[password]` keep their values in URLs, query strings and request bodies. (A nested body such as `{"user": {"password": "..."}}` is redacted.) Adding the exact name to `EXTRA_DROP_HEADERS` removes it from URL queries and parsed request bodies; it does not help in free text.
+- **Credential names not on the list.** Names are matched exactly against the [list above](#credential-redaction-otel-sentry-and-audit-sinks), so `client_secret`, `id_token`, and bracketed names such as `token[]` or `user[password]` keep their values in URLs, query strings and request bodies. (A nested body such as `{"user": {"password": "..."}}` is redacted.) Adding the exact name to `EXTRA_DROP_HEADERS` removes it from URL queries and parsed request bodies; it does not help in free text.
 - **`;`-separated query pairs** (`?a=1;token=...`) are not split, so the later value is not redacted.
 
 ### `logs` sink
@@ -169,7 +176,14 @@ Scrubbing works on field names and recognisable patterns. Treat it as a safety n
 
 ### `audit` sink
 
-- **No credential redaction.** With default settings, `audit()` stores a `password`, `token` or `api_key` passed in `extra`, `before` or `after` in the database exactly as given (`email` and `phone` are masked). Remove secrets before calling it, or add their exact names to `EXTRA_DROP_HEADERS`.
+`audit()` [redacts only the listed names](#credential-redaction-otel-sentry-and-audit-sinks). With default settings these are **still stored as given**:
+
+- credentials under other names, such as `client_secret`, `id_token`, `user[password]` or `x_password`;
+- values under `code`, `key`, `session` and `sig`;
+- credentials inside a string value: free text, URLs such as `?token=...`, or serialized JSON;
+- `action`, `object_id`, and the `user_agent` column.
+
+Audit rows are immutable, so a secret stored this way cannot be cleaned up through the ORM. Remove secrets before calling `audit()`, or add the exact name of a payload field to `EXTRA_DROP_HEADERS`.
 
 ### Wagtail extra on older Python
 

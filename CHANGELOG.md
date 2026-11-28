@@ -22,7 +22,7 @@ First release.
 ### Security and PII defaults
 
 - Every PII sink (`logs`, `otel`, `sentry`, `audit`) defaults to `BASIC`. What each sink covers differs, and **your own log calls are not sanitized**. See [PII sanitization](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md).
-- The `otel` sink (server span `http.target`) and the `sentry` sink redact credential-style query values such as `token` and `password`. The `logs` and `audit` sinks do not.
+- Above the `NONE` level, the `otel` sink (server span `http.target`) and the `sentry` sink redact credential-style query values such as `token` and `password`, and `audit()` stores such names in `extra`, `before` and `after` as `[Filtered]`. The matching is by [listed name](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#credential-redaction-otel-sentry-and-audit-sinks) only; `audit()` does not include `code`, `key`, `session` or `sig`, or look inside strings. The `logs` sink does not redact credentials.
 - A `before_send` you pass to `init_sentry()` runs before scrubbing, so it sees raw data; its result is then scrubbed.
 - Sentry metrics and Sentry logs are disabled, because they would bypass scrubbing.
 - Incoming `traceparent` / `tracestate` headers are ignored unless `TRUST_INCOMING_TRACE_CONTEXT` or `TRUSTED_TRACE_SOURCES` allows them.

@@ -14,7 +14,7 @@ Drop-in observability toolkit for Django/DRF/Wagtail: request context, structure
 PII scrubbing is a safety net, not a guarantee. In particular:
 
 - **Your own log calls are not sanitized.** Messages and `extra={...}` fields are written, and exported through OpenTelemetry, exactly as you pass them.
-- **The audit log does not redact credentials.** A `password` or `token` passed to `audit()` is stored as given.
+- **The audit log redacts only some credential names.** `audit()` stores values under names such as `password` and `token` as `[Filtered]`, but other names such as `client_secret`, and credentials inside strings, are stored as given.
 - **Sentry scrubbing has gaps**, including attachments, phone numbers and bare `token=...` in free text, and parameter names such as `client_secret`.
 
 Read all [known limitations](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#known-limitations) before relying on it.
