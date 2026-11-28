@@ -35,6 +35,8 @@ QUERY_SECRET_KEYS = frozenset(
 # Marker for a redacted query value (OTel semconv). Bracket-free so a rescan of the
 # scrubbed URL is stable.
 QUERY_REDACTED = "REDACTED"
+# Marker for a redacted body / databag value; matches Sentry's own ``EventScrubber``.
+BODY_REDACTED = "[Filtered]"
 # The subset that is unambiguous outside a URL query: a request-body field called
 # ``code`` / ``key`` / ``session`` / ``sig`` is usually ordinary data.
 BODY_SECRET_KEYS = QUERY_SECRET_KEYS - {"code", "key", "session", "sig"}
