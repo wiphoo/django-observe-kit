@@ -13,6 +13,22 @@ Do not run `twine upload` or `uv publish` against PyPI from a local machine: it 
 
 Do both before the first tag. If the environment does not exist, GitHub creates it without protection when the workflow first uses it.
 
+## Repository settings (repository owner)
+
+[`.github/settings.yml`](../.github/settings.yml) declares the description, homepage, topics, labels and `main` protection, but it only takes effect if the [Settings app](https://github.com/apps/settings) is installed. Without the app, apply them by hand:
+
+- [ ] On the repository page, click the gear next to "About". Copy `description`, `homepage` and `topics` from `settings.yml`. After the first release, consider changing the website to `https://pypi.org/project/django-observe-kit/` (and `homepage` in `settings.yml` with it).
+- [ ] Under Settings > Advanced Security, enable private vulnerability reporting, which [`SECURITY.md`](../SECURITY.md) links to.
+- [ ] Protect release tags: Settings > Rules > Rulesets > New ruleset > New tag ruleset. Set enforcement to "Active", add the target pattern `v*`, enable "Restrict creations", "Restrict updates" and "Restrict deletions", and add only the maintainer (or the repository admin role) to the bypass list, so that only they can create release tags. Bypassing also allows moving and deleting them, so do that only for a tag that never published.
+
+## Tags
+
+- Release tags are `vX.Y.Z`, matching the project version, on the reviewed commit on `main`.
+- They are annotated; sign them if you have a signing key set up (`git tag -s` instead of `git tag -a`, then check with `git tag -v`).
+- Once a version has been published, never move, delete or reuse its tag.
+- Any pushed `v*.*.*` tag starts the publish workflow, so never push one to try something out.
+- GitHub Release notes are that version's `CHANGELOG.md` section.
+
 ## Prepare
 
 - [ ] Through a pull request: set `version` in `pyproject.toml`, run `uv lock`, and move the `[Unreleased]` entries in `CHANGELOG.md` under `## [X.Y.Z] - YYYY-MM-DD` with the actual release date.
@@ -71,5 +87,5 @@ uv pip install --python "$dl/venv" "$dl"/*.whl
 
 ## If something goes wrong
 
-- **The workflow fails before the upload:** nothing was published. Fix it on `main`. If the fix needs a new commit, delete the unpublished tag and tag the new commit.
+- **The workflow fails before the upload:** nothing was published. Fix it on `main`. If the fix needs a new commit, delete the unpublished tag (using your ruleset bypass) and tag the new commit. First confirm on PyPI that nothing was uploaded.
 - **A published release is broken:** yank it on PyPI (project > Manage > Releases > Options > Yank) and give a reason. A yanked version is skipped by installers unless it is pinned exactly. Then fix on `main`, bump the patch version and release again. Do not move or reuse the published tag, and note the yank in the changelog and the GitHub release.

@@ -32,7 +32,7 @@ body:
         - Context & middleware
         - Logging (PII sanitization)
         - OpenTelemetry tracing
-        - Prometheus metrics / health
+        - Prometheus metrics
         - Sentry enrichment
         - DRF integration
         - Audit logging

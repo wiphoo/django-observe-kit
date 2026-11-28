@@ -16,6 +16,12 @@
 # └────────────────────────────────────────────────────────────────────────────┘
 
 repository:
+  # Shown in the repository's "About" panel. Keep the description equal to
+  # `project.description` in pyproject.toml.
+  description: "Drop-in observability toolkit for Django/DRF/Wagtail"
+  homepage: "https://github.com/wiphoo/django-observe-kit/tree/main/docs"
+  topics: "django, django-rest-framework, wagtail, django-middleware, python, observability, opentelemetry, tracing, prometheus, metrics, logging, structured-logging, sentry, audit-log, pii"
+
   # Default branch is `main`.
   default_branch: main
 
@@ -63,7 +69,7 @@ labels:
     description: Structured logging (src/observe_kit/logging)
   - name: area/metrics
     color: c5def5
-    description: Prometheus metrics & health (src/observe_kit/metrics)
+    description: Prometheus metrics (src/observe_kit/metrics)
   - name: area/sentry
     color: c5def5
     description: Sentry enrichment & PII scrubbing (src/observe_kit/sentry)
