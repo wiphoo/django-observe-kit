@@ -21,7 +21,7 @@ First release.
 
 ### Security and PII defaults
 
-- Every PII sink (`logs`, `otel`, `sentry`, `audit`) defaults to `BASIC`. What each sink covers differs, and **your own log calls are not sanitized**. See [PII sanitization](docs/pii.md).
+- Every PII sink (`logs`, `otel`, `sentry`, `audit`) defaults to `BASIC`. What each sink covers differs, and **your own log calls are not sanitized**. See [PII sanitization](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md).
 - The `otel` sink (server span `http.target`) and the `sentry` sink redact credential-style query values such as `token` and `password`. The `logs` and `audit` sinks do not.
 - A `before_send` you pass to `init_sentry()` runs before scrubbing, so it sees raw data; its result is then scrubbed.
 - Sentry metrics and Sentry logs are disabled, because they would bypass scrubbing.
@@ -33,10 +33,10 @@ First release.
 
 ### Requirements
 
-- Python 3.10 or later; 3.11.5 or later is recommended with the `wagtail` extra (see [known limitations](docs/pii.md#wagtail-extra-on-older-python)).
+- Python 3.10 or later; 3.11.5 or later is recommended with the `wagtail` extra (see [known limitations](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#wagtail-extra-on-older-python)).
 - Django 5.2 or later and Django REST framework 3.16 or later.
 - `sentry-sdk` 2.x only (`>=2.66.1,<3`).
 
 ### Known limitations
 
-Scrubbing is a safety net, not a guarantee: among other gaps, Sentry attachments, free-text phone numbers and bare `token=...` text, and several credential parameter names are not redacted. Read [known limitations](docs/pii.md#known-limitations) before relying on it. Notes from before this release are in the [development history](docs/changelog-pre-0.1.0.md).
+Scrubbing is a safety net, not a guarantee: among other gaps, Sentry attachments, free-text phone numbers and bare `token=...` text, and several credential parameter names are not redacted. Read [known limitations](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#known-limitations) before relying on it. Notes from before this release are in the [development history](https://github.com/wiphoo/django-observe-kit/blob/main/docs/changelog-pre-0.1.0.md).
