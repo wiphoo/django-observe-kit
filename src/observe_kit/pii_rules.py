@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from enum import Enum
 from typing import (
     Any,
@@ -344,8 +346,34 @@ def _mask_value(value: str) -> str:
     return value[:2] + "***" if len(value) > 2 else "***"
 
 
+class _Digest(str):
+    """A marked hash: :func:`_hash_value` does not hash it again."""
+
+    def __str__(self) -> str:  # ``str(value)`` must keep the mark
+        return self
+
+
+_mark_digests: ContextVar[bool] = ContextVar("observe_kit_mark_digests", default=False)
+
+
+@contextmanager
+def marked_digests() -> Iterator[None]:
+    """Mark the hashes made inside the block, for data that a later pass scrubs again.
+
+    Only there: elsewhere hashes stay exact ``str``.
+    """
+    token = _mark_digests.set(True)
+    try:
+        yield
+    finally:
+        _mark_digests.reset(token)
+
+
 def _hash_value(value: str, salt: str = "") -> str:
-    return hashlib.sha256((salt + value).encode("utf-8")).hexdigest()
+    if isinstance(value, _Digest):
+        return value
+    digest = hashlib.sha256((salt + value).encode("utf-8")).hexdigest()
+    return _Digest(digest) if _mark_digests.get() else digest
 
 
 def effective_sets(

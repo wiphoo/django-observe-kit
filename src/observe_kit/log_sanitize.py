@@ -1,7 +1,8 @@
 """PII sanitization of application log records for the ``logs`` sink.
 
 One seam, :func:`sanitize_record`, used by every output this library configures:
-``RequestFormatter`` (JSON console) and ``_SafeOTelLogHandler`` (OTel log export).
+``RequestFormatter`` (JSON console), ``_SafeOTelLogHandler`` (OTel log export) and
+what Sentry derives from a record (:mod:`observe_kit.sentry.logs`).
 It returns a sanitized *copy*. The caller's record, ``extra`` objects and ``args``
 are never modified, so other handlers see the original and nothing is scrubbed twice.
 
@@ -22,7 +23,8 @@ import traceback
 import types
 import uuid
 from collections.abc import Mapping, Sequence, Set, ValuesView
-from typing import Any, Callable, Dict, Optional
+from dataclasses import replace
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from .conf import BODY_REDACTED, BODY_SECRET_KEYS, PII_SINK_LOGS, cgi_header_name
 from .pii_rules import PiiLevel, get_pii_config, sanitize_body
@@ -176,7 +178,7 @@ def _key_alias(key: str) -> Optional[str]:
 
 
 class _Scrubber:
-    def __init__(self, level: PiiLevel) -> None:
+    def __init__(self, level: PiiLevel, text_level: Optional[PiiLevel] = None) -> None:
         cfg = get_observe_kit_settings()
         self.walk = _Walk()
         self.opts = _PiiOpts(
@@ -186,12 +188,13 @@ class _Scrubber:
             extra_mask=cfg.extra_mask_fields,
             extra_hash=cfg.extra_hash_fields,
         )
+        self.text_opts = self.opts if text_level is None else replace(self.opts, level=text_level)
 
-    def text(self, value: str) -> str:
+    def text(self, value: str, opts: Optional[_PiiOpts] = None) -> str:
         """Mask emails and scrub URLs (credential query values, userinfo) in free text."""
         if not any(trigger in value for trigger in _SCRUB_TRIGGERS):
             return value
-        return _scrub_text(value, self.opts)
+        return _scrub_text(value, opts or self.text_opts)
 
     def leaves(self, node: Any) -> Any:
         if isinstance(node, str):
@@ -200,7 +203,9 @@ class _Scrubber:
             result: Dict[Any, Any] = {}
             suffixes: Dict[str, int] = {}
             for key, value in node.items():
-                new_key = self.text(key) if isinstance(key, str) else key
+                # Full level even when ``text_level`` is lower: no later pass scrubs
+                # URLs in keys.
+                new_key = self.text(key, self.opts) if isinstance(key, str) else key
                 result[_dedupe_masked_key(result, new_key, suffixes)] = self.leaves(value)
             return result
         if isinstance(node, list):
@@ -324,13 +329,17 @@ def sanitize_record(
     record: logging.LogRecord,
     format_exception: Callable[[Any], Any],
     exception_attributes: bool = False,
+    level: Optional[PiiLevel] = None,
+    text_level: Optional[PiiLevel] = None,
 ) -> logging.LogRecord:
     """Return a copy of ``record`` sanitized at the ``logs`` PII level. Never raises.
 
+    ``level`` replaces the ``logs`` level; ``text_level`` replaces it for free text only.
     ``record`` itself is returned at ``NONE``.
     """
     try:
-        level = get_pii_config().get_level(PII_SINK_LOGS)
+        if level is None:
+            level = get_pii_config().get_level(PII_SINK_LOGS)
         if level == PiiLevel.NONE:
             return record
         if getattr(_state, "active", False):
@@ -338,9 +347,49 @@ def sanitize_record(
             return redacted_record(record)
         _state.active = True
         try:
-            scrubber = _Scrubber(level)
+            scrubber = _Scrubber(level, text_level)
             return _sanitize(record, scrubber, format_exception, exception_attributes)
         finally:
             _state.active = False
     except Exception:  # noqa: BLE001 - never raise from inside logging, never emit raw
         return redacted_record(record)
+
+
+def sanitize_template_and_args(
+    record: logging.LogRecord,
+    clean: logging.LogRecord,
+    template: Any,
+    level: PiiLevel,
+    text_level: PiiLevel,
+) -> Tuple[str, Any]:
+    """``(template, args)`` to send beside ``clean``, the sanitized copy of ``record``.
+
+    The ``%`` template is kept (it is what Sentry groups by), scrubbed as text. The
+    arguments are returned only when sanitizing changed neither them nor the formatted
+    message, else ``None``: a secret can be split between template and argument
+    (``"token=%s"``), so no single argument can be cleaned on its own. Never raises.
+    """
+    message = clean.getMessage()
+    if not record.args or message == _PLACEHOLDER or getattr(_state, "active", False):
+        return message, None
+    _state.active = True
+    try:
+        scrubber = _Scrubber(level, text_level)
+        if isinstance(record.msg, str) and isinstance(template, str):
+            template = scrubber.text(template)
+        else:
+            template = message
+        # Judged at the full ``level``: ``text_level`` leaves hashing to a later pass,
+        # which cannot see inside an argument. ``record.message`` is the raw formatted
+        # text the SDK's handler cached.
+        strict = _Scrubber(level)
+        raw = record.__dict__.get("message")
+        if message != raw or strict.text(message) != raw:
+            return template, None
+        args = _plain(record.args, strict.walk)
+        unchanged = not strict.walk.hidden and strict.leaves(strict._rules(args)) == args
+        return template, args if unchanged else None
+    except Exception:  # noqa: BLE001 - never raise from inside logging, never emit raw
+        return message, None
+    finally:
+        _state.active = False

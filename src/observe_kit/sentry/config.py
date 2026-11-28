@@ -35,6 +35,7 @@ from urllib.parse import (
 )
 
 import sentry_sdk
+from sentry_sdk.integrations import Integration
 from sentry_sdk.integrations.django import DjangoIntegration
 
 from ..conf import (
@@ -2953,6 +2954,11 @@ def init_sentry(
             When on, the usual PII scrubbing still applies, which does not redact
             every sensitive value (e.g. names, or credentials nested in a local).
 
+    Unless the Sentry level is ``NONE``, breadcrumbs and events created by the SDK
+    from log records first get the log record sanitization, at the stricter of the
+    ``logs`` and Sentry levels (see :mod:`observe_kit.sentry.logs`). ``before_send``
+    sees that data already sanitized; ``hint["log_record"]`` is the original record.
+
     Raises:
         ConfigurationError: If any configuration parameter is invalid
     """
@@ -3007,10 +3013,20 @@ def init_sentry(
             event = copy.deepcopy(result)
         return _scrubber(event, hint)
 
+    integrations: List[Integration] = [DjangoIntegration()]
+    before_breadcrumb = None
+    if pii_level != PiiLevel.NONE:
+        from .logs import LogRecordIntegration  # imports this module
+
+        log_records = LogRecordIntegration(pii_level)
+        integrations.append(log_records)
+        before_breadcrumb = log_records.before_breadcrumb
+
     sentry_sdk.init(
         dsn=dsn,
         environment=environment,
-        integrations=[DjangoIntegration()],
+        integrations=integrations,
+        before_breadcrumb=before_breadcrumb,
         traces_sample_rate=traces_sample_rate,
         include_local_variables=include_local_variables,
         before_send=_before_send,  # type: ignore[arg-type]
