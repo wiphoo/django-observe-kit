@@ -115,6 +115,16 @@ class _SafeOTelLogHandler(LoggingHandler):
                 setattr(record, key, repr(value))
         super().emit(record)
 
+    def flush(self) -> None:
+        """Do nothing; the LoggerProvider flushes on its own, with a bounded shutdown.
+
+        The SDK's ``flush()`` starts a non-daemon ``force_flush`` thread, and
+        ``logging.config.dictConfig`` (run by ``django.setup()``) calls it. Log
+        records emitted by the export itself keep that thread's queue filled, so
+        it may never finish. The interpreter joins it before running atexit, so
+        the provider's shutdown never runs and the process cannot exit.
+        """
+
 
 class OTelLogRecordSanitizer(logging.Filter):
     """Legacy ``logging.Filter`` that coerces unsupported ``extra`` values.
