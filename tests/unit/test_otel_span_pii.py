@@ -284,7 +284,10 @@ def test_route_patterns_are_unchanged(traces: Traces, route: str) -> None:
 @pytest.mark.parametrize("level", ["NONE", *ABOVE_NONE])
 def test_wagtail_span_context_manager(traces: Traces, level: str) -> None:
     """The SDK records exceptions itself when ``start_as_current_span`` exits."""
-    hooks = pytest.importorskip("observe_kit.wagtail_integration.wagtail_hooks")
+    # The hooks module imports without wagtail but then defines nothing, so skip on wagtail.
+    pytest.importorskip("wagtail")
+    from observe_kit.wagtail_integration import wagtail_hooks as hooks
+
     _level(level)
 
     def boom(page: Any, request: Any, span: Any) -> None:
