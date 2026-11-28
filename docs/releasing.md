@@ -50,13 +50,13 @@ A pending publisher does not reserve the name; the first upload claims it. Creat
 TestPyPI also refuses to take the same file name twice, even after deletion: **each version can be rehearsed only once.** If a rehearsal shows a problem after the upload, use a new version for the next one, for example a release candidate such as `X.Y.ZrcN` on a throwaway branch (it needs its own `CHANGELOG.md` section). Otherwise rehearse the final version once, when you expect it to pass; a TestPyPI upload does not affect PyPI. A dry run costs no version.
 
 - [ ] Under Actions > "Publish to PyPI" > "Run workflow", select the branch, tick "Rehearsal: upload this build to TestPyPI" and run it.
-- [ ] Verify the upload from a checkout of the same commit. Fetch only this package from TestPyPI, then install it with its dependencies from PyPI. Do not add TestPyPI as an index or extra index for the install: anyone can publish a package there under a dependency's name.
+- [ ] Verify the upload from a checkout of the same commit. Fetch only this package from TestPyPI, then install it with its dependencies from PyPI. Do not add TestPyPI as an index or extra index for the install: anyone can publish a package there under a dependency's name. `--isolated` and `PIP_CONFIG_FILE=/dev/null` matter: an `extra-index-url` in your pip configuration would otherwise still be searched. Also unset any `UV_INDEX*` or `UV_EXTRA_INDEX_URL` variables.
 
   ```bash
   dl=$(mktemp -d)
-  uvx pip download --no-deps --only-binary :all: --index-url https://test.pypi.org/simple/ -d "$dl" django-observe-kit==X.Y.Z
+  PIP_CONFIG_FILE=/dev/null uvx pip --isolated download --no-deps --only-binary :all: --index-url https://test.pypi.org/simple/ -d "$dl" django-observe-kit==X.Y.Z
   uv venv "$dl/venv"
-  uv pip install --python "$dl/venv" "$dl"/*.whl
+  uv pip install --no-config --default-index https://pypi.org/simple/ --python "$dl/venv" "$dl"/*.whl
   "$dl/venv/bin/python" -I scripts/smoke_wheel.py
   ```
 
@@ -80,7 +80,7 @@ TestPyPI also refuses to take the same file name twice, even after deletion: **e
   ```bash
   dir=$(mktemp -d)
   uv venv "$dir/venv"
-  uv pip install --no-cache --python "$dir/venv" django-observe-kit==X.Y.Z
+  uv pip install --no-config --default-index https://pypi.org/simple/ --no-cache --python "$dir/venv" django-observe-kit==X.Y.Z
   "$dir/venv/bin/python" -I scripts/smoke_wheel.py
   ```
 
