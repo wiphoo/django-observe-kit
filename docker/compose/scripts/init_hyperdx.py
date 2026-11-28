@@ -273,7 +273,7 @@ def main() -> int:
 
     print("🚀 Initializing HyperDX...")
     print(f"   HyperDX URL: {hyperdx_url}")
-    print(f"   MongoDB URI: {mongo_uri}")
+    print("   MongoDB URI: set via MONGO_URI (not logged, may contain credentials)")
     print(f"   MongoDB Database: {mongo_db}")
     print(f"   Admin Email: {admin_email}")
     print("")
@@ -323,7 +323,7 @@ def main() -> int:
     print("✅ HyperDX initialization complete!")
     print("=" * 60)
     print(f"   Admin user: {admin_email}")
-    print(f"   Password: {admin_password}")
+    print("   Password: see HYPERDX_ADMIN_PASSWORD (not logged)")
     print("   ⚠️  CHANGE THESE CREDENTIALS IN PRODUCTION!")
     print("")
     print("   ClickHouse datasource should be auto-configured via environment variables.")

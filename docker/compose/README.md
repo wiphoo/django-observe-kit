@@ -78,7 +78,7 @@ Service URLs:
 
 HyperDX Login:
   Email: admin@example.com
-  Password: Admin123!@#$
+  Password: see HYPERDX_ADMIN_PASSWORD (not logged)
 ```
 
 ### 3. Stop the Stack
