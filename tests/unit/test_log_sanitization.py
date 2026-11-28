@@ -393,6 +393,37 @@ def test_arg_with_values_the_sanitizer_cannot_see_is_not_passed_through(
     outputs.assert_clean(SECRET)
 
 
+def test_repeated_and_many_converted_objects_are_not_mistaken_for_cycles(
+    outputs: Outputs, log: logging.Logger
+) -> None:
+    @dataclasses.dataclass
+    class Item:
+        n: int
+
+    Row = namedtuple("Row", "n")
+    item, row = Item(1), Row(2)
+
+    log.info("x", extra={"repeated": [item, item, row, row]})
+    log.info("x", extra={"many": [Item(n) for n in range(80)] + [Row(n) for n in range(80)]})
+
+    repeated, many = outputs.json_lines()
+    assert repeated["repeated"] == [{"n": 1}, {"n": 1}, {"n": 2}, {"n": 2}]
+    assert many["many"] == [{"n": n} for n in range(80)] * 2
+
+
+def test_cycle_through_converted_objects_terminates(outputs: Outputs, log: logging.Logger) -> None:
+    @dataclasses.dataclass
+    class Node:
+        password: str
+        child: Any = None
+
+    node = Node(SECRET)
+    node.child = node
+    log.info("x", extra={"node": node})
+    outputs.assert_clean(SECRET)
+    assert outputs.json_lines()[0]["node"] == {"password": "[Filtered]", "child": "[Filtered]"}
+
+
 def test_querydict_extra_and_msg(outputs: Outputs, log: logging.Logger) -> None:
     query = QueryDict(f"password={SECRET}&email={EMAIL}&n=1")
     log.info("post", extra={"post": query})

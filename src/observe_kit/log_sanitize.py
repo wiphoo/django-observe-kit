@@ -85,7 +85,8 @@ def _plain(
         if hidden is not None:
             hidden.append(True)
         return BODY_REDACTED  # cycle or absurd nesting
-    path.add(id(value))
+    key = id(value)  # ``value`` is rebound below; remove the same id that was added
+    path.add(key)
     try:
         if isinstance(value, tuple) and hasattr(value, "_asdict"):
             value = value._asdict()
@@ -105,7 +106,7 @@ def _plain(
         except Exception:  # noqa: BLE001 - a broken __str__ must not lose the whole record
             return BODY_REDACTED
     finally:
-        path.discard(id(value))
+        path.discard(key)
 
 
 class _Scrubber:
