@@ -65,6 +65,17 @@ For a key/value pair where the key falls into a built-in set:
   - Otherwise: first two characters + `***`. Example: `5551234567` → `55***`. Short values (≤2 chars) become `***`.
 - **Hashing** (`_hash_value`, `pii_rules.py:98-99`): `sha256((PII_HASH_SALT + value).utf-8).hexdigest()`. Set `OBSERVE_KIT["PII_HASH_SALT"]` per-environment to a non-empty secret to make hashes unstable across environments and resist rainbow tables.
 
+## Credential redaction (`otel` and `sentry` sinks)
+
+At any level above `NONE`, the `otel` and `sentry` sinks redact the values of credential-style **query keys** by default (`observe_kit.conf.QUERY_SECRET_KEYS`, matched case-insensitively): `token`, `password`, `passwd`, `secret`, `api_key`, `apikey`, `access_token`, `refresh_token`, `signature`, `sig`, `code`, `session`, `key`, `x-amz-signature`, `x-amz-credential`, `x-amz-security-token`, `awsaccesskeyid`, `x-goog-signature`. The key is kept and the value becomes `REDACTED`.
+
+- **`otel`** applies this to the server span `http.target` attribute.
+- **`sentry`** applies this wherever the event carries a query: `request.url`, `query_string` (string, dict, pair list), `QUERY_STRING` and URI entries in `request.env`, URL-valued headers (`Referer`, ...), spans, the transaction name, breadcrumbs, URLs in messages and exception values, URL-encoded form bodies, and percent-encoded or nested redirect URLs. URL fragments that look like a query (`#access_token=...`, including `http.fragment` / `url.fragment` data) are redacted wholesale.
+- **`sentry` request bodies** (`request.data` as a parsed dict or pair list, or a JSON string, nested at any depth) replace the value with `[Filtered]`, but only for the unambiguous subset `BODY_SECRET_KEYS`: the list above **without** `code`, `key`, `session` and `sig`, which are usually ordinary data in a body. A URL-encoded string body is treated as a query and uses the full list.
+- **Not covered by this rule:** dict keys in `extra`, `contexts`, `user`, `tags` and other non-request data (URLs stored there are still scrubbed), and bare `token=...` prose that is not part of a URL. Add `EXTRA_MASK_FIELDS` / `EXTRA_DROP_HEADERS` rules for those. The Sentry SDK's own `EventScrubber` separately filters some of these keys.
+- **Operator rules win.** If an `EXTRA_DROP_HEADERS`, `EXTRA_MASK_FIELDS` or active `EXTRA_HASH_FIELDS` rule matches the key, that rule is applied instead (note that a mask keeps the first two characters). In `otel`, `EXTRA_DROP_HEADERS` extends the redaction list.
+- The `logs` and `audit` sinks do **not** apply this rule.
+
 ## Body sanitization
 
 `sanitize_body` (`pii_rules.py:167-205`) recursively walks parsed JSON-like structures:

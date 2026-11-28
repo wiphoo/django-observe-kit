@@ -6,9 +6,9 @@
      "category": "a***@example.com",
      "data": {
       "phone": "08***",
-      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
      },
-     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
     }
    ]
   },
@@ -60,7 +60,7 @@
     ]
    ],
    "raw": "a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
   },
   "logentry": {
    "message": "u=%s",
@@ -72,7 +72,7 @@
     }
    ]
   },
-  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1",
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1",
   "release": "1.0",
   "request": {
    "cookies": "[Filtered]",
@@ -84,7 +84,7 @@
     ],
     "k": "bytes",
     "phone": "08***",
-    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
    },
    "env": {
     "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
@@ -100,17 +100,17 @@
     "phone": "08***"
    },
    "method": "POST",
-   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   "query_string": "phone=08%2A%2A%2A&token=REDACTED&token=REDACTED&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
   },
   "server_name": "h***@example.com",
   "spans": [
    {
     "data": {
      "http.query": "phone=08%2A%2A%2A",
-     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
     },
-    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1 a***@example.com",
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1 a***@example.com",
     "op": "http.client",
     "tags": {
      "phone": "08***"
@@ -138,9 +138,9 @@
      "category": "a***@example.com",
      "data": {
       "phone": "08***",
-      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
      },
-     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
     }
    ]
   },
@@ -192,7 +192,7 @@
     ]
    ],
    "raw": "a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
   },
   "logentry": {
    "message": "u=%s",
@@ -204,7 +204,7 @@
     }
    ]
   },
-  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1",
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1",
   "release": "1.0",
   "request": {
    "cookies": "[Filtered]",
@@ -216,7 +216,7 @@
     ],
     "k": "bytes",
     "phone": "08***",
-    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
    },
    "env": {
     "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
@@ -232,17 +232,17 @@
     "phone": "08***"
    },
    "method": "POST",
-   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   "query_string": "phone=08%2A%2A%2A&token=REDACTED&token=REDACTED&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
   },
   "server_name": "h***@example.com",
   "spans": [
    {
     "data": {
      "http.query": "phone=08%2A%2A%2A",
-     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
     },
-    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1 a***@example.com",
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1 a***@example.com",
     "op": "http.client",
     "tags": {
      "phone": "08***"
@@ -271,9 +271,9 @@
      "category": "a***@example.com",
      "data": {
       "phone": "08***",
-      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
      },
-     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
     }
    ]
   },
@@ -325,7 +325,7 @@
     ]
    ],
    "raw": "a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
   },
   "logentry": {
    "message": "u=%s",
@@ -337,7 +337,7 @@
     }
    ]
   },
-  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1",
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1",
   "release": "1.0",
   "request": {
    "cookies": "[Filtered]",
@@ -349,7 +349,7 @@
     ],
     "k": "bytes",
     "phone": "08***",
-    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
    },
    "env": {
     "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
@@ -365,17 +365,17 @@
     "phone": "08***"
    },
    "method": "POST",
-   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+   "query_string": "phone=08%2A%2A%2A&token=REDACTED&token=REDACTED&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
   },
   "server_name": "h***@example.com",
   "spans": [
    {
     "data": {
      "http.query": "phone=08%2A%2A%2A",
-     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1"
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1"
     },
-    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=192.0.2.1 a***@example.com",
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=192.0.2.1 a***@example.com",
     "op": "http.client",
     "tags": {
      "phone": "08***"
@@ -404,9 +404,9 @@
      "category": "a***@example.com",
      "data": {
       "phone": "08***",
-      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
      },
-     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
     }
    ]
   },
@@ -458,7 +458,7 @@
     ]
    ],
    "raw": "a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
   },
   "logentry": {
    "message": "u=%s",
@@ -470,7 +470,7 @@
     }
    ]
   },
-  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
   "release": "c1274d14caad0dd6f5d840629fd6a1d164dc7778041296d82e6df9faa769e135",
   "request": {
    "cookies": "[Filtered]",
@@ -482,7 +482,7 @@
     ],
     "k": "bytes",
     "phone": "08***",
-    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
    },
    "env": {
     "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
@@ -498,17 +498,17 @@
     "phone": "08***"
    },
    "method": "POST",
-   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   "query_string": "phone=08%2A%2A%2A&token=REDACTED&token=REDACTED&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
   },
   "server_name": "h***@example.com",
   "spans": [
    {
     "data": {
      "http.query": "phone=08%2A%2A%2A",
-     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
     },
-    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
     "op": "http.client",
     "tags": {
      "phone": "08***"
@@ -536,9 +536,9 @@
      "category": "a***@example.com",
      "data": {
       "phone": "08***",
-      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
      },
-     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
     }
    ]
   },
@@ -590,7 +590,7 @@
     ]
    ],
    "raw": "a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
   },
   "logentry": {
    "message": "u=%s",
@@ -602,7 +602,7 @@
     }
    ]
   },
-  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
   "release": "1.0",
   "request": {
    "cookies": "[Filtered]",
@@ -614,7 +614,7 @@
     ],
     "k": "bytes",
     "phone": "08***",
-    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
    },
    "env": {
     "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
@@ -630,17 +630,17 @@
     "phone": "08***"
    },
    "method": "POST",
-   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   "query_string": "phone=08%2A%2A%2A&token=REDACTED&token=REDACTED&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
   },
   "server_name": "h***@example.com",
   "spans": [
    {
     "data": {
      "http.query": "phone=08%2A%2A%2A",
-     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
     },
-    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
     "op": "http.client",
     "tags": {
      "phone": "08***"
@@ -669,9 +669,9 @@
      "category": "a***@example.com",
      "data": {
       "phone": "08***",
-      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+      "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
      },
-     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     "message": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
     }
    ]
   },
@@ -723,7 +723,7 @@
     ]
    ],
    "raw": "a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
   },
   "logentry": {
    "message": "u=%s",
@@ -735,7 +735,7 @@
     }
    ]
   },
-  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
+  "message": "failed for a***@example.com at https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f",
   "release": "1.0",
   "request": {
    "cookies": "[Filtered]",
@@ -747,7 +747,7 @@
     ],
     "k": "bytes",
     "phone": "08***",
-    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+    "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
    },
    "env": {
     "HTTP_X_NEXT": "/search?phone=08%2A%2A%2A",
@@ -763,17 +763,17 @@
     "phone": "08***"
    },
    "method": "POST",
-   "query_string": "phone=08%2A%2A%2A&token=a&token=b&q=a***@example.com",
-   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+   "query_string": "phone=08%2A%2A%2A&token=REDACTED&token=REDACTED&q=a***@example.com",
+   "url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
   },
   "server_name": "h***@example.com",
   "spans": [
    {
     "data": {
      "http.query": "phone=08%2A%2A%2A",
-     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
+     "http.url": "https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f"
     },
-    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3Dabc&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
+    "description": "GET https://[Filtered]@example.com/p?phone=08%2A%2A%2A&next=%2Fs%3Ftoken%3DREDACTED&ip=0c6fccd1f6f214510508fb9f056864a2115dd4653542cb62906ff08344e4566f a***@example.com",
     "op": "http.client",
     "tags": {
      "phone": "08***"

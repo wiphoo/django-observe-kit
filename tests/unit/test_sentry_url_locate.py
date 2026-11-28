@@ -2,7 +2,8 @@
 
 The golden file was recorded from the pre-refactor scrubber. It must never be
 regenerated to make a failing test pass: a diff means the locator changed
-behavior, so fix the locator.
+behavior, so fix the locator. (The one intentional update since: credential query
+values became ``REDACTED`` when the sink started redacting them by default.)
 """
 
 from __future__ import annotations
