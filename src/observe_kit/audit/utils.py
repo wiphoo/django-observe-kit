@@ -115,7 +115,11 @@ def audit(
         if user_agent:
             user_agent = scrubbed.get("user_agent")
 
-    sanitised_extra: Dict[str, Any] = dict(_sanitize(dict(extra or {})))
+    # A non-``dict`` mapping would skip every rule, so convert it. A ``dict`` subclass
+    # must not be converted: ``dict(QueryDict)`` copies its internal value lists, while
+    # the sanitizer reads ``.items()`` (last value per key).
+    data = extra if isinstance(extra, dict) else dict(extra or {})
+    sanitised_extra: Dict[str, Any] = dict(_sanitize(data))
     if before is not None:
         sanitised_extra["_before"] = _sanitize(before)
     if after is not None:
