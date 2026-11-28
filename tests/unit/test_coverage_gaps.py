@@ -415,7 +415,10 @@ class TestWagtailHooksWithSpan:
 
         assert result == "result"
         inner.assert_called_once_with(page, request, span=span_mock)
-        tracer_mock.start_as_current_span.assert_called_once_with("test_op")
+        # Above NONE the SDK's own (unscrubbed) exception recording is switched off.
+        tracer_mock.start_as_current_span.assert_called_once_with(
+            "test_op", record_exception=False, set_status_on_exception=False
+        )
 
     def test_audit_publish_page_increments_counter_and_logs(self) -> None:
         wagtail_spec = pytest.importorskip("importlib.util").find_spec("wagtail")

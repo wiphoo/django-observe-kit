@@ -16,6 +16,13 @@ from ..context import get_request_context, reset_request_context, set_request_co
 from ..pii_rules import PiiLevel, effective_sets, get_pii_config, sanitize_mapping
 from ..settings import get_observe_kit_settings
 from .config import SpanNamer, enrich_span
+from .sanitize import (
+    record_context_exit_exception,
+    record_span_exception,
+    sanitizing_spans,
+    scrub_span_text,
+    scrub_span_value,
+)
 
 if TYPE_CHECKING:
     from django.http import HttpRequest, HttpResponse
@@ -28,11 +35,12 @@ _REDACTED = QUERY_REDACTED
 
 
 def _sanitized_target(request: HttpRequest) -> str:
-    """Return ``http.target`` with the query string sanitised at the ``otel`` sink level."""
+    """Return ``http.target``, path and query sanitised at the ``otel`` sink level."""
     full: str = request.get_full_path()
     path, sep, _ = full.partition("?")
+    path = scrub_span_text(path)
     if not sep:
-        return full
+        return path
     cfg = get_observe_kit_settings()
     drop, mask, hsh = effective_sets(
         cfg.extra_drop_headers | QUERY_SECRET_KEYS, cfg.extra_mask_fields, cfg.extra_hash_fields
@@ -49,12 +57,14 @@ def _sanitized_target(request: HttpRequest) -> str:
         for value in values:  # one pair at a time so repeated keys survive
             if level != PiiLevel.NONE and key.lower() in drop:
                 clean.append((key, _REDACTED))
-            else:
-                clean.extend(
-                    sanitize_mapping(
-                        {key: value}, level, set(), mask, hsh, cfg.pii_hash_salt
-                    ).items()
-                )
+                continue
+            for name, kept in sanitize_mapping(
+                {key: value}, level, set(), mask, hsh, cfg.pii_hash_salt
+            ).items():
+                # A value no field rule changed can still carry an email or a nested URL.
+                if kept == value:
+                    kept = scrub_span_text(kept)
+                clean.append((scrub_span_text(name), kept))
     return f"{path}?{urlencode(clean)}"
 
 
@@ -133,6 +143,7 @@ class TraceContextMiddleware(MiddlewareMixin):
 
     def process_request(self, request: "HttpRequest") -> None:
         span_context_manager: Optional[Any] = None
+        span: Optional[Any] = None
         try:
             # Get tracer per-request to ensure we use the current tracer provider
             # (which may be initialized after middleware instantiation in tests)
@@ -199,27 +210,34 @@ class TraceContextMiddleware(MiddlewareMixin):
             span_name = f"{request.method} {route}"
 
             # Use SpanKind.SERVER for incoming HTTP requests (per semantic conventions)
+            # Above NONE the SDK must not record exceptions itself: it would do so raw.
+            sdk_records = not sanitizing_spans()
             span_context_manager = tracer.start_as_current_span(
-                span_name, context=parent_context, kind=SpanKind.SERVER
+                scrub_span_text(span_name),
+                context=parent_context,
+                kind=SpanKind.SERVER,
+                record_exception=sdk_records,
+                set_status_on_exception=sdk_records,
             )
             span = span_context_manager.__enter__()
 
             # Set standard HTTP semantic attributes (per OTel semantic conventions)
             # See: https://opentelemetry.io/docs/specs/semconv/http/http-spans/
-            span.set_attribute("http.request.method", request.method)
-            span.set_attribute("url.path", request.path)
-            span.set_attribute("url.scheme", request.scheme)
+            span.set_attribute("http.request.method", scrub_span_value(request.method))
+            span.set_attribute("url.path", scrub_span_value(request.path))
+            span.set_attribute("url.scheme", scrub_span_value(request.scheme))
             # Also set http.scheme for consistency (OTel semantic convention)
-            span.set_attribute("http.scheme", request.scheme)
+            span.set_attribute("http.scheme", scrub_span_value(request.scheme))
             if request.get_host():
-                span.set_attribute("server.address", request.get_host())
+                host = scrub_span_value(request.get_host())
+                span.set_attribute("server.address", host)
                 # Also set http.host for consistency (OTel semantic convention)
-                span.set_attribute("http.host", request.get_host())
+                span.set_attribute("http.host", host)
             # Set http.target (path plus query string, sanitised at the otel sink level)
             span.set_attribute("http.target", _sanitized_target(request))
             # Set http.route if available (will be updated later if route is detected)
             if route and route != "unknown":
-                span.set_attribute("http.route", route)
+                span.set_attribute("http.route", scrub_span_value(route))
 
             # Verify span context is valid before proceeding
             span_context = span.get_span_context()
@@ -248,11 +266,16 @@ class TraceContextMiddleware(MiddlewareMixin):
                 request._observe_kit_span_id = context.span_id
             # Update http.route if context has a route (e.g., from DRF detection)
             if context.route and context.route != route:
-                span.set_attribute("http.route", context.route)
+                span.set_attribute("http.route", scrub_span_value(context.route))
             request._observe_kit_span = span
             set_request_context(context)
         except Exception as e:
             if span_context_manager is not None:
+                try:
+                    if span is not None and sanitizing_spans() and span.is_recording():
+                        record_context_exit_exception(span, e)
+                except Exception:
+                    logger.debug("Failed to record trace span setup error", exc_info=True)
                 try:
                     span_context_manager.__exit__(type(e), e, e.__traceback__)
                 except Exception:
@@ -270,9 +293,14 @@ class TraceContextMiddleware(MiddlewareMixin):
         valuable debugging information in traces.
         """
         span = getattr(request, "_observe_kit_span", None)
-        if span:
+        if not span:
+            return
+        if sanitizing_spans():
+            message = record_span_exception(span, exception)
+        else:
             span.record_exception(exception)
-            span.set_status(Status(StatusCode.ERROR, str(exception)))
+            message = str(exception)
+        span.set_status(Status(StatusCode.ERROR, message))
 
     def process_response(self, request: "HttpRequest", response: "HttpResponse") -> "HttpResponse":
         try:
@@ -281,7 +309,7 @@ class TraceContextMiddleware(MiddlewareMixin):
                 # Update http.route if it was detected later (e.g., from DRF)
                 context = get_request_context()
                 if context.route:
-                    span.set_attribute("http.route", context.route)
+                    span.set_attribute("http.route", scrub_span_value(context.route))
 
                 status_code = getattr(response, "status_code", None)
 

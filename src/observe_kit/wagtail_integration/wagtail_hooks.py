@@ -10,6 +10,7 @@ from ..audit import audit
 from ..context import get_request_context
 from ..metrics import WAGTAIL_DELETED, WAGTAIL_PUBLISHED, WAGTAIL_UNPUBLISHED, guard_tenant_label
 from ..otel.config import enrich_span
+from ..otel.sanitize import record_context_exit_exception, sanitizing_spans, scrub_span_text
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,20 @@ if importlib.util.find_spec("wagtail"):
 
     def _with_span(name: str, func: Any) -> Any:
         def wrapper(page: Any, request: HttpRequest, **kwargs: Any) -> Any:
-            with tracer.start_as_current_span(name) as span:
-                enrich_span(span)
-                return func(page, request, span=span, **kwargs)
+            # Above NONE the SDK must not record exceptions itself: it would do so raw.
+            sdk_records = not sanitizing_spans()
+            with tracer.start_as_current_span(
+                scrub_span_text(name),
+                record_exception=sdk_records,
+                set_status_on_exception=sdk_records,
+            ) as span:
+                try:
+                    enrich_span(span)
+                    return func(page, request, span=span, **kwargs)
+                except Exception as exc:
+                    if not sdk_records and span.is_recording():
+                        record_context_exit_exception(span, exc)
+                    raise
 
         return wrapper
 

@@ -21,6 +21,7 @@ from opentelemetry.trace import Span
 
 from ..context import get_request_context
 from ..log_sanitize import LOG_RECORD_CORE_FIELDS, redacted_record, sanitize_record, sanitizing
+from .sanitize import scrub_span_value
 
 logger = logging.getLogger(__name__)
 _TRACING_INITIALIZED = False
@@ -331,7 +332,7 @@ def enrich_span(span: Span) -> None:
     context = get_request_context()
     for key, value in context.as_attributes().items():
         if value is not None:
-            span.set_attribute(key, value)
+            span.set_attribute(key, scrub_span_value(value))
 
 
 class SpanNamer:
@@ -369,6 +370,6 @@ class SpanNamer:
 
             context = get_request_context()
             if context.route:
-                span.update_name(context.route)
+                span.update_name(scrub_span_value(context.route))
         except Exception:
             pass
