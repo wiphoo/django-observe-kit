@@ -65,6 +65,14 @@ Repository = "https://github.com/wiphoo/django-observe-kit"
 Issues = "https://github.com/wiphoo/django-observe-kit/issues"
 Changelog = "https://github.com/wiphoo/django-observe-kit/blob/main/CHANGELOG.md"
 
+[tool.uv]
+# Development lock only; not part of the published wheel metadata.
+# The patched releases of wagtail's transitive dependencies need newer Pythons
+# than this package: pillow 13 requires >=3.11 and soupsieve 4 requires >=3.11.5.
+# Without this, the universal lock forks and keeps the vulnerable releases for
+# older interpreters, so wagtail is only locked (and tested) on Python >=3.11.5.
+override-dependencies = ["wagtail>=7.4.2; python_full_version >= '3.11.5'"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["observe_kit*"]
