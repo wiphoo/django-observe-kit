@@ -141,8 +141,8 @@ jobs:
           uv pip install --python "$RUNNER_TEMP/smoke" dist/*.whl
           "$RUNNER_TEMP/smoke/bin/python" -I scripts/smoke_wheel.py
 
-  # Rehearsal, manual runs only. It may run from any branch, so a release can be
-  # tried before it is tagged.
+  # Rehearsal, manual runs only. The testpypi environment allows only `main`, so
+  # rehearse there after merging and before tagging.
   publish-testpypi:
     name: Publish to TestPyPI
     needs: [build, smoke]

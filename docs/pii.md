@@ -65,6 +65,8 @@ For a key/value pair where the key falls into a built-in set:
   - Otherwise: first two characters + `***`. Example: `5551234567` → `55***`. Short values (≤2 chars) become `***`.
 - **Hashing** (`_hash_value`, `pii_rules.py:98-99`): `sha256((PII_HASH_SALT + value).utf-8).hexdigest()`. Set `OBSERVE_KIT["PII_HASH_SALT"]` per-environment to a non-empty secret to make hashes unstable across environments and resist rainbow tables.
 
+> **Do not put credentials such as `password` or `token` in `EXTRA_HASH_FIELDS`.** The hash is one fast, salted SHA-256, meant for pseudonymisation, not for protecting secrets: anyone who has the salt can test guesses against it, and with an empty `PII_HASH_SALT` (the default) anyone who sees the hash can. At `SENSITIVE`, such a rule also replaces the [default credential redaction](#credential-redaction-otel-and-sentry-sinks) with the hash; at `BASIC` it does not hash anything. To remove a credential, use `EXTRA_DROP_HEADERS`.
+
 ## Credential redaction (`otel` and `sentry` sinks)
 
 At any level above `NONE`, the `otel` and `sentry` sinks redact the values of credential-style **query keys** by default (`observe_kit.conf.QUERY_SECRET_KEYS`, matched case-insensitively): `token`, `password`, `passwd`, `secret`, `api_key`, `apikey`, `access_token`, `refresh_token`, `signature`, `sig`, `code`, `session`, `key`, `x-amz-signature`, `x-amz-credential`, `x-amz-security-token`, `awsaccesskeyid`, `x-goog-signature`. The key is kept and the value becomes `REDACTED`.
@@ -99,7 +101,7 @@ Observe Kit itself **never logs** raw request/response bodies. See `observe_kit.
 OBSERVE_KIT = {
     "EXTRA_DROP_HEADERS": ["x-internal-token", "x-csrf-token"],
     "EXTRA_MASK_FIELDS": ["ssn", "credit_card"],
-    "EXTRA_HASH_FIELDS": ["session_id"],
+    "EXTRA_HASH_FIELDS": ["customer_id"],
 }
 ```
 
