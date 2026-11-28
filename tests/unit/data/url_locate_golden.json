@@ -12,16 +12,16 @@
     "urlish": "(https://a.test/p?phone=08%2A%2A%2A)"
   },
   "basic|//h/p?next=%2Fa%3Ftoken%3Dabc": {
-    "text": "//h/p?next=%2Fa%3Ftoken%3Dabc",
-    "urlish": "//h/p?next=%2Fa%3Ftoken%3Dabc"
+    "text": "//h/p?next=%2Fa%3Ftoken%3DREDACTED",
+    "urlish": "//h/p?next=%2Fa%3Ftoken%3DREDACTED"
   },
   "basic|//user:secret@host/path": {
     "text": "//[Filtered]@host/path",
     "urlish": "//[Filtered]@host/path"
   },
   "basic|/a?x=1//h/p?token=abc": {
-    "text": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc",
-    "urlish": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc"
+    "text": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3DREDACTED",
+    "urlish": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3DREDACTED"
   },
   "basic|/callback#access_token=abc123": {
     "text": "/callback#[Filtered]",
@@ -56,16 +56,16 @@
     "urlish": "connect https://[Filtered]@host/db now"
   },
   "basic|https://[::1]:8000/p?token=abc": {
-    "text": "https://[::1]:8000/p?token=abc",
-    "urlish": "https://[::1]:8000/p?token=abc"
+    "text": "https://[::1]:8000/p?token=REDACTED",
+    "urlish": "https://[::1]:8000/p?token=REDACTED"
   },
   "basic|https://a.test/x;https://user:pw@b.test/y|ftp://u:p@c.test/": {
     "text": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/",
     "urlish": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/"
   },
   "basic|https://h/p?next=%2Fa%3Ftoken%3Dabc": {
-    "text": "https://h/p?next=%2Fa%3Ftoken%3Dabc",
-    "urlish": "https://h/p?next=%2Fa%3Ftoken%3Dabc"
+    "text": "https://h/p?next=%2Fa%3Ftoken%3DREDACTED",
+    "urlish": "https://h/p?next=%2Fa%3Ftoken%3DREDACTED"
   },
   "basic|https://safe.test then %252Fsearch%253Fphone%253D0812345678": {
     "text": "https://safe.test then /search?phone=08%2A%2A%2A",
@@ -88,8 +88,8 @@
     "urlish": "https://[Filtered]@host/x"
   },
   "basic|mixed https://a.test/p?x=1 and /b?phone=0812345678 and cb?token=zzz": {
-    "text": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz",
-    "urlish": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz"
+    "text": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=REDACTED",
+    "urlish": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=REDACTED"
   },
   "basic|no url here, just prose; and/or maybe?": {
     "text": "no url here, just prose; and/or maybe?",
@@ -116,12 +116,12 @@
     "urlish": "see #section and/or?maybe"
   },
   "basic|url=https://x.test/p?token=abc&y=2": {
-    "text": "url=https://x.test/p?token=abc&y=2",
-    "urlish": "url=https://x.test/p?token=abc&y=2"
+    "text": "url=https://x.test/p?token=REDACTED&y=2",
+    "urlish": "url=https://x.test/p?token=REDACTED&y=2"
   },
   "basic|wss://u:p@h.test/ws?key=abc": {
-    "text": "wss://[Filtered]@h.test/ws?key=abc",
-    "urlish": "wss://[Filtered]@h.test/ws?key=abc"
+    "text": "wss://[Filtered]@h.test/ws?key=REDACTED",
+    "urlish": "wss://[Filtered]@h.test/ws?key=REDACTED"
   },
   "sensitive|": {
     "text": "",
@@ -136,16 +136,16 @@
     "urlish": "(https://a.test/p?phone=08%2A%2A%2A)"
   },
   "sensitive|//h/p?next=%2Fa%3Ftoken%3Dabc": {
-    "text": "//h/p?next=%2Fa%3Ftoken%3Dabc",
-    "urlish": "//h/p?next=%2Fa%3Ftoken%3Dabc"
+    "text": "//h/p?next=%2Fa%3Ftoken%3DREDACTED",
+    "urlish": "//h/p?next=%2Fa%3Ftoken%3DREDACTED"
   },
   "sensitive|//user:secret@host/path": {
     "text": "//[Filtered]@host/path",
     "urlish": "//[Filtered]@host/path"
   },
   "sensitive|/a?x=1//h/p?token=abc": {
-    "text": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc",
-    "urlish": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3Dabc"
+    "text": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3DREDACTED",
+    "urlish": "/a?x=1%2F%2Fh%2Fp%3Ftoken%3DREDACTED"
   },
   "sensitive|/callback#access_token=abc123": {
     "text": "/callback#[Filtered]",
@@ -180,16 +180,16 @@
     "urlish": "connect https://[Filtered]@host/db now"
   },
   "sensitive|https://[::1]:8000/p?token=abc": {
-    "text": "https://[::1]:8000/p?token=abc",
-    "urlish": "https://[::1]:8000/p?token=abc"
+    "text": "https://[::1]:8000/p?token=REDACTED",
+    "urlish": "https://[::1]:8000/p?token=REDACTED"
   },
   "sensitive|https://a.test/x;https://user:pw@b.test/y|ftp://u:p@c.test/": {
     "text": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/",
     "urlish": "https://a.test/x;https://[Filtered]@b.test/y|ftp://[Filtered]@c.test/"
   },
   "sensitive|https://h/p?next=%2Fa%3Ftoken%3Dabc": {
-    "text": "https://h/p?next=%2Fa%3Ftoken%3Dabc",
-    "urlish": "https://h/p?next=%2Fa%3Ftoken%3Dabc"
+    "text": "https://h/p?next=%2Fa%3Ftoken%3DREDACTED",
+    "urlish": "https://h/p?next=%2Fa%3Ftoken%3DREDACTED"
   },
   "sensitive|https://safe.test then %252Fsearch%253Fphone%253D0812345678": {
     "text": "https://safe.test then /search?phone=08%2A%2A%2A",
@@ -212,8 +212,8 @@
     "urlish": "https://[Filtered]@host/x"
   },
   "sensitive|mixed https://a.test/p?x=1 and /b?phone=0812345678 and cb?token=zzz": {
-    "text": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz",
-    "urlish": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=zzz"
+    "text": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=REDACTED",
+    "urlish": "mixed https://a.test/p?x=1 and /b?phone=08%2A%2A%2A and cb?token=REDACTED"
   },
   "sensitive|no url here, just prose; and/or maybe?": {
     "text": "no url here, just prose; and/or maybe?",
@@ -240,11 +240,11 @@
     "urlish": "see #section and/or?maybe"
   },
   "sensitive|url=https://x.test/p?token=abc&y=2": {
-    "text": "url=https://x.test/p?token=abc&y=2",
-    "urlish": "url=https://x.test/p?token=abc&y=2"
+    "text": "url=https://x.test/p?token=REDACTED&y=2",
+    "urlish": "url=https://x.test/p?token=REDACTED&y=2"
   },
   "sensitive|wss://u:p@h.test/ws?key=abc": {
-    "text": "wss://[Filtered]@h.test/ws?key=abc",
-    "urlish": "wss://[Filtered]@h.test/ws?key=abc"
+    "text": "wss://[Filtered]@h.test/ws?key=REDACTED",
+    "urlish": "wss://[Filtered]@h.test/ws?key=REDACTED"
   }
 }

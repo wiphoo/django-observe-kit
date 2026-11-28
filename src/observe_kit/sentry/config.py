@@ -37,7 +37,13 @@ from urllib.parse import (
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
 
-from ..conf import PII_SINK_SENTRY, cgi_header_name
+from ..conf import (
+    BODY_SECRET_KEYS,
+    PII_SINK_SENTRY,
+    QUERY_REDACTED,
+    QUERY_SECRET_KEYS,
+    cgi_header_name,
+)
 from ..pii_rules import (
     _EMAIL_FULLMATCH_RE,
     PiiLevel,
@@ -129,6 +135,8 @@ _MAX_URL_NESTING = 20
 # ``_scrub_url`` scrubs their query / path emails (including encoded ``%40``).
 _URL_VALUE_KEYS = frozenset({"url", "http.url", "url.full", "http.target", "url.path", "http.path"})
 _QUERY_VALUE_KEYS = frozenset({"http.query", "url.query"})
+# A bare URL fragment (no leading ``#``), as the Sentry HTTP integrations emit it.
+_FRAGMENT_VALUE_KEYS = frozenset({"http.fragment", "url.fragment"})
 
 # Keys whose value is a DB/cache statement. Its literals can't be parsed out, so
 # the value is redacted wholesale (matching the db/cache span-*description*
@@ -734,11 +742,13 @@ def _rule_key(key: str) -> Optional[str]:
 
 
 def _apply_key_rules(key: Any, rule_key: Any, value: Any, opts: _PiiOpts) -> Tuple[bool, Any]:
-    """Run the field rules on the key as written *and* its decoded alias.
+    """Run the field rules on a *query* key as written *and* its decoded alias.
 
     ``(False, None)`` when either spelling is dropped, else ``(True, value')`` where
     ``value'`` is the changed value if any rule masked/hashed it. An operator rule
-    naming the literal key (``a%20b``) must keep applying after the decode.
+    naming the literal key (``a%20b``) must keep applying after the decode. A
+    non-empty value of a :data:`QUERY_SECRET_KEYS` key that no operator rule changed
+    is redacted. Every query-parameter shape routes through here.
     """
     probe = {key: value, rule_key: value}
     out = opts.mapping(probe)
@@ -747,7 +757,37 @@ def _apply_key_rules(key: Any, rule_key: Any, value: Any, opts: _PiiOpts) -> Tup
     for k in probe:
         if out[k] != value:
             return True, out[k]
+    if value not in ("", None) and _is_secret_key(probe, QUERY_SECRET_KEYS):
+        return True, QUERY_REDACTED
     return True, value
+
+
+def _is_secret_key(keys: Any, secrets: FrozenSet[str]) -> bool:
+    return any(_strip_bytes_repr_key(str(k).lower()) in secrets for k in keys)
+
+
+def _redact_body_secrets(node: Any, opts: _PiiOpts) -> Any:
+    """Redact unambiguous credential fields of a parsed request body (returns a copy).
+
+    Runs before the body rules. The whole subtree under a key that an active
+    drop/mask/hash rule acts on is left raw, so that rule is applied once, to the
+    real value (a hash of an altered container would break correlation).
+    """
+
+    def _entry(key: Any, value: Any) -> Any:
+        if _check_field_rule(str(key).lower(), opts) is not None:
+            return value
+        if value not in ("", None) and _is_secret_key((key,), BODY_SECRET_KEYS):
+            return _REDACTED
+        return _redact_body_secrets(value, opts)
+
+    if isinstance(node, dict):
+        return {k: _entry(k, v) for k, v in node.items()}
+    if _pii_is_pair_list(node):
+        return [[k, _entry(k, v)] for k, v in node]
+    if isinstance(node, (list, tuple, set, frozenset)):
+        return [_redact_body_secrets(item, opts) for item in node]
+    return node
 
 
 def _key_untouched(key: str, rule_key: str, value: str, opts: _PiiOpts, depth: int = 0) -> bool:
@@ -951,6 +991,7 @@ def _scrub_body_str(raw: Any, opts: _PiiOpts) -> str:
         parsed = json.loads(text)
     except (ValueError, TypeError):
         parsed = None
+    parsed = _redact_body_secrets(parsed, opts)
     if _is_pair_list(parsed):
         # A JSON body that decodes to [[key, value], …] is form data, not a
         # positional array: `sanitize_body` would treat it positionally and never
@@ -1000,12 +1041,11 @@ def _scrub_request_body(data: Any, opts: _PiiOpts, content_opts: _PiiOpts) -> An
     walk; the raw-string path uses full ``opts`` because it is re-serialised
     and the top-level walk can't reach into it.
     """
-    if _is_pair_list(data):
-        return _scrub_pair_list(data, content_opts)
-    if isinstance(data, (dict, list)):
+    if isinstance(data, (dict, list, tuple)):
+        data = _redact_body_secrets(data, opts)
+        if _is_pair_list(data):
+            return _scrub_pair_list(data, content_opts)
         return content_opts.body(data)
-    if isinstance(data, tuple):
-        return content_opts.body(list(data))
     return _scrub_body_str(data, opts)
 
 
@@ -1148,6 +1188,15 @@ def _scrub_url_or_query(key_lower: str, value: str, opts: _PiiOpts) -> str:
     return _scrub_query_string(query, opts)
 
 
+def _scrub_fragment_value(key_lower: str, value: str, opts: _PiiOpts) -> str:
+    rule = _check_field_rule(key_lower, opts)
+    if rule == "hash":
+        return _hash_value(value, opts.hash_salt)
+    if rule is not None or _fragment_carries_pii(value):
+        return _REDACTED
+    return value
+
+
 def _scrub_text_field(key_lower: str, value: str, opts: _PiiOpts) -> str:
     """Scrub a free-text field (``message`` / ``formatted`` / ``value``), but let
     an explicit operator field rule win.
@@ -1224,6 +1273,7 @@ _WALK_RULES: Dict[str, _KeyRule] = {}
 _WALK_RULES.update({key: _KeyRule(handler=_scrub_url_or_query) for key in _URL_VALUE_KEYS})
 _WALK_RULES.update({key: _KeyRule(handler=_scrub_url_or_query) for key in _QUERY_VALUE_KEYS})
 _WALK_RULES.update({key: _KeyRule(handler=_scrub_text_field) for key in _TEXT_VALUE_KEYS})
+_WALK_RULES.update({key: _KeyRule(handler=_scrub_fragment_value) for key in _FRAGMENT_VALUE_KEYS})
 _WALK_RULES.update(
     {key: _KeyRule(handler=_scrub_text_subtree_field, subtree=True) for key in _TEXT_SUBTREE_KEYS}
 )

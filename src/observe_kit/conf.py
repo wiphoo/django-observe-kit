@@ -20,6 +20,25 @@ DROP_HEADERS = {"authorization", "cookie", "set-cookie", "x-api-key", "x-access-
 MASK_FIELDS = {"email", "phone"}
 HASH_FIELDS = {"user-agent", "ip"}
 
+# Query-string keys that routinely carry credentials, shared by the ``otel`` and
+# ``sentry`` sinks, which redact their values by default at any PII level above NONE.
+# Covers the OTel HTTP semconv default redaction keys plus common app-level secrets.
+# Matching is case-insensitive (deliberately stricter than the spec).
+QUERY_SECRET_KEYS = frozenset(
+    {
+        "token", "password", "passwd", "secret", "api_key", "apikey", "access_token",
+        "refresh_token", "signature", "sig", "code", "session", "key",
+        "x-amz-signature", "x-amz-credential", "x-amz-security-token", "awsaccesskeyid",
+        "x-goog-signature",
+    }
+)  # fmt: skip
+# Marker for a redacted query value (OTel semconv). Bracket-free so a rescan of the
+# scrubbed URL is stable.
+QUERY_REDACTED = "REDACTED"
+# The subset that is unambiguous outside a URL query: a request-body field called
+# ``code`` / ``key`` / ``session`` / ``sig`` is usually ordinary data.
+BODY_SECRET_KEYS = QUERY_SECRET_KEYS - {"code", "key", "session", "sig"}
+
 # Default per-sink PII levels
 DEFAULT_PII_LEVELS: Dict[str, str] = {
     "logs": DEFAULT_PII_LEVEL,

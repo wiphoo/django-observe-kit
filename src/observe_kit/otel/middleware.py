@@ -11,7 +11,7 @@ from opentelemetry.context import Context
 from opentelemetry.propagate import extract
 from opentelemetry.trace import SpanContext, SpanKind, Status, StatusCode, TraceFlags
 
-from ..conf import PII_SINK_OTEL, cgi_header_name
+from ..conf import PII_SINK_OTEL, QUERY_REDACTED, QUERY_SECRET_KEYS, cgi_header_name
 from ..context import get_request_context, reset_request_context, set_request_context
 from ..pii_rules import PiiLevel, effective_sets, get_pii_config, sanitize_mapping
 from ..settings import get_observe_kit_settings
@@ -22,20 +22,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Query-string keys that routinely carry credentials. Their values are replaced by
-# ``REDACTED`` (key preserved, per the OTel HTTP semconv) at any PII level above NONE.
-# Covers the semconv default redaction keys plus common app-level secrets. Matching is
-# case-insensitive (deliberately stricter than the spec, which is case-sensitive).
-# Operators extend this via the existing ``EXTRA_DROP_HEADERS`` setting (merged below).
-_QUERY_SECRET_KEYS = frozenset(
-    {
-        "token", "password", "passwd", "secret", "api_key", "apikey", "access_token",
-        "refresh_token", "signature", "sig", "code", "session", "key",
-        "x-amz-signature", "x-amz-credential", "x-amz-security-token", "awsaccesskeyid",
-        "x-goog-signature",
-    }
-)  # fmt: skip
-_REDACTED = "REDACTED"
+# Values of ``QUERY_SECRET_KEYS`` are replaced by ``REDACTED`` (key preserved, per
+# the OTel HTTP semconv). Operators extend the set via ``EXTRA_DROP_HEADERS``.
+_REDACTED = QUERY_REDACTED
 
 
 def _sanitized_target(request: HttpRequest) -> str:
@@ -46,7 +35,7 @@ def _sanitized_target(request: HttpRequest) -> str:
         return full
     cfg = get_observe_kit_settings()
     drop, mask, hsh = effective_sets(
-        cfg.extra_drop_headers | _QUERY_SECRET_KEYS, cfg.extra_mask_fields, cfg.extra_hash_fields
+        cfg.extra_drop_headers | QUERY_SECRET_KEYS, cfg.extra_mask_fields, cfg.extra_hash_fields
     )
     level = get_pii_config().get_level(PII_SINK_OTEL)
     clean: list[tuple[str, str]] = []
