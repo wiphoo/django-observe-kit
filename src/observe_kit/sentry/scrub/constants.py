@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import re
 
+from ...conf import BODY_REDACTED
+
 # The marker written in place of a value redacted wholesale. Matches Sentry's
 # own ``EventScrubber`` output so redactions look native in the Sentry UI.
-REDACTED = "[Filtered]"
+REDACTED = BODY_REDACTED
 
 # Splits a value into whitespace-delimited tokens while keeping the separators
 # (capturing group), so newlines/tabs aren't collapsed when re-joining. Used on
