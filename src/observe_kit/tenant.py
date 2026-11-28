@@ -15,6 +15,18 @@ else:
 
 
 _TENANT_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,128}")  # 128 = AuditLog.tenant_id max_length
+# Decimal or hex, as in the last part of any IPv4 spelling; no top-level domain looks like this.
+_NUMERIC_LABEL_RE = re.compile(r"[0-9]+|0[xX][0-9a-fA-F]*")
+
+
+def _is_ip_host(host: str) -> bool:
+    """Return whether ``host`` (optionally with a port) is an IP address, not a DNS name."""
+    # A DNS name has no brackets and at most one colon (before the port): else IPv6.
+    if host.startswith("[") or host.count(":") > 1:
+        return True
+    # Not ``ipaddress``: it rejects forms clients resolve as IPv4 (127.0.1, 0x7f.0.0.1).
+    last_label = host.partition(":")[0].rstrip(".").rpartition(".")[2]
+    return _NUMERIC_LABEL_RE.fullmatch(last_label) is not None
 
 
 def _header_tenant(request: RequestType) -> Optional[str]:
@@ -41,7 +53,7 @@ def resolve_tenant_id(request: RequestType) -> Optional[str]:
     if header_tenant:
         return header_tenant
     host = request.get_host() if hasattr(request, "get_host") else None
-    if host and "." in host:
+    if host and "." in host and not _is_ip_host(host):
         parts = host.split(".")
         # Only treat as subdomain if there are at least 3 parts (subdomain.domain.tld)
         # or if it's clearly a subdomain pattern (not just domain.tld)
