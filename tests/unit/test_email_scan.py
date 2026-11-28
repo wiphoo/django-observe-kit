@@ -5,7 +5,6 @@ scanners. They are the specification: do not "improve" them.
 """
 
 import re
-import time
 from typing import Callable, Dict, Iterator, List, Tuple
 
 import pytest
@@ -21,6 +20,7 @@ from observe_kit.pii_rules import (
     replace_encoded_email_spans,
 )
 from observe_kit.sentry import config
+from tests.unit.scaling import assert_scales_linearly
 
 _REFERENCE_EMAIL_RE = re.compile(
     r"(?:\"(?:[^\"\\]|\\.)+\"|[\w.%!$'^`{|}~+\-]+)"
@@ -208,23 +208,17 @@ _SCALE_PARAMS = [("email", shape) for shape in sorted(_EMAIL_SCALE)] + [
 ]
 
 
-def _scale_text(kind: str, shape: str) -> str:
-    builders = _EMAIL_SCALE if kind == "email" else _ENCODED_SCALE
-    return builders[shape](_N)
+def _builder(kind: str, shape: str) -> Callable[[int], str]:
+    return (_EMAIL_SCALE if kind == "email" else _ENCODED_SCALE)[shape]
 
 
 @pytest.mark.parametrize(("kind", "shape"), _SCALE_PARAMS)
 def test_scanner_scales_linearly_by_shape(kind: str, shape: str) -> None:
-    text = _scale_text(kind, shape)
-    started = time.perf_counter()
-    for _ in _FINDERS[kind](text):
-        pass
-    assert time.perf_counter() - started < 1.0
+    assert_scales_linearly(_builder(kind, shape), lambda text: list(_FINDERS[kind](text)), _N)
 
 
 @pytest.mark.parametrize(("kind", "shape"), _SCALE_PARAMS)
 def test_scrub_event_message_scales_linearly_by_shape(kind: str, shape: str) -> None:
-    text = _scale_text(kind, shape)
-    started = time.perf_counter()
-    config.scrub_event({"message": text}, None)
-    assert time.perf_counter() - started < 2.0
+    assert_scales_linearly(
+        _builder(kind, shape), lambda text: config.scrub_event({"message": text}, None), _N
+    )
