@@ -196,7 +196,7 @@ Scrubbing works on field names and recognisable patterns. Treat it as a safety n
 - **Source lines in stack traces.** `exception.stacktrace` includes lines of source code, so a secret written there as a literal is exported unless it matches a pattern that is redacted.
 - **Your own telemetry** is not sanitized: spans, attributes and events your code creates, including those you add to the current request span. When an exception leaves one of your own child spans, the OpenTelemetry SDK records it there **unsanitized** by default. Observe Kit does not sanitize spans from other instrumentation either.
 - **Over-masking:** `logo@2x.png` is masked like an email, and a percent-encoded value that also has an `@` (such as the path `/@user/a%20b`) can become `[Filtered]`.
-- **Span names and routes:** a request span for a non-DRF view is named after the **raw path** (`GET /users/42/`), even when `http.route` holds the route pattern, and for an unmatched URL `http.route` is the raw path too. Both have high cardinality.
+- **Span names and routes:** a request span is named after the **raw path** (`GET /users/42/`), even when `http.route` holds the route pattern. Only DRF ViewSets with `DRFIntegrationMiddleware` are renamed (`drf.<ViewSet>.<action>`). For an unmatched URL, `http.route` is the raw path too. Raw paths have high cardinality.
 - **`NONE`** leaves spans unsanitized.
 
 ### Sentry
