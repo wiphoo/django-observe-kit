@@ -13,6 +13,18 @@ def _resolve(host: str) -> Optional[str]:
         return resolve_tenant_id(RequestFactory().get("/", HTTP_HOST=host))
 
 
+class _HostOnly:
+    """A request-like object that, unlike Django, does not validate the host."""
+
+    META: dict[str, str] = {}
+
+    def __init__(self, host: str) -> None:
+        self.host = host
+
+    def get_host(self) -> str:
+        return self.host
+
+
 @pytest.mark.parametrize(
     "host",
     [
@@ -44,13 +56,7 @@ def test_ip_host_is_not_a_tenant(host: str) -> None:
 def test_unbracketed_ipv6_is_not_a_tenant(host: str) -> None:
     """Django rejects these, but request-like objects may not validate."""
 
-    class Request:
-        META: dict[str, str] = {}
-
-        def get_host(self) -> str:
-            return host
-
-    assert resolve_tenant_id(Request()) is None  # type: ignore[arg-type]
+    assert resolve_tenant_id(_HostOnly(host)) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -69,3 +75,24 @@ def test_unbracketed_ipv6_is_not_a_tenant(host: str) -> None:
 )
 def test_dns_host_tenant_unchanged(host: str, expected: Optional[str]) -> None:
     assert _resolve(host) == expected
+
+
+@pytest.mark.parametrize(
+    "label", ["a" * 128, "my_tenant", "xn--mnchen-3ya", "XN--Mnchen-3ya", "a-1"]
+)
+def test_valid_host_label_is_a_tenant(label: str) -> None:
+    # Not through Django: some of these checks must not depend on its host validation.
+    assert resolve_tenant_id(_HostOnly(f"{label}.example.com")) == label  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("label", ["a" * 129, "a" * 200, "", "münchen", "a b", "a\n"])
+def test_invalid_host_label_is_ignored_not_truncated(label: str) -> None:
+    assert resolve_tenant_id(_HostOnly(f"{label}.example.com")) is None  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [("a" * 128, "a" * 128), ("a" * 129, None), ("xn--mnchen-3ya", "xn--mnchen-3ya")],
+)
+def test_host_label_length_through_django(label: str, expected: Optional[str]) -> None:
+    assert _resolve(f"{label}.example.com") == expected
