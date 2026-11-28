@@ -11,7 +11,8 @@ DRF, and Wagtail — with PII-aware defaults.
 - **[Middleware Reference](middleware.md)** — the middleware stack, required
   ordering, and the shared `RequestContext`.
 - **[PII Sanitization](pii.md)** — how headers, query params, and bodies are
-  sanitized before reaching logs, spans, Sentry, and the audit log.
+  sanitized for spans, Sentry, the audit log, and the logging request context,
+  and the [known limitations](pii.md#known-limitations).
 - **[HyperDX + ClickHouse Quickstart](HYPERDX_QUICKSTART.md)** — get traces and
   logs flowing into HyperDX in about 5 minutes.
 

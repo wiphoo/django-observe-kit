@@ -10,7 +10,7 @@ Drop-in observability for Django, DRF, and Wagtail. Observe Kit wires together r
 
 ## Key Features
 - **Context & tracing**: request-scoped contextvars, W3C trace context propagation (inbound extraction is opt-in), and an `X-Trace-Id` response header.
-- **PII-aware logging**: JSON events (e.g., `request_complete`), configurable PII levels per sink, and automatic body/field sanitization.
+- **Structured logging & PII rules**: JSON events (e.g., `request_complete`) and configurable PII levels per sink. Your own log messages and `extra` fields are not sanitized; read the [known limitations](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#known-limitations).
 - **DRF & Wagtail integration**: view-set action detection, span renaming, and audit hooks that carry tenant/trace metadata.
 - **Metrics & health**: Prometheus counters, DB tracking controls, detailed `/healthz/detailed` reporting, and request duration instrumentation.
 - **Audit & Sentry**: trace IDs in audit entries, enrichment for errors, and per-sink PII via `PiiConfig`.

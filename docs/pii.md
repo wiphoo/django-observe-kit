@@ -1,6 +1,6 @@
 # PII Sanitization Reference
 
-Observe Kit applies PII rules to headers, query params, and parsed request bodies before they reach logs, OpenTelemetry spans, Sentry events, or the audit log. Rules are defined in `src/observe_kit/pii_rules.py` and `src/observe_kit/conf.py`.
+Observe Kit applies PII rules to data it handles for OpenTelemetry spans, Sentry events, the audit log, and the logging request context. It does not sanitize your own log calls, and it cannot recognise every secret: read [Known limitations](#known-limitations) before relying on it. Rules are defined in `src/observe_kit/pii_rules.py` and `src/observe_kit/conf.py`.
 
 ## Concepts
 
@@ -24,7 +24,7 @@ Levels are case-insensitive in `OBSERVE_KIT` (e.g. `"basic"` works), but stored 
 
 | Sink | Used by | Default level |
 |---|---|---|
-| `logs` | `RequestContextMiddleware` (header & query-param sanitization), `RequestLoggingMiddleware`, `audit/` body sanitization for log events. | `BASIC` |
+| `logs` | Headers and query params that `RequestContextMiddleware` stores in the request context. Log records themselves are [not sanitized](#known-limitations). | `BASIC` |
 | `otel` | OTEL span attribute enrichment. | `BASIC` |
 | `sentry` | `before_send` scrubbing of Sentry events: request headers, `query_string` + `request.url` query, parsed body (`data`), the `user` object, application `extra`, and breadcrumb `data` (honouring `EXTRA_*` fields). `request.cookies` is redacted wholesale. At `SENSITIVE`, the client IP (`request.env.REMOTE_ADDR`, `user.ip_address`) is hashed. | `BASIC` |
 | `audit` | `AuditLog` payload sanitization. | `BASIC` |
@@ -91,7 +91,7 @@ It is done with `before_send_metric` and `before_send_log` because the SDK's own
 - For `MASK_FIELDS` keys whose value is not a string, the value is replaced with the literal string `"***"`.
 - Lists are walked element-by-element; scalars only get sanitized when their *parent key* matches a sanitized field.
 
-Raw request/response bodies are **never logged**. See `observe_kit.conf.BODY_LOG_WARNING`.
+Observe Kit itself **never logs** raw request/response bodies. See `observe_kit.conf.BODY_LOG_WARNING`.
 
 ## Extending the field sets
 
@@ -132,7 +132,7 @@ Headers:
   User-Agent: curl/8.0
 ```
 
-With `PII_LEVELS["logs"] = "BASIC"` and salt `"s3cret"`:
+In the request context, with `PII_LEVELS["logs"] = "BASIC"` and salt `"s3cret"`:
 
 - `Authorization` header → dropped
 - `User-Agent` header → pass through (not in `DROP_HEADERS`, hashing only applies at `SENSITIVE`)
@@ -147,6 +147,31 @@ With `PII_LEVELS["sentry"] = "SENSITIVE"` and salt `"s3cret"`:
 - Query param `page=2` → unchanged
 
 The same request can land in `logs` and `sentry` at the same time with different fidelity.
+
+## Known limitations
+
+Scrubbing works on field names and recognisable patterns. Treat it as a safety net, not a guarantee, and keep secrets out of what you send. The following are **not** protected, checked with default settings in 0.1.0.
+
+### Sentry
+
+- **Attachments** (for example `scope.add_attachment(...)`) are sent as given.
+- **Bare credentials in free text.** `token=...` or `password=...` in a message is not redacted, and neither is a `?token=...` with no URL or path before it. A URL or path such as `/cb?token=...` is redacted.
+- **Phone numbers in free text** are not redacted, including `phone=0812345678` written in prose. Email addresses in free text are masked.
+- **Credential names not on the list.** Names are matched exactly against the [list above](#credential-redaction-otel-and-sentry-sinks), so `client_secret`, `id_token`, and bracketed names such as `token[]` or `user[password]` keep their values in URLs, query strings and request bodies. (A nested body such as `{"user": {"password": "..."}}` is redacted.) Adding the exact name to `EXTRA_DROP_HEADERS` removes it from URL queries and parsed request bodies; it does not help in free text.
+- **`;`-separated query pairs** (`?a=1;token=...`) are not split, so the later value is not redacted.
+
+### `logs` sink
+
+- **Your log records are not sanitized at any PII level.** The message and `extra={...}` fields you pass to a logger are written out as given, including `email`, `phone`, `password` and tokens. OpenTelemetry log export does not sanitize them either.
+- The `logs` level only applies to the headers and query params kept in the request context. These get the built-in and `EXTRA_*` field rules but **no credential redaction**: for example, a `token` query parameter or an `X-Auth-Token` header is kept raw.
+
+### `audit` sink
+
+- **No credential redaction.** With default settings, `audit()` stores a `password`, `token` or `api_key` passed in `extra`, `before` or `after` in the database exactly as given (`email` and `phone` are masked). Remove secrets before calling it, or add their exact names to `EXTRA_DROP_HEADERS`.
+
+### Wagtail extra on older Python
+
+As of 2026-11-28, installing `django-observe-kit[wagtail]` resolves releases with published security advisories on some interpreters, because the patched releases do not support them: Python 3.10 gets a vulnerable `pillow` and `soupsieve`, and Python 3.11 before 3.11.5 gets a vulnerable `soupsieve`. Use **Python 3.11.5 or later** with the `wagtail` extra.
 
 ## Related
 
