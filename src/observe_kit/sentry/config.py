@@ -769,16 +769,15 @@ def _is_secret_key(keys: Any, secrets: FrozenSet[str]) -> bool:
 def _redact_body_secrets(node: Any, opts: _PiiOpts) -> Any:
     """Redact unambiguous credential fields of a parsed request body (returns a copy).
 
-    Runs before the body rules. A key an operator drop/mask/hash rule acts on is
-    left raw so that rule is applied once, to the real value.
+    Runs before the body rules. The whole subtree under a key that an active
+    drop/mask/hash rule acts on is left raw, so that rule is applied once, to the
+    real value (a hash of an altered container would break correlation).
     """
 
     def _entry(key: Any, value: Any) -> Any:
-        if (
-            value not in ("", None)
-            and _is_secret_key((key,), BODY_SECRET_KEYS)
-            and _check_field_rule(str(key).lower(), opts) is None
-        ):
+        if _check_field_rule(str(key).lower(), opts) is not None:
+            return value
+        if value not in ("", None) and _is_secret_key((key,), BODY_SECRET_KEYS):
             return _REDACTED
         return _redact_body_secrets(value, opts)
 

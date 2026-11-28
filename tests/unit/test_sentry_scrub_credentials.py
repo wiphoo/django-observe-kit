@@ -149,6 +149,54 @@ def test_operator_rules_win_over_the_default() -> None:
     assert out["request"]["data"] == {"password": "s3***", "secret": digest}
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [lambda body: body, lambda body: [[k, v] for k, v in body.items()], lambda body: [body]],
+)
+def test_operator_hash_on_a_body_container_sees_the_original_subtree(shape: Any) -> None:
+    def digest(password: str) -> str:
+        profile = {"password": password, "id": 3}
+        out = _scrub(
+            {"request": {"data": shape({"profile": profile})}},
+            level=PiiLevel.SENSITIVE,
+            hash_salt="salt",
+            extra_hash=frozenset({"profile"}),
+        )
+        assert password not in out
+        assert config._hash_value(str(profile), "salt") in out
+        return out
+
+    assert digest("hunter2") != digest("hunter3")
+
+
+def test_operator_hash_on_a_json_string_body_container_sees_the_original_subtree() -> None:
+    profile = {"password": SECRET, "id": 3}
+    out = _scrub(
+        {"request": {"data": json.dumps({"profile": profile})}},
+        level=PiiLevel.SENSITIVE,
+        hash_salt="salt",
+        extra_hash=frozenset({"profile"}),
+    )
+    assert SECRET not in out
+    assert config._hash_value(str(profile), "salt") in out
+
+
+@pytest.mark.parametrize("rule", ["extra_drop", "extra_mask", "extra_hash"])
+@pytest.mark.parametrize("key", ["profile", "url", "message", "params", "http.query"])
+@pytest.mark.parametrize("level", [PiiLevel.BASIC, PiiLevel.SENSITIVE])
+def test_operator_ruled_body_container_never_leaks_credentials(
+    rule: str, key: str, level: PiiLevel
+) -> None:
+    # Leaving a ruled subtree to its rule must not let a credential through, including
+    # under walk-managed keys and for a hash rule that is inactive at BASIC.
+    body = {key: {"password": SECRET}}
+    for data in (body, [[key, body[key]]], json.dumps(body)):
+        out = _scrub(
+            {"request": {"data": data}}, level=level, hash_salt="s", **{rule: frozenset({key})}
+        )
+        assert SECRET not in out
+
+
 def test_hash_rule_inactive_at_basic_still_redacts() -> None:
     out = _scrub({"request": {"url": _URL}}, extra_hash=frozenset({"token", "password"}))
     assert SECRET not in out
