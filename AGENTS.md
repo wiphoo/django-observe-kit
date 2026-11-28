@@ -22,7 +22,7 @@ Target Python 3.10+, 4-space indentation, and a 100-character line limit. Ruff h
 
 ## Testing Guidelines
 
-Pytest is the test runner, with coverage enforced at `--cov-fail-under=85`. Name tests `test_*.py` and keep them close to the behavior they cover. Use `@pytest.mark.integration` for Docker-backed tests and `@pytest.mark.e2e` for workflow tests. Prefer parametrization for matrix cases and add unit tests for any new logic before relying on integration coverage.
+Pytest is the test runner, with coverage enforced at `--cov-fail-under=90`. Name tests `test_*.py` and keep them close to the behavior they cover. Use `@pytest.mark.integration` for Docker-backed tests and `@pytest.mark.e2e` for workflow tests. Prefer parametrization for matrix cases and add unit tests for any new logic before relying on integration coverage.
 
 ## Commit & Pull Request Guidelines
 

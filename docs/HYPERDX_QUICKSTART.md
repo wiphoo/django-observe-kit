@@ -19,8 +19,8 @@ Django app
 ## 1. Start the local stack
 
 ```bash
-git clone https://github.com/your-org/Django-Observe_Kit
-cd Django-Observe_Kit
+git clone https://github.com/wiphoo/django-observe-kit
+cd django-observe-kit
 make integration-up
 ```
 

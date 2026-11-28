@@ -60,10 +60,10 @@ dependencies = [
 wagtail = ["wagtail>=7.4.2"]
 
 [project.urls]
-Homepage = "https://github.com/wiphoo/Django-Observe_Kit"
-Repository = "https://github.com/wiphoo/Django-Observe_Kit"
-Issues = "https://github.com/wiphoo/Django-Observe_Kit/issues"
-Changelog = "https://github.com/wiphoo/Django-Observe_Kit/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/wiphoo/django-observe-kit"
+Repository = "https://github.com/wiphoo/django-observe-kit"
+Issues = "https://github.com/wiphoo/django-observe-kit/issues"
+Changelog = "https://github.com/wiphoo/django-observe-kit/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
