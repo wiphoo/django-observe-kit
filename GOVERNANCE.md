@@ -41,7 +41,7 @@ model, reflecting its single-maintainer reality:
   an issue so direction can be discussed **before** code is written — as already
   noted in [CONTRIBUTING.md](CONTRIBUTING.md).
 - Discussion happens in the open, on GitHub issues, pull requests, and
-  [Discussions](https://github.com/wiphoo/Django-Observe_Kit/discussions).
+  [Discussions](https://github.com/wiphoo/django-observe-kit/discussions).
 
 ## Adding maintainers
 

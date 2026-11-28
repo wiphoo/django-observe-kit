@@ -529,5 +529,5 @@ help:
 	@echo "    make clean         Remove build artifacts"
 	@echo "    make clean-all     Remove everything (including .venv)"
 	@echo ""
-	@echo "  For more info: https://github.com/wiphoo/Django-Observe_Kit"
+	@echo "  For more info: https://github.com/wiphoo/django-observe-kit"
 	@echo ""
