@@ -76,7 +76,7 @@ def test_resolve_tenant_id_from_subdomain(subdomain: str, domain: str) -> None:
     "host,expected",
     [
         ("localhost", None),  # Single-part hostname returns None
-        ("127.0.0.1", "127"),  # IP addresses have 4 parts, extracts first segment
+        ("127.0.0.1", None),  # IP addresses are never a tenant
         ("example.com", None),  # 2-part domain.tld returns None
         ("www.example.com", None),  # "www" is filtered out
         ("tenant.example.com", "tenant"),  # Valid 3-part subdomain is extracted
