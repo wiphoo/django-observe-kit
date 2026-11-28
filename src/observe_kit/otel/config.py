@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urlunparse
 
 from opentelemetry import trace
 from opentelemetry._logs import get_logger_provider, set_logger_provider
+from opentelemetry.context import get_value
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
@@ -27,6 +28,17 @@ logger = logging.getLogger(__name__)
 _TRACING_INITIALIZED = False
 _LOG_EXPORT_INITIALIZED = False
 _OTEL_LOG_HANDLER_ATTR = "_observe_kit_otel_handler"
+
+_SUPPRESS_KEY: Optional[str]
+try:
+    # Private. The SDK's processors set it while they call an exporter.
+    from opentelemetry.context import _SUPPRESS_INSTRUMENTATION_KEY
+
+    _SUPPRESS_KEY = _SUPPRESS_INSTRUMENTATION_KEY
+except ImportError:
+    _SUPPRESS_KEY = None
+# Fallback without the key: the loggers the OTLP exporters and their transports use.
+_EXPORT_PATH_LOGGERS = frozenset({"opentelemetry", "urllib3", "requests", "grpc"})
 
 
 class ConfigurationError(ValueError):
@@ -77,15 +89,27 @@ def _is_otel_log_attribute_value(value: Any) -> bool:
     return False
 
 
+def _is_from_export(record: logging.LogRecord) -> bool:
+    """Whether the record comes from an export, so exporting it could loop forever."""
+    if _SUPPRESS_KEY is None:
+        return record.name.split(".", 1)[0] in _EXPORT_PATH_LOGGERS
+    return bool(get_value(_SUPPRESS_KEY))
+
+
 class _SafeOTelLogHandler(LoggingHandler):
     """LoggingHandler that sanitizes records and coerces extras into OTEL-safe values.
 
     Works on a copy of the LogRecord so that other handlers in the logging chain
     receive the original, unmodified record. The copy is sanitized at the ``logs``
     PII level (see :mod:`observe_kit.log_sanitize`).
+
+    Records logged while telemetry is being exported are not exported; other
+    handlers still receive them.
     """
 
     def emit(self, record: logging.LogRecord) -> None:
+        if _is_from_export(record):
+            return
         if not sanitizing():
             self._emit_coerced(record)
             return
@@ -114,10 +138,10 @@ class _SafeOTelLogHandler(LoggingHandler):
         """Do nothing; the LoggerProvider flushes on its own, with a bounded shutdown.
 
         The SDK's ``flush()`` starts a non-daemon ``force_flush`` thread, and
-        ``logging.config.dictConfig`` (run by ``django.setup()``) calls it. Log
-        records emitted by the export itself keep that thread's queue filled, so
-        it may never finish. The interpreter joins it before running atexit, so
-        the provider's shutdown never runs and the process cannot exit.
+        ``logging.config.dictConfig`` (run by ``django.setup()``) calls it. Records
+        that keep that thread's queue filled can stop it from ever finishing. The
+        interpreter joins it before running atexit, so the provider's shutdown never
+        runs and the process cannot exit.
         """
 
 
