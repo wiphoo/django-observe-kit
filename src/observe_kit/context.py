@@ -72,13 +72,15 @@ def get_request_context(default: Optional[RequestContext] = None) -> RequestCont
     try:
         return _request_context.get()
     except LookupError:
+        if default is None:
+            default = RequestContext()
+        _request_context.set(default)
+        # Log only after set(): RequestContextFilter calls this function again for
+        # this record, and would recurse forever while the ContextVar is unset.
         _logger.debug(
             "observe_kit: get_request_context called outside a request context; "
             "returning a blank RequestContext"
         )
-        if default is None:
-            default = RequestContext()
-        _request_context.set(default)
         return default
 
 
