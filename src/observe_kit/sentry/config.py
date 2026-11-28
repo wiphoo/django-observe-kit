@@ -2934,6 +2934,7 @@ def init_sentry(
         Callable[[Dict[str, Any], Optional[Dict[str, Any]]], Optional[Dict[str, Any]]]
     ] = None,
     pii_level: Optional[PiiLevel] = None,
+    include_local_variables: bool = False,
 ) -> None:
     """Initialize Sentry with Django integration and PII scrubbing.
 
@@ -2946,6 +2947,11 @@ def init_sentry(
             whatever it returns is then scrubbed, so data it adds is covered.
             Returning ``None`` (or a non-dict) drops the event, as does raising.
         pii_level: Optional PII level for Sentry. If None, uses per-sink PII configuration.
+        include_local_variables: Send stack-frame local variables with events. Off by
+            default: they hold arbitrary application data, and key-based scrubbing
+            cannot recognise all of it (a name in a variable called ``full_name``).
+            When on, the usual PII scrubbing still applies, which does not redact
+            every sensitive value (e.g. names, or credentials nested in a local).
 
     Raises:
         ConfigurationError: If any configuration parameter is invalid
@@ -3006,6 +3012,7 @@ def init_sentry(
         environment=environment,
         integrations=[DjangoIntegration()],
         traces_sample_rate=traces_sample_rate,
+        include_local_variables=include_local_variables,
         before_send=_before_send,  # type: ignore[arg-type]
         # Transaction (trace) events go through a separate hook; scrub them too,
         # otherwise transaction names / span data would bypass PII_LEVELS["sentry"].
