@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
 import logging
 import logging.config
 from typing import Any, Dict, Optional
 
-from ..conf import PII_SINK_LOGS
+from ..conf import BODY_REDACTED, PII_SINK_LOGS
+from ..log_sanitize import redacted_record, sanitize_record
 from ..otel.config import _OTEL_LOG_HANDLER_ATTR
-from ..pii_rules import PiiConfig, get_pii_config, set_pii_config
+from ..pii_rules import PiiConfig, PiiLevel, get_pii_config, set_pii_config
 from .filters import RequestContextFilter
 
 # Use new import location to avoid deprecation warning
@@ -64,7 +66,20 @@ def _normalize_pii_levels(pii_levels: Dict[str, str]) -> Dict[str, str]:
 
 
 class RequestFormatter(json_logger.JsonFormatter):
-    """Formatter that leaves message intact while providing structured defaults."""
+    """JSON formatter with structured defaults, sanitized at the ``logs`` PII level."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        clean = sanitize_record(record, format_exception=self.formatException)
+        try:
+            return str(super().format(clean))
+        except Exception:
+            if get_pii_config().get_level(PII_SINK_LOGS) == PiiLevel.NONE:
+                raise
+            # Raising here makes ``Handler.handleError`` print the raw msg and args.
+            try:
+                return str(super().format(redacted_record(record)))
+            except Exception:  # noqa: BLE001 - even the placeholder failed to format
+                return json.dumps({"message": BODY_REDACTED})
 
     def add_fields(
         self, log_record: Dict[str, Any], record: logging.LogRecord, message_dict: Dict[str, Any]
