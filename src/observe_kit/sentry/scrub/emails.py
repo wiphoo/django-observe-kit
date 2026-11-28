@@ -195,15 +195,21 @@ def _mask_email_key(key: Any) -> Any:
     return _mask_emails(key)
 
 
-def _dedupe_masked_key(mapping: Mapping[Any, Any], key: Any) -> Any:
-    """Return a non-conflicting key after masking may collapse distinct keys."""
+def _dedupe_masked_key(mapping: Mapping[Any, Any], key: Any, taken: Dict[str, int]) -> Any:
+    """Return a non-conflicting key after masking may collapse distinct keys.
+
+    ``taken`` is one dict per rebuilt ``mapping`` (keys are only ever added to it):
+    for each key, the highest suffix known to be in use, so probing resumes there
+    instead of restarting at ``#2``, which was quadratic when many keys collapsed.
+    """
     if key not in mapping:
         return key
     if not isinstance(key, str):
         return key
-    i = 2
+    i = taken.get(key, 1) + 1
     while f"{key}#{i}" in mapping:
         i += 1
+    taken[key] = i - 1  # ``#i`` itself is free until the caller stores it
     return f"{key}#{i}"
 
 
@@ -225,8 +231,9 @@ def _mask_emails_in_leaves(obj: Any) -> Any:
         return _mask_emails(obj)
     if isinstance(obj, dict):
         rebuilt: Dict[Any, Any] = {}
+        suffixes: Dict[str, int] = {}
         for key, value in list(obj.items()):
-            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key))
+            masked_key = _dedupe_masked_key(rebuilt, _mask_email_key(key), suffixes)
             rebuilt[masked_key] = _mask_emails_in_leaves(value)
         obj.clear()
         obj.update(rebuilt)

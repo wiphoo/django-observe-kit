@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased, TraceIdRati
 from opentelemetry.trace import Span
 
 from ..context import get_request_context
-from ..log_sanitize import LOG_RECORD_CORE_FIELDS, redacted_record, sanitize_record
+from ..log_sanitize import LOG_RECORD_CORE_FIELDS, redacted_record, sanitize_record, sanitizing
 
 logger = logging.getLogger(__name__)
 _TRACING_INITIALIZED = False
@@ -85,21 +85,23 @@ class _SafeOTelLogHandler(LoggingHandler):
     """
 
     def emit(self, record: logging.LogRecord) -> None:
+        if not sanitizing():
+            self._emit_coerced(record)
+            return
         try:
-            self._emit_sanitized(record)
+            clean = sanitize_record(
+                record,
+                format_exception=logging.Formatter().formatException,
+                exception_attributes=True,
+            )
+            self._emit_coerced(clean)
         except Exception:  # noqa: BLE001 - never raise into the caller's log call
             # ``handleError`` would print the raw record, so send a placeholder or nothing.
             with contextlib.suppress(Exception):
                 super().emit(redacted_record(record))
 
-    def _emit_sanitized(self, record: logging.LogRecord) -> None:
-        clean = sanitize_record(
-            record,
-            format_exception=logging.Formatter().formatException,
-            render=repr,
-            exception_attributes=True,
-        )
-        record = copy.copy(clean) if clean is record else clean
+    def _emit_coerced(self, record: logging.LogRecord) -> None:
+        record = copy.copy(record)
         for key, value in list(vars(record).items()):
             if key.startswith("_") or key in LOG_RECORD_CORE_FIELDS:
                 continue

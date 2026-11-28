@@ -21,12 +21,12 @@ import threading
 import traceback
 import types
 import uuid
-from collections.abc import Mapping
-from typing import Any, Callable, Dict, List, Optional, Set
+from collections.abc import Mapping, Sequence, Set, ValuesView
+from typing import Any, Callable, Dict, Optional
 
-from .conf import BODY_REDACTED, BODY_SECRET_KEYS, PII_SINK_LOGS
+from .conf import BODY_REDACTED, BODY_SECRET_KEYS, PII_SINK_LOGS, cgi_header_name
 from .pii_rules import PiiLevel, get_pii_config, sanitize_body
-from .sentry.config import _PiiOpts, _scrub_text
+from .sentry.config import _PiiOpts, _scrub_query_string, _scrub_text
 from .sentry.scrub.emails import _dedupe_masked_key
 from .settings import get_observe_kit_settings
 
@@ -48,6 +48,9 @@ _PLACEHOLDER_FIELDS = LOG_RECORD_CORE_FIELDS - {
 # Every vector ``_scrub_text`` handles needs one of these, so other strings skip it.
 _SCRUB_TRIGGERS = ("@", "?", "#", "%", "//")
 _MAX_DEPTH = 50
+# Entries and items copied per record and output. Bounds shared references and dense
+# cycles, whose expansion is exponential even within ``_MAX_DEPTH``.
+_MAX_NODES = 20_000
 _SCALARS = (
     type(None), bool, int, float, complex, decimal.Decimal, uuid.UUID,
     datetime.date, datetime.time, datetime.timedelta,
@@ -64,15 +67,49 @@ def render_text(value: Any) -> str:
     return str(value)
 
 
-def _plain(
-    value: Any, render: Callable[[Any], str], path: Set[int], hidden: Optional[List[bool]] = None
-) -> Any:
-    """Copy ``value`` into dicts, lists, strings and scalars, so the key rules can see inside.
+def _is_container(value: Any) -> bool:
+    """True for values :func:`_plain` opens, so the key rules can see inside."""
+    if isinstance(value, (str, bytes, bytearray, type)):
+        return False
+    containers = (Mapping, Sequence, Set, ValuesView)
+    return isinstance(value, containers) or dataclasses.is_dataclass(value)
 
-    ``hidden`` is appended to when the original's ``repr`` can show more than the copy.
-    """
+
+class _Walk:
+    """State of one record's copy: the recursion path and the node budget."""
+
+    def __init__(self) -> None:
+        self.path: set[int] = set()
+        self.nodes = _MAX_NODES
+        # Set when an original's ``repr`` can show more than its copy.
+        self.hidden = False
+
+    def spend(self) -> bool:
+        self.nodes -= 1
+        return self.nodes >= 0
+
+
+def _plain_key(key: Any, walk: _Walk) -> Optional[Any]:
+    """A mapping key as the key rules and the output see it; ``None`` if it can't be read."""
+    if key is None or type(key) in (str, int, float, bool):
+        return key
+    walk.hidden = True  # the original key prints differently, and two keys may now collide
+    if isinstance(key, enum.Enum):
+        return _plain_key(key.value, walk)
+    if isinstance(key, str):
+        return str.__str__(key)
+    if isinstance(key, (bytes, bytearray)):
+        return bytes(key).decode("utf-8", "replace")
+    try:
+        return str(key)
+    except Exception:  # noqa: BLE001 - a broken __str__ must not lose the whole record
+        return None
+
+
+def _plain(value: Any, walk: _Walk) -> Any:
+    """Copy ``value`` into dicts, lists, strings and scalars, within the node budget."""
     if isinstance(value, enum.Enum):
-        return _plain(value.value, render, path, hidden)
+        return _plain(value.value, walk)
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, _SCALARS):
@@ -81,38 +118,67 @@ def _plain(
         return bytes(value).decode("utf-8", "replace")
     if isinstance(value, type):
         return value.__name__
-    if id(value) in path or len(path) >= _MAX_DEPTH:
-        if hidden is not None:
-            hidden.append(True)
-        return BODY_REDACTED  # cycle or absurd nesting
-    key = id(value)  # ``value`` is rebound below; remove the same id that was added
-    path.add(key)
+    if not _is_container(value):
+        try:
+            return render_text(value)
+        except Exception:  # noqa: BLE001 - a broken __str__ must not lose the whole record
+            return BODY_REDACTED
+    if id(value) in walk.path or len(walk.path) >= _MAX_DEPTH or walk.nodes < 0:
+        walk.hidden = True
+        return BODY_REDACTED  # cycle, absurd nesting or budget spent
+    identity = id(value)  # ``value`` is rebound below; remove the same id that was added
+    walk.path.add(identity)
     try:
         if isinstance(value, tuple) and hasattr(value, "_asdict"):
             value = value._asdict()
         elif dataclasses.is_dataclass(value):
-            value = {f.name: getattr(value, f.name) for f in dataclasses.fields(value)}
-        if isinstance(value, Mapping):
-            if hidden is not None and hasattr(value, "lists"):
-                hidden.append(True)  # a multi-value dict: ``.items()`` is the last value only
-            return {
-                k if isinstance(k, (str, int)) else render(k): _plain(v, render, path, hidden)
-                for k, v in value.items()
+            # As in the generated ``repr``: ``field(repr=False)`` stays hidden.
+            value = {
+                f.name: getattr(value, f.name)
+                for f in dataclasses.fields(value)
+                if f.repr and hasattr(value, f.name)
             }
-        if isinstance(value, (list, tuple, set, frozenset)):
-            return [_plain(item, render, path, hidden) for item in value]
-        try:
-            return render(value)
-        except Exception:  # noqa: BLE001 - a broken __str__ must not lose the whole record
+        if isinstance(value, Mapping):
+            if hasattr(value, "lists"):
+                walk.hidden = True  # a multi-value dict: ``.items()`` is the last value only
+            result: Dict[Any, Any] = {}
+            for key, item in value.items():
+                if not walk.spend():
+                    walk.hidden = True
+                    result[BODY_REDACTED] = BODY_REDACTED
+                    break
+                name = _plain_key(key, walk)
+                if name is None:
+                    result[BODY_REDACTED] = BODY_REDACTED
+                else:
+                    result[name] = _plain(item, walk)
+            return result
+        items = []
+        for item in value:
+            if not walk.spend():
+                break
+            items.append(_plain(item, walk))
+        if walk.nodes < 0:
+            # Cut short anywhere below: a partly filtered pair list is no longer read
+            # as pairs, which would leave its earlier values raw. Drop the whole list.
+            walk.hidden = True
             return BODY_REDACTED
+        return items
     finally:
-        path.discard(key)
+        walk.path.discard(identity)
+
+
+def _key_alias(key: str) -> Optional[str]:
+    """The header name a ``request.META`` key (or cookie container) is ruled as."""
+    if key.endswith("_COOKIE") or key.lower() == "cookies":
+        return "cookie"
+    return cgi_header_name(key)
 
 
 class _Scrubber:
-    def __init__(self, level: PiiLevel, render: Callable[[Any], str]) -> None:
+    def __init__(self, level: PiiLevel) -> None:
         cfg = get_observe_kit_settings()
-        self.render = render
+        self.walk = _Walk()
         self.opts = _PiiOpts(
             level=level,
             hash_salt=cfg.pii_hash_salt,
@@ -132,9 +198,10 @@ class _Scrubber:
             return self.text(node)
         if isinstance(node, dict):
             result: Dict[Any, Any] = {}
+            suffixes: Dict[str, int] = {}
             for key, value in node.items():
                 new_key = self.text(key) if isinstance(key, str) else key
-                result[_dedupe_masked_key(result, new_key)] = self.leaves(value)
+                result[_dedupe_masked_key(result, new_key, suffixes)] = self.leaves(value)
             return result
         if isinstance(node, list):
             return [self.leaves(item) for item in node]
@@ -143,7 +210,7 @@ class _Scrubber:
     def _rules(self, plain: Any) -> Any:
         """Field rules plus credential redaction, applied to the original values."""
         opts = self.opts
-        return sanitize_body(
+        cleaned = sanitize_body(
             plain,
             opts.level,
             extra_drop=opts.extra_drop,
@@ -151,10 +218,33 @@ class _Scrubber:
             extra_hash=opts.extra_hash,
             hash_salt=opts.hash_salt,
             redact_keys=BODY_SECRET_KEYS,
+            key_alias=_key_alias,
         )
+        return self._query_strings(cleaned)
+
+    def _query_strings(self, node: Any) -> Any:
+        """Scrub ``request.META["QUERY_STRING"]``: a bare query the text scrub can't see."""
+        if isinstance(node, dict):
+            return {k: self._query_entry(k, v) for k, v in node.items()}
+        if isinstance(node, list):
+            if len(node) == 2 and node[0] == "QUERY_STRING":
+                return [node[0], self._query_entry(*node)]
+            return [self._query_strings(item) for item in node]
+        return node
+
+    def _query_entry(self, key: Any, value: Any) -> Any:
+        if key == "QUERY_STRING" and isinstance(value, str) and "=" in value:
+            return _scrub_query_string(value, self.opts)
+        return self._query_strings(value)
 
     def structure(self, value: Any) -> Any:
-        return self.leaves(self._rules(_plain(value, self.render, set())))
+        return self.leaves(self._rules(_plain(value, self.walk)))
+
+    def extras(self, extras: Dict[str, Any]) -> Any:
+        """The ``extra`` attributes. Budget is spent inside values only, so that a huge
+        one does not remove the record's other attributes."""
+        plain = {name: _plain(value, self.walk) for name, value in extras.items()}
+        return self.leaves(self._rules(plain))
 
     def arg(self, value: Any) -> Any:
         """A ``%`` argument: only a container a field rule changes is replaced.
@@ -162,14 +252,12 @@ class _Scrubber:
         Everything else is passed through so ``%d`` / ``%r`` format as before; the
         formatted message gets the text scrub.
         """
-        if not isinstance(value, (Mapping, list, tuple, set, frozenset)) and not (
-            dataclasses.is_dataclass(value)
-        ):
+        if not _is_container(value):
             return value
-        hidden: List[bool] = []
-        plain = _plain(value, self.render, set(), hidden)
+        self.walk.hidden = False
+        plain = _plain(value, self.walk)
         cleaned = self._rules(plain)
-        return value if cleaned == plain and not hidden else cleaned
+        return value if cleaned == plain and not self.walk.hidden else cleaned
 
 
 def _sanitize(
@@ -184,19 +272,17 @@ def _sanitize(
     extras = {k: v for k, v in data.items() if k not in LOG_RECORD_CORE_FIELDS}
     for key in extras:
         del data[key]
-    data.update(scrubber.structure(extras))
+    data.update(scrubber.extras(extras))
 
-    msg = clean.msg
-    if not clean.args and (
-        isinstance(msg, (Mapping, list, tuple)) or dataclasses.is_dataclass(msg)
-    ):
-        clean.msg = scrubber.structure(msg)
+    if not clean.args and _is_container(clean.msg):
+        clean.msg = scrubber.structure(clean.msg)
     else:
         # Format first, then scrub: a secret may be split between ``msg`` and ``args``.
         if isinstance(clean.args, tuple):
             clean.args = tuple(scrubber.arg(item) for item in clean.args)
         elif clean.args:
             clean.args = scrubber.arg(clean.args)
+        clean.msg = scrubber.arg(clean.msg)  # a dict message with positional args
         clean.msg = scrubber.text(clean.getMessage())
     clean.args = None
     data.pop("message", None)  # cached raw text from an earlier formatter
@@ -229,10 +315,14 @@ def redacted_record(record: logging.LogRecord) -> logging.LogRecord:
     return placeholder
 
 
+def sanitizing() -> bool:
+    """False at ``NONE``, where outputs must behave exactly as without sanitization."""
+    return get_pii_config().get_level(PII_SINK_LOGS) != PiiLevel.NONE
+
+
 def sanitize_record(
     record: logging.LogRecord,
     format_exception: Callable[[Any], Any],
-    render: Callable[[Any], str] = render_text,
     exception_attributes: bool = False,
 ) -> logging.LogRecord:
     """Return a copy of ``record`` sanitized at the ``logs`` PII level. Never raises.
@@ -248,7 +338,7 @@ def sanitize_record(
             return redacted_record(record)
         _state.active = True
         try:
-            scrubber = _Scrubber(level, render)
+            scrubber = _Scrubber(level)
             return _sanitize(record, scrubber, format_exception, exception_attributes)
         finally:
             _state.active = False
