@@ -22,7 +22,7 @@ import traceback
 import types
 import uuid
 from collections.abc import Mapping
-from typing import Any, Callable, Dict, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from .conf import BODY_REDACTED, BODY_SECRET_KEYS, PII_SINK_LOGS
 from .pii_rules import PiiLevel, get_pii_config, sanitize_body
@@ -64,10 +64,15 @@ def render_text(value: Any) -> str:
     return str(value)
 
 
-def _plain(value: Any, render: Callable[[Any], str], path: Set[int]) -> Any:
-    """Copy ``value`` into dicts, lists, strings and scalars, so the key rules can see inside."""
+def _plain(
+    value: Any, render: Callable[[Any], str], path: Set[int], hidden: Optional[List[bool]] = None
+) -> Any:
+    """Copy ``value`` into dicts, lists, strings and scalars, so the key rules can see inside.
+
+    ``hidden`` is appended to when the original's ``repr`` can show more than the copy.
+    """
     if isinstance(value, enum.Enum):
-        return _plain(value.value, render, path)
+        return _plain(value.value, render, path, hidden)
     if isinstance(value, str):
         return str.__str__(value)
     if isinstance(value, _SCALARS):
@@ -77,6 +82,8 @@ def _plain(value: Any, render: Callable[[Any], str], path: Set[int]) -> Any:
     if isinstance(value, type):
         return value.__name__
     if id(value) in path or len(path) >= _MAX_DEPTH:
+        if hidden is not None:
+            hidden.append(True)
         return BODY_REDACTED  # cycle or absurd nesting
     path.add(id(value))
     try:
@@ -85,12 +92,14 @@ def _plain(value: Any, render: Callable[[Any], str], path: Set[int]) -> Any:
         elif dataclasses.is_dataclass(value):
             value = {f.name: getattr(value, f.name) for f in dataclasses.fields(value)}
         if isinstance(value, Mapping):
+            if hidden is not None and hasattr(value, "lists"):
+                hidden.append(True)  # a multi-value dict: ``.items()`` is the last value only
             return {
-                k if isinstance(k, (str, int)) else render(k): _plain(v, render, path)
+                k if isinstance(k, (str, int)) else render(k): _plain(v, render, path, hidden)
                 for k, v in value.items()
             }
         if isinstance(value, (list, tuple, set, frozenset)):
-            return [_plain(item, render, path) for item in value]
+            return [_plain(item, render, path, hidden) for item in value]
         try:
             return render(value)
         except Exception:  # noqa: BLE001 - a broken __str__ must not lose the whole record
@@ -156,9 +165,10 @@ class _Scrubber:
             dataclasses.is_dataclass(value)
         ):
             return value
-        plain = _plain(value, self.render, set())
+        hidden: List[bool] = []
+        plain = _plain(value, self.render, set(), hidden)
         cleaned = self._rules(plain)
-        return value if cleaned == plain else cleaned
+        return value if cleaned == plain and not hidden else cleaned
 
 
 def _sanitize(

@@ -15,6 +15,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from django.http import QueryDict
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter, SimpleLogRecordProcessor
 
@@ -366,3 +367,38 @@ def test_exception_as_array_formatter_option(outputs: Outputs, log: logging.Logg
             log.exception("boom")
     outputs.assert_clean(EMAIL)
     assert isinstance(outputs.json_lines()[0]["exc_info"], list)
+
+
+def _too_deep() -> Any:
+    node: Any = {"password": SECRET}
+    for _ in range(80):
+        node = [node]
+    return node
+
+
+@pytest.mark.parametrize(
+    "arg",
+    [
+        # ``.items()`` shows only the last value; the repr shows all of them.
+        QueryDict(f"password={SECRET}&password="),
+        [QueryDict(f"password={SECRET}&password=")],
+        _too_deep(),
+    ],
+    ids=["querydict", "nested-querydict", "beyond-depth-cap"],
+)
+def test_arg_with_values_the_sanitizer_cannot_see_is_not_passed_through(
+    outputs: Outputs, log: logging.Logger, arg: Any
+) -> None:
+    log.info("data %s", arg)
+    outputs.assert_clean(SECRET)
+
+
+def test_querydict_extra_and_msg(outputs: Outputs, log: logging.Logger) -> None:
+    query = QueryDict(f"password={SECRET}&email={EMAIL}&n=1")
+    log.info("post", extra={"post": query})
+    log.info(query)
+    outputs.assert_clean()
+    first, second = outputs.json_lines()
+    expected = {"password": "[Filtered]", "email": "a***@example.com", "n": "1"}
+    assert first["post"] == expected
+    assert {k: second[k] for k in expected} == expected
