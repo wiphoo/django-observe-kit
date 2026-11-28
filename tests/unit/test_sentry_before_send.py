@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import sentry_sdk
+from django.test import override_settings
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
 
@@ -136,6 +137,34 @@ def test_raising_user_hook_drops_the_event() -> None:
         raise RuntimeError("boom")
 
     assert _send(_event(), hook) == []
+
+
+def test_credentials_added_by_user_hook_are_redacted_and_hashed_once() -> None:
+    url = "https://h.test/p?token=RAW1&password=RAW2&access_token=RAW3&api_key=RAW4&session_id=RAW5"
+
+    def hook(event: Event, hint: Dict[str, Any]) -> Event:
+        event["message"] = f"calling {url}"
+        event["request"]["url"] = url
+        event["extra"] = {"callback": url, "session_id": "RAW5", "note": "kept-by-hook"}
+        event["tags"] = {"hook": "ran"}
+        return event
+
+    with override_settings(
+        OBSERVE_KIT={"EXTRA_HASH_FIELDS": ["session_id"], "PII_HASH_SALT": "salt"}
+    ):
+        (sent,) = _send(_event(), hook)
+
+    for raw in ("RAW1", "RAW2", "RAW3", "RAW4", "RAW5"):
+        assert raw not in str(sent)
+    assert sent["extra"]["note"] == "kept-by-hook"
+    assert sent["tags"] == {"hook": "ran"}
+    digest = hashlib.sha256(b"saltRAW5").hexdigest()
+    assert sent["extra"]["session_id"] == digest
+    for scrubbed in (sent["message"], sent["request"]["url"], sent["extra"]["callback"]):
+        assert scrubbed.endswith(
+            "?token=REDACTED&password=REDACTED&access_token=REDACTED&api_key=REDACTED"
+            f"&session_id={digest}"
+        )
 
 
 @pytest.mark.parametrize("hook", [None, lambda event, hint: event])
