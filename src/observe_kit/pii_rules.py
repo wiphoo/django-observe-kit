@@ -17,7 +17,7 @@ from typing import (
     Tuple,
 )
 
-from .conf import DEFAULT_PII_LEVELS, DROP_HEADERS, HASH_FIELDS, MASK_FIELDS
+from .conf import BODY_REDACTED, DEFAULT_PII_LEVELS, DROP_HEADERS, HASH_FIELDS, MASK_FIELDS
 
 # A *bare* email address, anchored at both ends. ``_mask_value`` only keeps the
 # domain visible when the whole value is a lone email — otherwise the text after
@@ -439,6 +439,7 @@ def sanitize_body(
     extra_mask: Optional[FrozenSet[str]] = None,
     extra_hash: Optional[FrozenSet[str]] = None,
     hash_salt: str = "",
+    redact_keys: FrozenSet[str] = frozenset(),
 ) -> Any:
     """Recursively sanitize a parsed body structure according to PII rules.
 
@@ -448,11 +449,16 @@ def sanitize_body(
     their nested dicts/leaves are sanitized (JSON has no tuple/set type, so
     serialisers coerce them anyway). Scalar values are returned as-is unless
     their *parent key* matches a PII field name.
+
+    A non-empty value (of any type) under a key in ``redact_keys`` (lower-case
+    names, matched case-insensitively) is replaced by ``[Filtered]``. An active
+    drop/mask/hash rule on the same key wins and sees the original value. Like the
+    field rules, this does nothing at ``NONE``.
     """
     if level == PiiLevel.NONE:
         return body
     drop, mask, hsh = effective_sets(extra_drop, extra_mask, extra_hash)
-    return _sanitize_node(body, level, drop, mask, hsh, hash_salt)
+    return _sanitize_node(body, level, drop, mask, hsh, hash_salt, redact_keys)
 
 
 def _is_pair_list(node: Any) -> bool:
@@ -475,20 +481,35 @@ def _is_pair_list(node: Any) -> bool:
 
 
 def _sanitize_node(
-    node: Any, level: PiiLevel, drop: Set[str], mask: Set[str], hsh: Set[str], hash_salt: str
+    node: Any,
+    level: PiiLevel,
+    drop: Set[str],
+    mask: Set[str],
+    hsh: Set[str],
+    hash_salt: str,
+    redact: FrozenSet[str],
 ) -> Any:
+    def _child(item: Any) -> Any:
+        return _sanitize_node(item, level, drop, mask, hsh, hash_salt, redact)
+
+    def _entry(key: Any, value: Any) -> Tuple[bool, Any]:
+        key_lower = str(key).lower()
+        if key_lower in drop:
+            return False, None
+        if level in _MASK_LEVELS and key_lower in mask:
+            return True, _mask_value(str(value)) if isinstance(value, str) else "***"
+        if level == PiiLevel.SENSITIVE and key_lower in hsh:
+            return True, _hash_value(str(value), hash_salt)
+        if key_lower in redact and value not in ("", None):
+            return True, BODY_REDACTED
+        return True, _child(value)
+
     if isinstance(node, dict):
         result: dict[str, Any] = {}
         for key, value in node.items():
-            key_lower = str(key).lower()
-            if key_lower in drop:
-                continue
-            if level in _MASK_LEVELS and key_lower in mask:
-                result[key] = _mask_value(str(value)) if isinstance(value, str) else "***"
-            elif level == PiiLevel.SENSITIVE and key_lower in hsh:
-                result[key] = _hash_value(str(value), hash_salt)
-            else:
-                result[key] = _sanitize_node(value, level, drop, mask, hsh, hash_salt)
+            kept, cleaned = _entry(key, value)
+            if kept:
+                result[key] = cleaned
         return result
     if _is_pair_list(node):
         # Key/value pair form (e.g. Sentry list-of-[key, value] form data, or a
@@ -497,18 +518,12 @@ def _sanitize_node(
         # list positionally, which would leave secrets under known keys raw.
         pairs: list[Any] = []
         for key, value in node:
-            key_lower = str(key).lower()
-            if key_lower in drop:
-                continue
-            if level in _MASK_LEVELS and key_lower in mask:
-                pairs.append([key, _mask_value(str(value)) if isinstance(value, str) else "***"])
-            elif level == PiiLevel.SENSITIVE and key_lower in hsh:
-                pairs.append([key, _hash_value(str(value), hash_salt)])
-            else:
-                pairs.append([key, _sanitize_node(value, level, drop, mask, hsh, hash_salt)])
+            kept, cleaned = _entry(key, value)
+            if kept:
+                pairs.append([key, cleaned])
         return pairs
     if isinstance(node, (list, tuple, set, frozenset)):
         # Normalise tuple/set/frozenset to a list so their nested dicts/leaves
         # are sanitized; sets are unordered, so element order is arbitrary.
-        return [_sanitize_node(item, level, drop, mask, hsh, hash_salt) for item in node]
+        return [_child(item) for item in node]
     return node

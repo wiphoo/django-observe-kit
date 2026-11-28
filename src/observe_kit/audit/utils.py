@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from ..conf import PII_SINK_AUDIT
+from ..conf import BODY_SECRET_KEYS, PII_SINK_AUDIT
 from ..context import get_request_context
 from ..metrics import AUDIT_EVENTS, guard_tenant_label
 from ..pii_rules import PiiLevel, get_pii_config, sanitize_body, sanitize_query_params
@@ -35,7 +35,9 @@ def audit(
         action: A short identifier for the action (e.g. ``"page.publish"``).
         obj: The target object — its class name and PK are extracted automatically.
         extra: Arbitrary metadata. PII is sanitised before storage according to
-               the ``audit`` sink PII level.
+               the ``audit`` sink PII level. Above ``NONE``, the values of
+               ``conf.BODY_SECRET_KEYS`` (``password``, ``token``, ...) are
+               stored as ``[Filtered]``; the same applies to ``before`` / ``after``.
         request: Optional Django request used to resolve ``remote_addr`` /
                  ``user_agent`` when a ``RequestContext`` is unavailable.
         before: Snapshot of the object state *before* the action. PII-sanitised
@@ -79,6 +81,7 @@ def audit(
             extra_mask=cfg.extra_mask_fields,
             extra_hash=cfg.extra_hash_fields,
             hash_salt=cfg.pii_hash_salt,
+            redact_keys=BODY_SECRET_KEYS,
         )
 
     # ``remote_addr`` / ``user_agent`` are stored as dedicated ``AuditLog``
@@ -112,7 +115,7 @@ def audit(
         if user_agent:
             user_agent = scrubbed.get("user_agent")
 
-    sanitised_extra: Dict[str, Any] = dict(_sanitize(extra or {}))
+    sanitised_extra: Dict[str, Any] = dict(_sanitize(dict(extra or {})))
     if before is not None:
         sanitised_extra["_before"] = _sanitize(before)
     if after is not None:
