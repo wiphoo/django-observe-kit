@@ -12,7 +12,7 @@ Drop-in observability for Django, DRF, and Wagtail. Observe Kit wires together r
 - **Context & tracing**: request-scoped contextvars, W3C trace context propagation (inbound extraction is opt-in), and an `X-Trace-Id` response header.
 - **Structured logging & PII rules**: JSON events (e.g., `request_complete`) and configurable PII levels per sink. Your own log messages and `extra` fields are not sanitized; read the [known limitations](https://github.com/wiphoo/django-observe-kit/blob/main/docs/pii.md#known-limitations).
 - **DRF & Wagtail integration**: view-set action detection, span renaming, and audit hooks that carry tenant/trace metadata.
-- **Metrics & health**: Prometheus counters, DB tracking controls, detailed `/healthz/detailed` reporting, and request duration instrumentation.
+- **Metrics**: Prometheus counters, DB tracking controls, and request duration instrumentation.
 - **Audit & Sentry**: trace IDs in audit entries, enrichment for errors, and per-sink PII via `PiiConfig`.
 - **Robust defaults**: graceful middleware error handling, optional DB tracking, and validation for OTEL/Sentry/logging configuration.
 
@@ -47,8 +47,8 @@ See [`docs/`](https://github.com/wiphoo/django-observe-kit/blob/main/docs/README
 
 ## Packaging & cleanup
 - `make build`
-- `make publish` (with safety checks)
 - `make clean` to remove caches and build artifacts.
+- Releases are published by CI from a version tag; see [`docs/releasing.md`](https://github.com/wiphoo/django-observe-kit/blob/main/docs/releasing.md).
 
 ## Learn more
 - [`docs/README.md`](https://github.com/wiphoo/django-observe-kit/blob/main/docs/README.md) for configuration, middleware, PII, and HyperDX guides.

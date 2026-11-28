@@ -192,14 +192,9 @@ GitHub UI under **Settings → Branches → Branch protection rules → main**:
 
 ## Release process
 
-Releases follow [Semantic Versioning](https://semver.org). To cut a release:
-
-1. Update [`CHANGELOG.md`](CHANGELOG.md) and the version in `pyproject.toml`.
-2. Build and verify locally: `make build` (artifacts land in `dist/`).
-3. Publish with the guarded target: `make publish`.
-
-See the packaging targets in the [`Makefile`](Makefile) and
-[`README.md`](README.md) for details.
+Releases follow [Semantic Versioning](https://semver.org). CI publishes to PyPI
+when a version tag is pushed; do not upload from a local machine. Follow the
+[release checklist](docs/releasing.md).
 
 ---
 

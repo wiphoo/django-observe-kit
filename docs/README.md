@@ -24,8 +24,8 @@ DRF, and Wagtail — with PII-aware defaults.
   logs, OTEL, Sentry, and the audit sink.
 - **DRF integration** — automatic ViewSet action detection and span renaming to
   `drf.<ViewSet>.<action>`.
-- **Metrics & health** — Prometheus counters with label-cardinality caps,
-  optional DB-query tracking, and detailed health endpoints.
+- **Metrics** — Prometheus counters with label-cardinality caps and optional
+  DB-query tracking.
 - **Audit & Sentry** — audit entries carrying trace IDs and Sentry error
   enrichment.
 
@@ -41,4 +41,5 @@ demonstrating one feature area (`django-core`, `drf-observability`,
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — development workflow and test commands.
 - [`CHANGELOG.md`](../CHANGELOG.md) — user-facing release notes.
+- [Release checklist](releasing.md) — how a version reaches PyPI.
 - [`SECURITY.md`](../SECURITY.md) — how to report a vulnerability.

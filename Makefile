@@ -362,31 +362,16 @@ integration-prometheus-open:
 	fi
 
 #=============================================================================
-# Build & Publish
+# Build (publishing is CI only: see docs/releasing.md)
 #=============================================================================
 
-.PHONY: build publish
+.PHONY: build
 
 ## Build distribution package
 build:
 	@echo "📦 Building distribution package..."
 	$(UV) build
 	@echo "✅ Build complete! Check dist/ directory."
-
-## Publish package to PyPI (interactive)
-publish:
-	@echo "📤 Publishing package to PyPI..."
-	@echo "⚠️  WARNING: Make sure you have:"
-	@echo "   1. Updated version in pyproject.toml"
-	@echo "   2. Created a git tag"
-	@echo "   3. Built the package (make build)"
-	@read -p "Continue? [y/N] " -n 1 -r; \
-	echo; \
-	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		$(RUNNER) twine upload dist/*; \
-	else \
-		echo "❌ Publish cancelled."; \
-	fi
 
 #=============================================================================
 # Development Shortcuts
@@ -520,9 +505,8 @@ help:
 	@echo "    make example-drf       Run DRF example"
 	@echo "    make example-wagtail   Run Wagtail example"
 	@echo ""
-	@echo "  Build & Publish:"
+	@echo "  Build:"
 	@echo "    make build         Build distribution package"
-	@echo "    make publish       Publish to PyPI"
 	@echo ""
 	@echo "  Utilities:"
 	@echo "    make shell         Python shell with observe_kit"
