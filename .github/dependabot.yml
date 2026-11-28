@@ -12,6 +12,10 @@ updates:
       prefix: "chore(deps)"
     labels:
       - "dependencies"
+    ignore:
+      # Capped to <3 in pyproject.toml until observe_kit supports sentry-sdk 3.x.
+      - dependency-name: "sentry-sdk"
+        update-types: ["version-update:semver-major"]
 
   # Each example app under examples/ is its own standalone uv project with its
   # own uv.lock. Glob is only supported by the `directories` (plural) key.
@@ -26,6 +30,10 @@ updates:
       prefix: "chore(deps)"
     labels:
       - "dependencies"
+    ignore:
+      # Capped to <3 in pyproject.toml until observe_kit supports sentry-sdk 3.x.
+      - dependency-name: "sentry-sdk"
+        update-types: ["version-update:semver-major"]
     groups:
       example-deps:
         patterns:

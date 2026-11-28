@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Release
+- Cap the dependency to `sentry-sdk>=2.66.1,<3`. A fresh install resolved sentry-sdk 3.x, where `init_sentry()` raises `TypeError: Unknown option 'before_send_transaction'`.
+- Publishing now requires a `v*` tag that equals `v` + the project version, `twine check --strict`, and a clean-venv wheel smoke test (also run in CI). The job that holds the PyPI OIDC token only downloads and uploads the built artifacts.
+
 ### Security
 - **Breaking:** inbound W3C `traceparent` / `tracestate` headers are no longer extracted by default. Set `OBSERVE_KIT["TRUST_INCOMING_TRACE_CONTEXT"] = True` (mesh-internal services) or list trusted client IP / CIDR blocks in `OBSERVE_KIT["TRUSTED_TRACE_SOURCES"]` to restore propagation. Prevents trace-id poisoning, forced-sample DoS on the trace backend, and `tracestate` injection from untrusted edges. See [#4](https://github.com/wiphoo/Django-Observe_Kit/issues/4).
 - Cap Prometheus `route` / `tenant` label cardinality at `OBSERVE_KIT["METRICS_MAX_LABEL_CARDINALITY"]` distinct values per process (default 1000; `0` disables). Stops attacker-controlled inputs — raw 404 paths, `X-Tenant-Id` headers, subdomain probes — from inflating Prometheus time-series count. See [#9](https://github.com/wiphoo/Django-Observe_Kit/issues/9).
