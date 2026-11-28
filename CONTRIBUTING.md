@@ -43,17 +43,18 @@ reported privately — see [SECURITY.md](SECURITY.md), not a public issue.
 ## Development setup
 
 **Prerequisites:** Python 3.10+ · [uv](https://docs.astral.sh/uv/) · Git · Docker
-(for integration tests)
+(for integration tests). Wagtail is only locked for development on Python 3.11.5
+or later (see `[tool.uv]` in `pyproject.toml`), so use that to cover it.
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/django-observe-kit.git
 cd django-observe-kit
 git remote add upstream https://github.com/wiphoo/django-observe-kit.git
-make init   # installs dependencies (uv sync --dev) and sets up pre-commit hooks
+make init   # installs dependencies (uv sync --all-extras) and sets up pre-commit hooks
 ```
 
 The dev tools (Ruff, mypy, pytest) live in `[dependency-groups]`, not an extra,
-so `uv sync --dev` (run by `make init`) is what installs them.
+so `uv sync --dev` installs them, as does `make init`.
 
 See [`docs/README.md`](docs/README.md) for how the library is structured and how
 the test suite is organized.
@@ -163,7 +164,8 @@ The `main` branch is protected as follows:
 - Pull requests are required — no direct pushes to `main`.
 - Required status checks (each kept up to date with `main` before merging, so no
   stale-green merges): `Lint & Typecheck`, `Unit Tests (Python 3.10/3.11/3.12)`,
-  and `Build & Smoke Test`.
+  `Unit Tests (Django 5.2/6.1)`, `Build & Smoke Test`, `Integration Tests`,
+  `E2E Tests`, `Security Scan (Trivy)` and `Analyze (Python)`.
 - Squash merges only; merge-commit and rebase merges are disabled.
 - Linear history is required; the PR branch is deleted automatically after merge.
 - Force-pushes and branch deletions are disabled (enforced for admins too).
@@ -192,14 +194,9 @@ GitHub UI under **Settings → Branches → Branch protection rules → main**:
 
 ## Release process
 
-Releases follow [Semantic Versioning](https://semver.org). To cut a release:
-
-1. Update [`CHANGELOG.md`](CHANGELOG.md) and the version in `pyproject.toml`.
-2. Build and verify locally: `make build` (artifacts land in `dist/`).
-3. Publish with the guarded target: `make publish`.
-
-See the packaging targets in the [`Makefile`](Makefile) and
-[`README.md`](README.md) for details.
+Releases follow [Semantic Versioning](https://semver.org). CI publishes to PyPI
+when a version tag is pushed; do not upload from a local machine. Follow the
+[release checklist](docs/releasing.md).
 
 ---
 
@@ -216,7 +213,7 @@ Labels are defined in `.github/settings.yml` and kept in sync with this table.
 | `type/refactor` | Code restructuring without behavior change |
 | `area/otel` | OpenTelemetry tracing (`src/observe_kit/otel`) |
 | `area/logging` | Structured logging (`src/observe_kit/logging`) |
-| `area/metrics` | Prometheus metrics & health (`src/observe_kit/metrics`) |
+| `area/metrics` | Prometheus metrics (`src/observe_kit/metrics`) |
 | `area/sentry` | Sentry enrichment & PII scrubbing (`src/observe_kit/sentry`) |
 | `area/drf` | Django REST Framework integration (`src/observe_kit/drf`) |
 | `area/audit` | Audit logging (`src/observe_kit/audit`) |

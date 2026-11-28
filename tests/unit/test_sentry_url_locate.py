@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import re
 import sys
-import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable, Dict, List, Literal, Pattern, Tuple
@@ -29,6 +28,7 @@ from observe_kit.sentry.scrub.locate import (
     find_url_spans,
     split_url_token,
 )
+from tests.unit.scaling import assert_scales_linearly
 
 GOLDEN_PATH = Path(__file__).parent / "data" / "url_locate_golden.json"
 
@@ -214,12 +214,9 @@ def test_find_url_spans_matches_naive_reference(text: str) -> None:
 
 
 def test_find_url_spans_scales_linearly() -> None:
-    text = "see https://a.test/p?x=1 and /b?phone=1 and cb?token=z " * 6000
-    started = time.perf_counter()
-    spans = find_url_spans(text)
-    elapsed = time.perf_counter() - started
-    assert len(spans) == 18000
-    assert elapsed < 3.0
+    unit = "see https://a.test/p?x=1 and /b?phone=1 and cb?token=z "
+    assert len(find_url_spans(unit * 6000)) == 18000
+    assert_scales_linearly(lambda n: unit * n, find_url_spans, 24_000)
 
 
 # Tokens chosen to hit every anchor and boundary the scanners rely on, including
@@ -303,9 +300,8 @@ def test_edge_cases_match_reference(text: str) -> None:
         assert find_url_spans(text, kinds=kinds) == _naive_find_url_spans(text, kinds), text
 
 
-# (builder, n): n is large enough that the quadratic version takes seconds and the
-# linear one takes milliseconds, so the limits (1 s for find/split, 2 s for
-# scrub_event) are not flaky on a slow runner.
+# (builder, n): n is large enough that a quadratic version takes seconds; see
+# ``assert_scales_linearly`` for how that is told apart from a slow runner.
 _SCALE_CASES: Dict[str, Tuple[Callable[[int], str], int]] = {
     "letters": (lambda n: "a" * n, 30_000),
     "letters-query": (lambda n: "a" * n + "?k=v", 30_000),
@@ -330,41 +326,23 @@ _SCALE_CASES: Dict[str, Tuple[Callable[[int], str], int]] = {
 }
 
 
-def _scale_text(shape: str) -> str:
-    build, n = _SCALE_CASES[shape]
-    return build(n)
-
-
 @pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
 def test_find_url_spans_scales_linearly_by_shape(shape: str) -> None:
-    text = _scale_text(shape)
-    started = time.perf_counter()
-    find_url_spans(text)
-    assert time.perf_counter() - started < 1.0
+    build, n = _SCALE_CASES[shape]
+    assert_scales_linearly(build, find_url_spans, n)
 
 
 @pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
 def test_split_url_token_scales_linearly_by_shape(shape: str) -> None:
-    text = _scale_text(shape)
-    started = time.perf_counter()
-    split_url_token(text)
-    assert time.perf_counter() - started < 1.0
+    build, n = _SCALE_CASES[shape]
+    assert_scales_linearly(build, split_url_token, n)
 
 
 @pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
 def test_scrub_event_message_scales_linearly_by_shape(shape: str) -> None:
     build, n = _SCALE_CASES[shape]
 
-    def timed(size: int) -> float:
-        text = build(size)
-        started = time.perf_counter()
-        config.scrub_event({"message": text}, None)
-        return time.perf_counter() - started
-
-    half, full = timed(n // 2), timed(n)
-    # Absolute budget on a fast box; otherwise the doubling ratio (linear ~2x,
-    # quadratic ~4x) so slower CI runners do not flake on raw wall-clock.
-    assert full < 2.0 or full < 3.0 * half, (half, full)
+    assert_scales_linearly(build, lambda text: config.scrub_event({"message": text}, None), n)
 
 
 # Oracles: the regexes the encoded locators replaced (#99).
@@ -399,22 +377,24 @@ def test_find_encoded_url_spans_matches_reference(text: str) -> None:
     ]
 
 
-_ENC_SCALE = {
-    "enc-25-run": "%" + "25" * 200_000,
-    "enc-pct-run": "%25" * 100_000,
-    "enc-no-delim": "%2525x" * 50_000,
-    "enc-url-run": "%2Fa%3Fb=c " * 30_000,
-    "enc-one-long-url": "%2F" + "a%20" * 100_000,
+_ENC_SCALE: Dict[str, Tuple[Callable[[int], str], int]] = {
+    "enc-25-run": (lambda n: "%" + "25" * n, 200_000),
+    "enc-pct-run": (lambda n: "%25" * n, 100_000),
+    "enc-no-delim": (lambda n: "%2525x" * n, 50_000),
+    "enc-url-run": (lambda n: "%2Fa%3Fb=c " * n, 30_000),
+    "enc-one-long-url": (lambda n: "%2F" + "a%20" * n, 100_000),
 }
 
 
 @pytest.mark.parametrize("shape", sorted(_ENC_SCALE))
 def test_encoded_locators_scale_linearly_by_shape(shape: str) -> None:
-    text = _ENC_SCALE[shape]
-    started = time.perf_counter()
-    list(find_encoded_delims(text))
-    list(find_encoded_url_spans(text))
-    assert time.perf_counter() - started < 1.0
+    build, n = _ENC_SCALE[shape]
+
+    def scan(text: str) -> None:
+        list(find_encoded_delims(text))
+        list(find_encoded_url_spans(text))
+
+    assert_scales_linearly(build, scan, n)
 
 
 if __name__ == "__main__":

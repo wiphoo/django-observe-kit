@@ -9,10 +9,12 @@ from django.db import models
 class AuditLogImmutableError(Exception):
     """Raised when code attempts to modify or delete an AuditLog record.
 
-    Enforced at the ORM layer (``Model.save/delete``, ``QuerySet.delete/update``).
-    Direct SQL access or DBA-level operations still bypass these guards — the
-    library cannot prevent that, so production deployments should additionally
-    revoke ``DELETE``/``UPDATE`` privileges on the audit table at the DB level.
+    Enforced for ordinary ORM calls only (``Model.save/delete`` and
+    ``delete/update`` on this model's default manager). ``_base_manager``,
+    ``bulk_create(update_conflicts=True)``, ``SET_NULL`` on ``actor`` and direct
+    SQL, among others, bypass these guards. If that matters, also restrict
+    ``DELETE``/``UPDATE`` on the audit table at the DB level (``SET_NULL`` is
+    itself an ``UPDATE``).
     """
 
 
@@ -21,8 +23,7 @@ class AuditLogQuerySet(models.QuerySet):
 
     Without this guard, ``AuditLog.objects.filter(...).delete()`` would issue
     a single ``DELETE`` SQL statement that bypasses ``Model.delete()``; the
-    same applies to ``update()``. Both are blocked here so the immutability
-    contract holds at the ORM layer.
+    same applies to ``update()``. Both are blocked here.
     """
 
     def delete(self) -> tuple[int, dict[str, int]]:

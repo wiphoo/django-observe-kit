@@ -8,7 +8,6 @@ with the query value unmasked.
 from __future__ import annotations
 
 import copy
-import time
 from typing import Any, Dict
 from urllib.parse import unquote
 
@@ -16,6 +15,7 @@ import pytest
 
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry import config
+from tests.unit.scaling import assert_scales_linearly
 
 _PHONE = "0812345678"
 _MASKED = "08%2A%2A%2A"
@@ -165,17 +165,9 @@ _SCALE_CASES = {
 
 @pytest.mark.parametrize("shape", sorted(_SCALE_CASES))
 def test_scrub_event_message_scales_linearly_by_shape(shape: str) -> None:
-    build = _SCALE_CASES[shape]
-    n = 100_000
-
-    def timed(size: int) -> float:
-        text = build(size)
-        started = time.perf_counter()
-        config.scrub_event({"message": text}, None)
-        return time.perf_counter() - started
-
-    half, full = timed(n // 2), timed(n)
-    assert full < 2.0 or full < 3.0 * half, (half, full)
+    assert_scales_linearly(
+        _SCALE_CASES[shape], lambda text: config.scrub_event({"message": text}, None), 100_000
+    )
 
 
 def test_encoded_whitespace_inside_relative_url_keeps_query_boundaries() -> None:

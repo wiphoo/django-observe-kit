@@ -9,7 +9,6 @@ absolute ``request.url`` whose value starts with an encoded query follow the sam
 from __future__ import annotations
 
 import copy
-import time
 from typing import Any, Dict
 from urllib.parse import quote, unquote, unquote_plus
 
@@ -18,6 +17,7 @@ import pytest
 from observe_kit.pii_rules import PiiLevel
 from observe_kit.sentry.config import scrub_event
 from observe_kit.sentry.scrub.decode import MAX_DECODE_PASSES
+from tests.unit.scaling import assert_scales_linearly
 
 PHONE = "0812345678"
 OTHER = "0899999999"
@@ -130,18 +130,11 @@ def test_benign_dict_keys_unchanged() -> None:
 
 
 def test_scrubbing_stays_linear() -> None:
-    def run(n: int) -> float:
+    def build(n: int) -> Dict[str, Any]:
         key = _nest("/p?" + "a=b&" * n + "phone", 2)
-        event = {
-            "request": {"url": f"https://h.test/x?{key}={PHONE}", "query_string": {key: PHONE}}
-        }
-        start = time.perf_counter()
-        _scrub(event)
-        return time.perf_counter() - start
+        return {"request": {"url": f"https://h.test/x?{key}={PHONE}", "query_string": {key: PHONE}}}
 
-    run(10)
-    small, large = run(200), run(1600)
-    assert large < max(small * 40, 3.0)
+    assert_scales_linearly(build, _scrub, 6400)
 
 
 def _scrub_with(event: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:

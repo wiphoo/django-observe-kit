@@ -111,7 +111,11 @@ class _SafeOTelLogHandler(LoggingHandler):
         super().emit(record)
 
     def flush(self) -> None:
-        """Do nothing; the LoggerProvider flushes on its own, with a bounded shutdown.
+        """Do nothing; export is left to the LoggerProvider.
+
+        Its processor exports periodically. Only a provider with
+        ``shutdown_on_exit=True`` (the default) also exports at exit, and only
+        when atexit runs, so not after ``os._exit``.
 
         The SDK's ``flush()`` starts a non-daemon ``force_flush`` thread, and
         ``logging.config.dictConfig`` (run by ``django.setup()``) calls it. Log

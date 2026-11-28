@@ -145,7 +145,6 @@ make test-all
 ### Packaging
 ```
 make build
-make publish
 ```
 
 ---

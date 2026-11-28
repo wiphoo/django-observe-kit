@@ -67,6 +67,12 @@ OBSERVE_KIT = {
 
 # Add middleware (order is important).
 MIDDLEWARE = [
+    # Django's middleware first: user_id needs AuthenticationMiddleware to have run.
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
     "observe_kit.otel.middleware.TraceContextMiddleware",       # 1. extract/create trace
     "observe_kit.logging.middleware.RequestLoggingMiddleware",  # 2. log request_complete
     "observe_kit.metrics.middleware.PrometheusRequestMiddleware",  # 3. Prometheus metrics
@@ -74,12 +80,6 @@ MIDDLEWARE = [
     "observe_kit.context_middleware.UserLoggingContextMiddleware",  # 5. attach user_id
     # "observe_kit.drf.integration.DRFIntegrationMiddleware",   # optional: DRF ViewSet span names
     "observe_kit.sentry.middleware.SentryContextMiddleware",    # 6. Sentry enrichment
-    # ... rest of your Django middleware ...
-    "django.middleware.security.SecurityMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.middleware.common.CommonMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
 ]
 
 # Expose /metrics for Prometheus (optional).
@@ -94,7 +94,7 @@ metrics. That makes its `process_response()` run first, so `duration_ms`, `db_qu
 `configure_logging()`, `init_tracing()`, and optionally `init_sentry()` automatically —
 no manual `init_*()` calls needed.
 
-If you prefer manual control, omit `OBSERVE_KIT` and call the functions yourself:
+If you prefer manual control, omit `OBSERVE_KIT` and call the functions yourself from an `AppConfig.ready()` (see the [README](../README.md#manual-initialisation)):
 
 ```python
 from observe_kit.logging import configure_logging

@@ -2926,6 +2926,10 @@ def scrub_event(
     return event
 
 
+def _drop_telemetry(item: object, hint: object) -> None:
+    """``before_send_metric`` / ``before_send_log`` hook that drops everything."""
+
+
 def init_sentry(
     dsn: str,
     environment: str,
@@ -2937,6 +2941,8 @@ def init_sentry(
     include_local_variables: bool = False,
 ) -> None:
     """Initialize Sentry with Django integration and PII scrubbing.
+
+    Sentry metrics and logs are disabled: their payloads would bypass PII scrubbing.
 
     Args:
         dsn: Sentry DSN (required, must be valid Sentry DSN URL)
@@ -3017,5 +3023,11 @@ def init_sentry(
         # Transaction (trace) events go through a separate hook; scrub them too,
         # otherwise transaction names / span data would bypass PII_LEVELS["sentry"].
         before_send_transaction=_scrubber,  # type: ignore[arg-type]
+        # Metrics and logs are not events, so neither hook above sees them and they
+        # would leave unscrubbed: drop them all. ``enable_metrics`` is ignored by newer
+        # 2.x releases, which also send ``sentry_sdk.logger`` records with
+        # ``enable_logs`` off; these two hooks work across the supported range.
+        before_send_metric=_drop_telemetry,
+        before_send_log=_drop_telemetry,
     )
     logger.info("sentry configured", extra={"environment": environment, "pii_level": pii_level})

@@ -43,6 +43,7 @@ sanitization, reports involving the following are especially relevant:
 - PII leaking through logs, traces, Sentry, or audit sinks.
 - Trace-context injection / trace-id poisoning from untrusted edges.
 - Metrics label-cardinality amplification (denial of service).
-- Unauthenticated exposure of the `/metrics` or health endpoints.
+- Unauthenticated exposure of the `/metrics` endpoint.
 
-See `CHANGELOG.md` for the security hardening already shipped in this area.
+See [`CHANGELOG.md`](CHANGELOG.md) for the security defaults, and the
+[known limitations](docs/pii.md#known-limitations) for gaps that are already documented.

@@ -233,6 +233,8 @@ Thumbs.db
 .mcp.json
 ruvector.db
 examples/ruvector.db
+agentdb.rvf
+agentdb.rvf.lock
 *.backup.*
 
 # AI agent instruction files are symlinks to AGENTS.md; keep AGENTS.md only

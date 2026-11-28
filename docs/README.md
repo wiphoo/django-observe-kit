@@ -11,20 +11,21 @@ DRF, and Wagtail — with PII-aware defaults.
 - **[Middleware Reference](middleware.md)** — the middleware stack, required
   ordering, and the shared `RequestContext`.
 - **[PII Sanitization](pii.md)** — how headers, query params, and bodies are
-  sanitized before reaching logs, spans, Sentry, and the audit log.
+  sanitized for spans, Sentry, the audit log, log records, and the logging request context,
+  and the [known limitations](pii.md#known-limitations).
 - **[HyperDX + ClickHouse Quickstart](HYPERDX_QUICKSTART.md)** — get traces and
   logs flowing into HyperDX in about 5 minutes.
 
 ## Feature overview
 
 - **Context & tracing** — request-scoped `contextvars`, W3C trace-context
-  propagation (opt-in from untrusted edges), and an `X-Trace-Id` response header.
+  propagation (incoming trace headers only when you opt in), and an `X-Trace-Id` response header.
 - **Per-sink PII control** — `PiiConfig` sets independent sanitization levels for
   logs, OTEL, Sentry, and the audit sink.
 - **DRF integration** — automatic ViewSet action detection and span renaming to
   `drf.<ViewSet>.<action>`.
-- **Metrics & health** — Prometheus counters with label-cardinality caps,
-  optional DB-query tracking, and detailed health endpoints.
+- **Metrics** — Prometheus counters with label-cardinality caps and optional
+  DB-query tracking.
 - **Audit & Sentry** — audit entries carrying trace IDs and Sentry error
   enrichment.
 
@@ -40,4 +41,5 @@ demonstrating one feature area (`django-core`, `drf-observability`,
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — development workflow and test commands.
 - [`CHANGELOG.md`](../CHANGELOG.md) — user-facing release notes.
+- [Release checklist](releasing.md) — how a version reaches PyPI.
 - [`SECURITY.md`](../SECURITY.md) — how to report a vulnerability.
