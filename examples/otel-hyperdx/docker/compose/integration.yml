@@ -174,7 +174,7 @@ services:
       echo '';
       echo 'HyperDX Login:';
       echo '  Email: $${HYPERDX_ADMIN_EMAIL:-admin@example.com}';
-      echo '  Password: $${HYPERDX_ADMIN_PASSWORD:-Admin123!@#$$}';
+      echo '  Password: see HYPERDX_ADMIN_PASSWORD (not logged)';
       "
     networks:
       - demo-observability
