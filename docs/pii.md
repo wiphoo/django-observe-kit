@@ -76,6 +76,12 @@ At any level above `NONE`, the `otel` and `sentry` sinks redact the values of cr
 - **Operator rules win.** If an `EXTRA_DROP_HEADERS`, `EXTRA_MASK_FIELDS` or active `EXTRA_HASH_FIELDS` rule matches the key, that rule is applied instead (note that a mask keeps the first two characters). In `otel`, `EXTRA_DROP_HEADERS` extends the redaction list.
 - The `logs` and `audit` sinks do **not** apply this rule.
 
+## Sentry metrics and logs are disabled
+
+`init_sentry()` drops every Sentry metric (`sentry_sdk.metrics.*`) and Sentry log (`sentry_sdk.logger.*`, and the SDK's log capture) before it is sent. Neither is an event, so `before_send` never sees them and their names, bodies and attributes would reach Sentry unscrubbed. This applies at every PII level, including `NONE`, and `init_sentry()` has no option to turn them back on. Errors, transactions and breadcrumbs are unaffected; use the Prometheus metrics in Observe Kit for metrics.
+
+It is done with `before_send_metric` and `before_send_log` because the SDK's own switches are not enough across `sentry-sdk>=2.66.1,<3`: 2.76.0 and 2.77.0 ignore `enable_metrics=False`, and send `sentry_sdk.logger` records even though `enable_logs` defaults to `False` (2.66.1 honours both).
+
 ## Body sanitization
 
 `sanitize_body` (`pii_rules.py:167-205`) recursively walks parsed JSON-like structures:
