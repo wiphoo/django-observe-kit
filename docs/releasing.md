@@ -6,7 +6,7 @@
 | --- | --- |
 | Push of a `v*.*.*` tag | PyPI, then a GitHub Release. The tag must equal the project version. |
 | Manual run (default) | Nothing: a dry run, on a branch or a tag. |
-| Manual run with "Rehearsal: upload this build to TestPyPI" ticked | TestPyPI only, from the selected branch or tag. |
+| Manual run with "Rehearsal: upload this build to TestPyPI" ticked | TestPyPI only. Run it on `main`: the `testpypi` environment rejects every other branch and tag. |
 
 No manual run can reach PyPI. Both uploads use OIDC trusted publishing (no API token). Pushing a branch does not start this workflow.
 
@@ -16,12 +16,12 @@ Do not run `twine upload` or `uv publish` against PyPI from a local machine: it 
 
 - [ ] On [PyPI](https://pypi.org), under account > Publishing, add a *pending* trusted publisher: project `django-observe-kit`, owner `wiphoo`, repository `django-observe-kit`, workflow `publish.yml`, environment `pypi`.
 - [ ] On [TestPyPI](https://test.pypi.org) (a separate account), add the same pending publisher with environment `testpypi`.
-- [ ] In the GitHub repository, under Settings > Environments, create `pypi`:
-  - add a required reviewer (leave "Prevent self-review" off if there is only one maintainer);
-  - under "Deployment branches and tags", choose "Selected branches and tags" and add only a **tag** rule `v*`.
-- [ ] Create the `testpypi` environment. Do not limit it to tags: rehearsals run from branches. A required reviewer is optional.
+- [ ] In the GitHub repository, under Settings > Environments, verify `pypi`:
+  - the repository owner is a required reviewer ("Prevent self-review" must be off while there is only one maintainer);
+  - "Deployment branches and tags" is "Selected branches and tags" with only a **tag** rule `v*`.
+- [ ] Verify `testpypi`: "Deployment branches and tags" allows only the **branch** `main`. It has no required reviewer.
 
-A pending publisher does not reserve the name; the first upload claims it. Create both environments before using them: GitHub creates a missing environment, without protection, when a workflow first uses it.
+A pending publisher does not reserve the name; the first upload claims it. If either environment is ever deleted, recreate it with these rules before running the workflow: GitHub creates a missing environment, without protection, when a workflow first uses it.
 
 ## Repository settings (repository owner)
 
@@ -47,9 +47,9 @@ A pending publisher does not reserve the name; the first upload claims it. Creat
 
 ## TestPyPI rehearsal (optional)
 
-TestPyPI also refuses to take the same file name twice, even after deletion: **each version can be rehearsed only once.** If a rehearsal shows a problem after the upload, use a new version for the next one, for example a release candidate such as `X.Y.ZrcN` on a throwaway branch (it needs its own `CHANGELOG.md` section). Otherwise rehearse the final version once, when you expect it to pass; a TestPyPI upload does not affect PyPI. A dry run costs no version.
+TestPyPI also refuses to take the same file name twice, even after deletion: **each version can be rehearsed only once.** If a rehearsal shows a problem after the upload, use a new version for the next one, for example a release candidate such as `X.Y.ZrcN`. It has to reach `main` through a pull request, with `uv lock` and its own `CHANGELOG.md` section, and another pull request sets the final version before tagging. The alternative is for the owner to deliberately add a deployment branch rule to `testpypi` for a throwaway branch, and to remove it afterwards. Otherwise rehearse the final version once, when you expect it to pass; a TestPyPI upload does not affect PyPI. A dry run costs no version.
 
-- [ ] Under Actions > "Publish to PyPI" > "Run workflow", select the branch, tick "Rehearsal: upload this build to TestPyPI" and run it.
+- [ ] After the release pull request is merged, and before tagging: under Actions > "Publish to PyPI" > "Run workflow", select `main`, tick "Rehearsal: upload this build to TestPyPI" and run it.
 - [ ] Verify the upload from a checkout of the same commit. Fetch only this package from TestPyPI, then install it with its dependencies from PyPI. Do not add TestPyPI as an index or extra index for the install: anyone can publish a package there under a dependency's name. `--isolated` and `PIP_CONFIG_FILE=/dev/null` matter: an `extra-index-url` in your pip configuration would otherwise still be searched. Also unset any `UV_INDEX*` or `UV_EXTRA_INDEX_URL` variables.
 
   ```bash
